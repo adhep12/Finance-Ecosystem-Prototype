@@ -463,13 +463,19 @@ function TransactionRow({ row, onSelect }) {
 // Transaction detail modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COMMENT_TYPES = ['comment', 'question', 'request']
+const PIN_TYPES = [
+  { type: 'question',             label: 'Question',             color: '#0EA5A0' },
+  { type: 'variance-explanation', label: 'Variance Explanation', color: '#F97316' },
+  { type: 'reclassification',     label: 'Reclassify',           color: '#F59E0B' },
+  { type: 'financial-highlight',  label: 'Financial Highlight',  color: '#10B981' },
+  { type: 'budget-request',       label: 'Budget Request',       color: '#8B5CF6' },
+]
 
 function TransactionModal({ transaction: t, onClose, onAddComment }) {
-  const [text, setText]   = useState('')
-  const [type, setType]   = useState('comment')
+  const [text,   setText]   = useState('')
+  const [type,   setType]   = useState('question')
   const [author, setAuthor] = useState('')
-  const [saved, setSaved] = useState(false)
+  const [saved,  setSaved]  = useState(false)
 
   function handleSave() {
     if (!text.trim() || !author.trim()) return
@@ -480,12 +486,25 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
       page: 'breakdown',
       text,
       category: t.category,
-      transactionRef: { date: t.date, vendor: t.vendor, amount: t.amount },
+      status: 'open',
+      anchor: {
+        type: 'tx',
+        txRef: {
+          date:       t.date,
+          vendor:     t.vendor,
+          amount:     t.amount,
+          department: t.department,
+          category:   t.category,
+          account:    t.account || '',
+        },
+      },
     })
     setText('')
     setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setTimeout(() => setSaved(false), 3000)
   }
+
+  const selectedPin = PIN_TYPES.find(p => p.type === type) || PIN_TYPES[0]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -508,12 +527,12 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
         {/* Transaction fields */}
         <div className="px-5 py-4 grid grid-cols-2 gap-3">
           {[
-            { label: 'Date',        value: t.date,        icon: Calendar },
+            { label: 'Date',        value: t.date,        icon: Calendar  },
             { label: 'Amount',      value: formatCurrency(t.amount), icon: null },
             { label: 'Department',  value: DEPT_NAMES[t.department] || t.department, icon: Building2 },
-            { label: 'Category',    value: t.category,    icon: Tag },
-            { label: 'Account',     value: t.account,     icon: null },
-            { label: 'Grant',       value: t.grant || '—', icon: null },
+            { label: 'Category',    value: t.category,    icon: Tag       },
+            { label: 'Account',     value: t.account,     icon: null      },
+            { label: 'Grant',       value: t.grant || '—', icon: null     },
             { label: 'Description', value: t.description || '—', icon: null, full: true },
           ].map(f => (
             <div key={f.label} className={f.full ? 'col-span-2' : ''}>
@@ -528,41 +547,53 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
             <MessageSquare size={11} className="inline mr-1" /> Leave a comment on this transaction
           </div>
+
+          {/* Type pills */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {PIN_TYPES.map(pt => (
+              <button
+                key={pt.type}
+                onClick={() => setType(pt.type)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                  type === pt.type ? 'text-white border-transparent' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                }`}
+                style={type === pt.type ? { backgroundColor: pt.color, borderColor: pt.color } : {}}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: type === pt.type ? 'rgba(255,255,255,0.7)' : pt.color }}
+                />
+                {pt.label}
+              </button>
+            ))}
+          </div>
+
           <input
             value={author}
             onChange={e => setAuthor(e.target.value)}
             placeholder="Your name"
             className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mb-2 focus:outline-none focus:border-teal-500"
           />
-          <div className="flex gap-1 mb-2">
-            {COMMENT_TYPES.map(ct => (
-              <button
-                key={ct}
-                onClick={() => setType(ct)}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-medium capitalize border transition-all ${
-                  type === ct ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'
-                }`}
-              >
-                {ct}
-              </button>
-            ))}
-          </div>
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="Add your comment, question, or request..."
+            placeholder={`Add a ${selectedPin.label.toLowerCase()}…`}
             rows={2}
             className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none mb-2 focus:outline-none focus:border-teal-500"
           />
-          <div className="flex justify-end gap-2">
-            {saved && <span className="text-xs text-green-600 font-medium self-center">Saved to Comments!</span>}
+          <div className="flex justify-end gap-2 items-center">
+            {saved && (
+              <span className="text-xs text-green-600 font-medium flex-1">
+                Saved! → <a href="/comments" className="underline">View in Comments</a>
+              </span>
+            )}
             <button
               onClick={handleSave}
               disabled={!text.trim() || !author.trim()}
               className="px-4 py-1.5 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-colors"
-              style={{ backgroundColor: 'var(--color-accent)' }}
+              style={{ backgroundColor: selectedPin.color }}
             >
-              Save comment
+              Post {selectedPin.label}
             </button>
           </div>
         </div>
@@ -587,6 +618,18 @@ export default function BreakdownPage() {
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
   const [selectedTx,    setSelectedTx]    = useState(null)
+
+  const location = useLocation()
+  useEffect(() => {
+    const openTx = location.state?.openTx
+    if (!openTx) return
+    const match = actuals.find(tx =>
+      tx.date === openTx.date &&
+      tx.vendor === openTx.vendor &&
+      Math.abs(tx.amount - openTx.amount) < 0.01
+    )
+    if (match) setSelectedTx(match)
+  }, [location.state, actuals])
 
   // ── Sort state ────────────────────────────────────────────────────────────
   const [sortCol, setSortCol] = useState(null)   // 'actual' | 'budget' | 'delta' | 'pct' | null

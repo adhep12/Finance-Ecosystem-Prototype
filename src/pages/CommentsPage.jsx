@@ -184,8 +184,13 @@ function CommentDetailPanel({ comment, onClose }) {
     onClose()
   }
 
-  function openInContext() {
-    navigate(comment.page === 'briefing' ? '/briefing' : '/breakdown')
+  function handleOpenInContext() {
+    const anchor = comment.anchor
+    if (anchor?.type === 'tx' && anchor.txRef) {
+      navigate('/breakdown', { state: { openTx: anchor.txRef } })
+    } else {
+      navigate(comment.page === 'breakdown' ? '/breakdown' : '/briefing')
+    }
     onClose()
   }
 
@@ -261,7 +266,7 @@ function CommentDetailPanel({ comment, onClose }) {
                 )}
               </div>
               <button
-                onClick={openInContext}
+                onClick={handleOpenInContext}
                 className="mt-2 inline-flex items-center gap-1 text-xs text-teal-600 font-semibold border border-teal-200 rounded-xl px-3 py-1.5 hover:bg-teal-50 transition-colors"
               >
                 Open in context <ChevronRight size={12} />
@@ -272,7 +277,7 @@ function CommentDetailPanel({ comment, onClose }) {
             <div>
               <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Source</div>
               <button
-                onClick={openInContext}
+                onClick={handleOpenInContext}
                 className="inline-flex items-center gap-1 text-xs text-teal-600 font-semibold border border-teal-200 rounded-xl px-3 py-1.5 hover:bg-teal-50 transition-colors"
               >
                 Open in context <ChevronRight size={12} />

@@ -91,6 +91,8 @@ export function AppProvider({ children }) {
   const [actuals, setActuals] = useState(mockActuals)
   const [budgetFlat, setBudgetFlat] = useState(mockBudgetFlat)
   const [comments, setComments] = useState(mockComments)
+  const [previousActuals, setPreviousActuals] = useState(null)
+  const [previousBudget,  setPreviousBudget]  = useState(null)
 
   // Selected budget scenario
   const availableScenarios = useMemo(() => getScenarios(budgetFlat), [budgetFlat])
@@ -117,9 +119,61 @@ export function AppProvider({ children }) {
     setDateRange({ preset: 'custom', startDate, endDate })
   }
 
-  // Add / update data from import
-  function importActuals(rows) { setActuals(rows) }
-  function importBudget(rows)  { setBudgetFlat(rows) }
+  // Append new rows to existing actuals
+  function appendActuals(rows) {
+    setActuals(prev => [...prev, ...rows])
+  }
+
+  // Replace all actuals (save previous first)
+  function replaceActuals(rows) {
+    setActuals(prev => { setPreviousActuals(prev); return rows })
+  }
+
+  // Replace actuals only within a date range
+  function replaceActualsByRange(rows, startDate, endDate) {
+    setActuals(prev => {
+      setPreviousActuals(prev)
+      const outside = prev.filter(t => t.date < startDate || t.date > endDate)
+      return [...outside, ...rows]
+    })
+  }
+
+  // Keep importActuals as alias for replaceActuals (backward compat)
+  function importActuals(rows) { replaceActuals(rows) }
+
+  // Append new budget rows
+  function appendBudget(rows) {
+    setBudgetFlat(prev => [...prev, ...rows])
+  }
+
+  // Replace all budget
+  function replaceBudget(rows) {
+    setBudgetFlat(prev => { setPreviousBudget(prev); return rows })
+  }
+
+  // Replace budget by date range (on date field if present)
+  function replaceBudgetByRange(rows, startDate, endDate) {
+    setBudgetFlat(prev => {
+      setPreviousBudget(prev)
+      const outside = prev.filter(b => !b.date || b.date < startDate || b.date > endDate)
+      return [...outside, ...rows]
+    })
+  }
+
+  // Keep importBudget as alias for replaceBudget (backward compat)
+  function importBudget(rows) { replaceBudget(rows) }
+
+  // Restore previous actuals
+  function restorePreviousActuals() {
+    if (!previousActuals) return
+    setActuals(previousActuals)
+    setPreviousActuals(null)
+  }
+  function restorePreviousBudget() {
+    if (!previousBudget) return
+    setBudgetFlat(previousBudget)
+    setPreviousBudget(null)
+  }
 
   // Comments
   function addComment(comment) {
@@ -153,6 +207,10 @@ export function AppProvider({ children }) {
     dateRange, applyPreset, applyCustomRange,
     briefingExclusions, setBriefingExclusions,
     comments, addComment, updateCommentStatus, updateComment, deleteComment,
+    previousActuals, restorePreviousActuals,
+    previousBudget, restorePreviousBudget,
+    appendActuals, replaceActuals, replaceActualsByRange,
+    appendBudget, replaceBudget, replaceBudgetByRange,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
