@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar,
+  ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend
 } from 'recharts'
 import {
   ChevronDown, Pencil, Plus, X, Check, ChevronRight, ChevronLeft,
   ChevronUp, TrendingUp, TrendingDown, Minus, Info, Upload,
   FileText, Users, BarChart2, LayoutDashboard, Settings,
-  GripVertical, AlertCircle, Eye, CheckCircle, Quote
+  GripVertical, AlertCircle, Eye, CheckCircle, Quote,
+  ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
@@ -35,52 +36,52 @@ const ROLLING_QUOTES = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 const INITIAL_SUMMARIES = {
-  'Apr 2026': {
+  'April 2026': {
     prepared: 'April 22, 2026',
     title: "A steady month. Giving is strong, expenses disciplined, and we're ahead of plan.",
-    overallSummary: "Six months into the fiscal year, contributions are running 7.6% ahead of budget and expenses 4.2% under. That leaves us nearly $3.8M in net operating income — almost double the budgeted position at this point in the year. Patron growth continues, though new acquisition deserves attention.",
-    monthlyNarrative: "April contributions came in at $3.2M, right on budget for the month. Our strength continues to come from generous patrons — over 24,810 total patrons (recurring + spontaneous) giving this month — and the year-over-year increase in patron base is doing its quiet work. Merchandise and other income both softened slightly in April, but the lines have been small enough that they don't move the overall picture.\n\nOn the expense side, every major category came in at or below budget for April. Staff costs are the single largest line at 51.5% of total income, and we remain disciplined there. Computer infrastructure spiked in March (+46% vs. budget) due to a planned hardware refresh, but YTD stays within 2.4% of plan — this is a timing effect, not a new trend.",
+    overallSummary: "Six months into the fiscal year, contributions are running 7.6% ahead of budget and expenses 4.2% under. That leaves us nearly $3.8M in net operating income — almost double the budgeted position at this point in the year. Supporter growth continues, though new acquisition deserves attention.",
+    monthlyNarrative: "April contributions came in at $3.2M, right on budget for the month. Our strength continues to come from a generous and growing supporter base — over 24,800 total active supporters giving this month — and the year-over-year increase continues its quiet compounding. Secondary revenue lines softened slightly in April, but not enough to move the overall picture.\n\nOn the expense side, every major category came in at or below budget for April. Staff costs are the single largest line at 51.5% of total income, and we remain disciplined there. Technology infrastructure spiked in March due to a planned refresh, but YTD stays within 2.4% of plan — a timing effect, not a new trend.",
     financials: {
       giving:   { actual: 3_200_000, budget: 3_180_000, priorYear: 2_950_000 },
       expenses: { actual: 2_780_000, budget: 2_840_000, priorYear: 2_620_000 },
     },
     kpiCards: ['monthly-giving', 'monthly-expenses', 'monthly-net'],
     keyTakeaways: [
-      { id: 'kt1', title: "Patron base is the engine.", body: "24,810 total patrons in April (recurring + spontaneous), up 11.3% year-over-year. Sustained growth in the recurring base is what lets us give everything away free." },
+      { id: 'kt1', title: "Supporter base is the engine.", body: "24,800 total active supporters in April (recurring + one-time), up 11.3% year-over-year. Sustained growth in the recurring base is our most durable financial asset." },
       { id: 'kt2', title: "We're running ahead of plan.", body: "YTD net operating income is $3.83M versus a budgeted $1.98M. We built the budget conservatively, and both sides of the ledger are moving in our favor." },
-      { id: 'kt3', title: "Acquisition is on the rise.", body: "April brought in 2,510 total new patrons — our highest April since 2024, and ~14% below the 2024 peak. The recurring base continues to grow, and the one story reading plan is a huge reason we've experienced this growth." },
-      { id: 'kt4', title: "Reserves remain healthy.", body: "Estimated cash above fixed floor at month-end was $16.2M, up $1.0M from March. This cash position reflects the final grant payment of $750K." },
+      { id: 'kt3', title: "New supporter acquisition on the rise.", body: "April brought in 2,510 total new supporters — our highest April count in two years. Engagement campaigns and digital channels are driving the improvement." },
+      { id: 'kt4', title: "Reserves remain healthy.", body: "Estimated cash above the operating floor at month-end was $16.2M, up $1.0M from March. This reflects the final tranche of a planned grant receivable." },
     ],
     watchAreas: [
-      { id: 'wa1', status: 'needs-attention', title: "New patron acquisition back on 2024 Pacing.", body: "March and February 2026 both landed below 2024 and above 2025. Reviewing marketing mix, global translation funnel, and YouTube conversion paths. Expect a deeper read in May." },
-      { id: 'wa2', status: 'needs-attention', title: "Merchandise revenue under forecast.", body: "April merch was 37% of budget. YTD we're at 87% of plan. The Q1 product mix underperformed; we're adjusting promotion timing and re-evaluating the spring catalog." },
-      { id: 'wa3', status: 'monitoring', title: "Staff cost growth vs. content velocity.", body: "Staff is on budget YTD but growing with the studio. We're tracking output per FTE across video, podcast, and Classroom to make sure cost growth tracks output growth." },
-      { id: 'wa4', status: 'on-track', title: "Cash Strategy", body: "Two months of operating cash held in our primary business checking account; three months in an ICS money market account earning approximately 3%; $10 million allocated across private credit, infrastructure, and core real estate investments earning roughly 9%; and the remaining cash distributed across two laddered CDs maturing every four weeks and earning approximately 3.65%." },
+      { id: 'wa1', status: 'needs-attention', title: "New supporter acquisition — monitoring closely.", body: "February and March 2026 both landed below prior-year pace. Reviewing marketing mix and digital conversion paths. Expect a deeper read in May." },
+      { id: 'wa2', status: 'needs-attention', title: "Secondary revenue under forecast.", body: "April secondary revenue was 37% of budget. YTD we're at 87% of plan. Q1 product mix underperformed; adjusting promotion timing and re-evaluating the catalog." },
+      { id: 'wa3', status: 'monitoring', title: "Staff cost growth vs. output velocity.", body: "Staff is on budget YTD but growing with the team. We're tracking output per FTE across all production categories to make sure cost growth tracks output growth." },
+      { id: 'wa4', status: 'on-track', title: "Cash Strategy", body: "Two months of operating cash in primary checking; three months in a money market account earning ~3%; $10M allocated across private credit and real estate earning ~9%; remaining cash in laddered CDs maturing every four weeks at ~3.65%." },
     ],
-    reserves: "Operating reserves ended April at an estimated $21.4M — roughly eight months of operating expenses. We remain inside the board-approved band. The scheduled Q2 tithe out of reserves to strategic initiatives (translation + Classroom expansion) will process in May.",
+    reserves: "Operating reserves ended April at an estimated $21.4M — roughly eight months of operating expenses. We remain inside the board-approved band. A scheduled Q2 allocation to strategic initiatives will process in May.",
     reservesNote: "Exact reserve totals are confirmed at the end of each quarter. Q2 close report drops May 15.",
   },
-  'Mar 2026': {
+  'March 2026': {
     prepared: 'March 21, 2026',
-    title: "March closes strong. Patron growth on pace, expenses tight, reserves building.",
-    overallSummary: "Five months into the fiscal year, we're tracking well ahead of the net operating income plan. Contributions remain solid, merchandise picked up sequentially, and expenses remained disciplined across every category. The patron base grew by 220 net new patrons in March.",
-    monthlyNarrative: "March giving came in at $3.1M, slightly ahead of the $3.0M budget for the month. Patron growth continues to compound quietly — the recurring base is the foundation that gives us confidence in the forward outlook.\n\nExpenses were well-managed across the board. The planned hardware refresh created a one-time spike in computer infrastructure, which is already reflected in the April actuals. Staff costs remain on plan.",
+    title: "March closes strong. Supporter growth on pace, expenses tight, reserves building.",
+    overallSummary: "Five months into the fiscal year, we're tracking well ahead of the net operating income plan. Contributions remain solid, secondary revenue picked up sequentially, and expenses remained disciplined across every category. The supporter base grew by 220 net new supporters in March.",
+    monthlyNarrative: "March giving came in at $3.1M, slightly ahead of the $3.0M budget for the month. Supporter growth continues to compound quietly — the recurring base is the foundation that gives us confidence in the forward outlook.\n\nExpenses were well-managed across the board. The planned technology refresh created a one-time spike in infrastructure costs, which is already reflected in the April actuals. Staff costs remain on plan.",
     financials: {
       giving:   { actual: 3_100_000, budget: 3_000_000, priorYear: 2_870_000 },
       expenses: { actual: 2_690_000, budget: 2_750_000, priorYear: 2_540_000 },
     },
     kpiCards: ['monthly-giving', 'monthly-expenses', 'monthly-net'],
     keyTakeaways: [
-      { id: 'kt1', title: "Giving ahead of monthly budget.", body: "March came in at $3.1M vs. $3.0M budgeted — a solid $100K beat driven by spontaneous giving and a late-month campaign." },
-      { id: 'kt2', title: "Expenses under budget by $60K.", body: "Disciplined spend across all categories. The hardware refresh timing shift means March looks elevated vs. plan but April will normalize." },
-      { id: 'kt3', title: "Net patron count up 220.", body: "March added 220 net new patrons, in line with seasonal trends. The recurring base remains the primary growth lever." },
+      { id: 'kt1', title: "Giving ahead of monthly budget.", body: "March came in at $3.1M vs. $3.0M budgeted — a solid $100K beat driven by spontaneous giving and a late-month engagement push." },
+      { id: 'kt2', title: "Expenses under budget by $60K.", body: "Disciplined spend across all categories. The technology refresh timing shift means March looks elevated vs. plan but April will normalize." },
+      { id: 'kt3', title: "Net supporter count up 220.", body: "March added 220 net new supporters, in line with seasonal trends. The recurring base remains the primary growth lever." },
     ],
     watchAreas: [
-      { id: 'wa1', status: 'monitoring', title: "Hardware refresh cost timing.", body: "The Q2 computer infrastructure refresh was planned but arrived in March. YTD total remains within 2.4% of annual plan." },
+      { id: 'wa1', status: 'monitoring', title: "Technology refresh cost timing.", body: "The Q2 infrastructure refresh was planned but arrived in March. YTD total remains within 2.4% of annual plan." },
       { id: 'wa2', status: 'on-track', title: "Staff and benefits on plan.", body: "No material variances. Headcount is stable and benefits enrollment is consistent with budget assumptions." },
     ],
     reserves: "Operating reserves ended March at an estimated $20.4M — roughly seven and a half months of operating expenses. This is within the board-approved range.",
-    reservesNote: "Q2 reserve tithe will be processed in May following the quarterly close.",
+    reservesNote: "Q2 reserve allocation will be processed in May following the quarterly close.",
   },
 }
 
@@ -93,7 +94,7 @@ function getAvailableMonths() {
   const months = []
   for (let i = 1; i <= 18; i++) {
     const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
-    const label = d.toLocaleString('en-US', { month: 'short', year: 'numeric' })
+    const label = d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
     months.push(label)
   }
   return months
@@ -135,6 +136,107 @@ const ELT_MOCK = {
   },
   expenseLines: { staff: 1_245_800, contract: 87_250, technology: 154_320, travel: 33_870, otherGenAdmin: 65_940 },
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Teams Mock Data + Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TEAM_CATEGORIES = [
+  { key: 'staff',      label: 'Staff & Benefits',     color: '#0EA5A0' },
+  { key: 'contract',   label: 'Contract Services',    color: '#D4896A' },
+  { key: 'technology', label: 'Technology',            color: '#3B82F6' },
+  { key: 'travel',     label: 'Travel & Expense',      color: '#F59E0B' },
+  { key: 'marketing',  label: 'Marketing',             color: '#8B5CF6' },
+  { key: 'facilities', label: 'Facilities',            color: '#EC4899' },
+  { key: 'supplies',   label: 'Supplies & Materials',  color: '#10B981' },
+  { key: 'training',   label: 'Training & Dev',        color: '#6366F1' },
+]
+const TEAM_CAT_MAP = Object.fromEntries(TEAM_CATEGORIES.map(c => [c.key, c]))
+
+const SPREADS = {
+  flat:  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  front: [1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.8, 0.8, 0.8, 0.8, 0.9],
+  back:  [0.6, 0.7, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6],
+}
+const TEAM_MONTHS = ['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May']
+
+function teamMonthly(cats, spreadKey = 'flat') {
+  // cats: { catKey: { budget: N, actual: N, priorYear: N }, ... }
+  const sp = SPREADS[spreadKey] || SPREADS.flat
+  const norm = sp.reduce((s, x) => s + x, 0)
+  return TEAM_MONTHS.map((month, i) => {
+    const obj = { month }
+    let total = 0
+    Object.entries(cats).forEach(([key, cat]) => {
+      const val = Math.round(cat.actual * sp[i] / norm)
+      obj[key] = val
+      total += val
+    })
+    obj.total = total
+    return obj
+  })
+}
+
+// 19 fictional teams — all numbers are illustrative demo data
+const TEAMS_MOCK = [
+  { id:'EXE', name:'Executive Leadership',       manager:'Sarah Chen',
+    actual:945_000, budget:980_000,
+    cats:{ staff:{budget:750_000,actual:720_000,priorYear:680_000}, contract:{budget:80_000,actual:95_000,priorYear:70_000}, technology:{budget:45_000,actual:42_000,priorYear:40_000}, travel:{budget:65_000,actual:58_000,priorYear:62_000}, training:{budget:40_000,actual:30_000,priorYear:28_000} }, spreadKey:'flat' },
+  { id:'FIN', name:'Finance & Accounting',       manager:'Mike Torres',
+    actual:508_000, budget:520_000,
+    cats:{ staff:{budget:420_000,actual:410_000,priorYear:385_000}, contract:{budget:50_000,actual:52_000,priorYear:45_000}, technology:{budget:30_000,actual:28_000,priorYear:26_000}, training:{budget:20_000,actual:18_000,priorYear:16_000} }, spreadKey:'flat' },
+  { id:'HR',  name:'Human Resources',            manager:'Lisa Park',
+    actual:401_000, budget:380_000,
+    cats:{ staff:{budget:280_000,actual:298_000,priorYear:260_000}, contract:{budget:60_000,actual:68_000,priorYear:55_000}, technology:{budget:20_000,actual:18_000,priorYear:17_000}, training:{budget:20_000,actual:17_000,priorYear:14_000} }, spreadKey:'flat' },
+  { id:'IT',  name:'Information Technology',     manager:'David Nguyen',
+    actual:698_000, budget:720_000,
+    cats:{ staff:{budget:480_000,actual:460_000,priorYear:430_000}, contract:{budget:120_000,actual:128_000,priorYear:110_000}, technology:{budget:80_000,actual:72_000,priorYear:68_000}, training:{budget:40_000,actual:38_000,priorYear:34_000} }, spreadKey:'front' },
+  { id:'MKT', name:'Marketing & Communications', manager:'Emma Johnson',
+    actual:685_000, budget:640_000,
+    cats:{ staff:{budget:420_000,actual:440_000,priorYear:390_000}, marketing:{budget:140_000,actual:168_000,priorYear:125_000}, contract:{budget:50_000,actual:52_000,priorYear:46_000}, technology:{budget:30_000,actual:25_000,priorYear:22_000} }, spreadKey:'back' },
+  { id:'CPD', name:'Content Production',         manager:'James Wright',
+    actual:1_198_000, budget:1_240_000,
+    cats:{ staff:{budget:820_000,actual:792_000,priorYear:740_000}, contract:{budget:240_000,actual:258_000,priorYear:218_000}, technology:{budget:100_000,actual:94_000,priorYear:88_000}, travel:{budget:40_000,actual:32_000,priorYear:36_000}, supplies:{budget:40_000,actual:22_000,priorYear:18_000} }, spreadKey:'flat' },
+  { id:'CRD', name:'Creative Design',            manager:'Aria Santos',
+    actual:462_000, budget:480_000,
+    cats:{ staff:{budget:360_000,actual:348_000,priorYear:320_000}, contract:{budget:60_000,actual:68_000,priorYear:55_000}, technology:{budget:40_000,actual:36_000,priorYear:32_000}, supplies:{budget:20_000,actual:10_000,priorYear:9_000} }, spreadKey:'flat' },
+  { id:'VPD', name:'Video Production',           manager:'Chris Huang',
+    actual:932_000, budget:890_000,
+    cats:{ staff:{budget:580_000,actual:608_000,priorYear:540_000}, contract:{budget:160_000,actual:178_000,priorYear:148_000}, technology:{budget:90_000,actual:94_000,priorYear:82_000}, supplies:{budget:60_000,actual:52_000,priorYear:48_000} }, spreadKey:'back' },
+  { id:'POD', name:'Podcast & Audio',            manager:'Kate Reyes',
+    actual:295_000, budget:320_000,
+    cats:{ staff:{budget:220_000,actual:208_000,priorYear:195_000}, contract:{budget:50_000,actual:48_000,priorYear:44_000}, technology:{budget:30_000,actual:28_000,priorYear:25_000}, supplies:{budget:20_000,actual:11_000,priorYear:10_000} }, spreadKey:'flat' },
+  { id:'DPT', name:'Digital Platform',           manager:'Nathan Kim',
+    actual:812_000, budget:780_000,
+    cats:{ staff:{budget:520_000,actual:548_000,priorYear:480_000}, contract:{budget:140_000,actual:158_000,priorYear:128_000}, technology:{budget:100_000,actual:92_000,priorYear:85_000}, training:{budget:20_000,actual:14_000,priorYear:12_000} }, spreadKey:'front' },
+  { id:'TRS', name:'Translation & Localization', manager:'Sofia Andrade',
+    actual:541_000, budget:560_000,
+    cats:{ staff:{budget:360_000,actual:348_000,priorYear:320_000}, contract:{budget:160_000,actual:158_000,priorYear:145_000}, technology:{budget:20_000,actual:18_000,priorYear:16_000}, travel:{budget:20_000,actual:17_000,priorYear:15_000} }, spreadKey:'flat' },
+  { id:'CME', name:'Community Engagement',       manager:'Jordan Lee',
+    actual:362_000, budget:340_000,
+    cats:{ staff:{budget:240_000,actual:258_000,priorYear:220_000}, marketing:{budget:60_000,actual:72_000,priorYear:55_000}, contract:{budget:20_000,actual:18_000,priorYear:16_000}, travel:{budget:20_000,actual:14_000,priorYear:12_000} }, spreadKey:'back' },
+  { id:'PRT', name:'Partnerships & Outreach',    manager:'Mia Okonkwo',
+    actual:278_000, budget:290_000,
+    cats:{ staff:{budget:200_000,actual:192_000,priorYear:178_000}, marketing:{budget:50_000,actual:52_000,priorYear:45_000}, travel:{budget:25_000,actual:22_000,priorYear:20_000}, training:{budget:15_000,actual:12_000,priorYear:10_000} }, spreadKey:'flat' },
+  { id:'EVT', name:'Events & Conferences',       manager:'Tyler Brooks',
+    actual:448_000, budget:420_000,
+    cats:{ staff:{budget:200_000,actual:210_000,priorYear:185_000}, contract:{budget:100_000,actual:118_000,priorYear:90_000}, facilities:{budget:80_000,actual:92_000,priorYear:72_000}, travel:{budget:40_000,actual:28_000,priorYear:25_000} }, spreadKey:'back' },
+  { id:'CSP', name:'Customer Support',           manager:'Rachel Gomez',
+    actual:298_000, budget:310_000,
+    cats:{ staff:{budget:250_000,actual:242_000,priorYear:225_000}, technology:{budget:35_000,actual:34_000,priorYear:30_000}, training:{budget:25_000,actual:22_000,priorYear:19_000} }, spreadKey:'flat' },
+  { id:'DAA', name:'Data & Analytics',           manager:'Ben Patel',
+    actual:371_000, budget:380_000,
+    cats:{ staff:{budget:280_000,actual:272_000,priorYear:252_000}, contract:{budget:60_000,actual:64_000,priorYear:55_000}, technology:{budget:40_000,actual:35_000,priorYear:32_000} }, spreadKey:'front' },
+  { id:'LGL', name:'Legal & Compliance',         manager:'Diana Foster',
+    actual:253_000, budget:260_000,
+    cats:{ staff:{budget:180_000,actual:174_000,priorYear:162_000}, contract:{budget:60_000,actual:62_000,priorYear:55_000}, training:{budget:20_000,actual:17_000,priorYear:15_000} }, spreadKey:'flat' },
+  { id:'FAC', name:'Facilities & Operations',    manager:'Marcus Webb',
+    actual:435_000, budget:440_000,
+    cats:{ staff:{budget:280_000,actual:272_000,priorYear:255_000}, facilities:{budget:100_000,actual:108_000,priorYear:92_000}, supplies:{budget:40_000,actual:38_000,priorYear:34_000}, contract:{budget:20_000,actual:17_000,priorYear:15_000} }, spreadKey:'flat' },
+  { id:'STR', name:'Strategic Initiatives',      manager:'Priya Sharma',
+    actual:558_000, budget:520_000,
+    cats:{ staff:{budget:300_000,actual:322_000,priorYear:278_000}, contract:{budget:120_000,actual:138_000,priorYear:108_000}, marketing:{budget:60_000,actual:68_000,priorYear:52_000}, travel:{budget:40_000,actual:30_000,priorYear:28_000} }, spreadKey:'back' },
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Date helpers
@@ -391,50 +493,57 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Monthly Mini KPI Card (for Monthly Summary financial position)
+// Monthly KPI Card — matches Dashboard KPICard format exactly
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MonthlyMiniCard({ title, actual, budget, priorYear, inverse=false, editMode, onRemove, onEdit }) {
+function MonthlyKPICard({ title, actual, budget, priorYear, inverse=false, editMode, onRemove, onEdit }) {
   const d1 = actual - budget
   const d2 = actual - priorYear
+  const p1 = budget   > 0 ? formatPercent(d1 / budget   * 100, { showSign: true, decimals: 1 }) : '—'
+  const p2 = priorYear > 0 ? formatPercent(d2 / priorYear * 100, { showSign: true, decimals: 1 }) : '—'
 
   return (
-    <div className="relative bg-white rounded-xl border border-gray-100 p-4 flex-1 min-w-[180px]">
-      {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={10}/></button>}
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+      {editMode && onRemove && (
+        <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
+          <X size={11}/>
+        </button>
+      )}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{title}</div>
+
       {editMode ? (
-        <div className="space-y-2 mt-2">
-          <div className="flex gap-2 text-xs">
-            <label className="text-gray-400 w-16">Actual</label>
-            <input type="number" value={actual} onChange={e=>onEdit('actual',+e.target.value)}
-              className="flex-1 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-gray-400"/>
-          </div>
-          <div className="flex gap-2 text-xs">
-            <label className="text-gray-400 w-16">Budget</label>
-            <input type="number" value={budget} onChange={e=>onEdit('budget',+e.target.value)}
-              className="flex-1 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-gray-400"/>
-          </div>
-          <div className="flex gap-2 text-xs">
-            <label className="text-gray-400 w-16">Prior Yr</label>
-            <input type="number" value={priorYear} onChange={e=>onEdit('priorYear',+e.target.value)}
-              className="flex-1 border border-gray-200 rounded px-2 py-0.5 text-xs focus:outline-none focus:border-gray-400"/>
-          </div>
+        <div className="space-y-2.5 mt-2">
+          {[['Actual','actual',actual],['Budget','budget',budget],['Prior Year','priorYear',priorYear]].map(([lbl,field,val])=>(
+            <div key={field} className="flex items-center gap-2">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 w-20 flex-shrink-0">{lbl}</label>
+              <div className="flex-1 relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                <input type="number" value={val} onChange={e=>onEdit(field, +e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg pl-5 pr-2 py-1.5 text-sm focus:outline-none focus:border-gray-400 tabular-nums"/>
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <>
-          <div className="text-2xl font-bold text-gray-900 mb-2">{formatCurrency(actual)}</div>
-          <div className="space-y-1">
-            {[['BUD', d1, budget, inverse],['PY', d2, priorYear, false]].map(([lbl, delta, base, inv]) => (
-              <div key={lbl} className="flex items-center gap-1.5 text-xs text-gray-500">
-                <span className="font-semibold text-gray-400 w-6">{lbl}</span>
-                <span className={`inline-flex items-center gap-0.5 ${varColor(delta, inv)} font-medium`}>
-                  {delta>0?<TrendingUp size={9}/>:<TrendingDown size={9}/>}
-                  {formatPercent(Math.abs(delta/base*100),{decimals:1})}
-                </span>
-                <span className={`font-semibold ${varColor(delta, inv)}`}>{delta>0?'+':''}{formatCurrency(delta)}</span>
-                <span className="text-gray-400">on {formatCurrency(base)}</span>
+          <div className="text-3xl font-bold text-gray-900 mb-4">{formatCurrency(actual)}</div>
+          <div className="space-y-2.5">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">vs Budget</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <TrendBadge delta={d1} inverse={inverse} label={p1}/>
+                <span className={`text-sm font-semibold ${varColor(d1, inverse)}`}>{d1>0?'+':''}{formatCurrency(d1)}</span>
+                <span className="text-xs text-gray-400">vs {formatCurrency(budget)}</span>
               </div>
-            ))}
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">vs Prior Year</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <TrendBadge delta={d2} inverse={false} label={p2}/>
+                <span className={`text-sm font-semibold ${varColor(d2, false)}`}>{d2>0?'+':''}{formatCurrency(d2)}</span>
+                <span className="text-xs text-gray-400">vs {formatCurrency(priorYear)}</span>
+              </div>
+            </div>
           </div>
         </>
       )}
@@ -443,63 +552,192 @@ function MonthlyMiniCard({ title, actual, budget, priorYear, inverse=false, edit
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AddCardPanel (shared)
+// KPI & Chart Catalogs
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SUGGESTED_KPI_CARDS = [
-  { id:'top-expense', label:'Top Expense Category', description:'Largest spending category this period' },
-  { id:'mom-change',  label:'Month-over-Month Change', description:'Giving change vs prior month' },
-  { id:'budget-pct',  label:'Budget Utilization', description:'% of annual budget consumed' },
-  { id:'avg-gift',    label:'Avg Gift Size', description:'Average patron contribution amount' },
-  { id:'retention',   label:'Patron Retention Rate', description:'Active patrons vs prior year' },
-]
-const SUGGESTED_PATRON_CARDS = [
-  { id:'total-patrons', label:'Total Patrons', description:'Active patron count with month/year comparisons' },
-  { id:'new-patrons', label:'New Patrons', description:'New patrons this period vs prior period' },
-  { id:'avg-gift-p', label:'Avg Gift Size', description:'Average patron contribution amount' },
-  { id:'new-patron-chart', label:'New Patrons Chart', description:'Year-over-year monthly new patron line chart' },
-  { id:'patron-base-chart', label:'Patron Base Chart', description:'Monthly active patron bar chart' },
+const KPI_CATALOG = [
+  { group: 'Giving & Revenue', items: [
+    { id:'giving',       label:'Total Giving YTD',        description:'Contributions + secondary revenue vs forecast & prior year' },
+    { id:'contributions',label:'Contributions Only',      description:'Direct supporter giving vs budget & prior year' },
+    { id:'avg-gift',     label:'Avg Gift Size',           description:'Average supporter contribution amount vs prior year' },
+    { id:'new-patrons',  label:'New Supporters (Period)', description:'New supporters this period vs prior period' },
+    { id:'total-patrons',label:'Total Active Supporters', description:'Active supporter count with month/year comparisons' },
+    { id:'retention',    label:'Supporter Retention',     description:'Active supporters as % of prior year base' },
+  ]},
+  { group: 'Expenses & Operations', items: [
+    { id:'expenses',     label:'Expenses YTD',            description:'Total expenses vs budget & prior year' },
+    { id:'top-expense',  label:'Top Expense Category',    description:'Largest spending category this period' },
+    { id:'budget-pct',   label:'Budget Utilization',      description:'% of annual budget consumed YTD' },
+    { id:'mom-change',   label:'Month-over-Month Change', description:'Giving or expense change vs prior month' },
+    { id:'staff-ratio',  label:'Staff Cost Ratio',        description:'Staff expenses as % of total income' },
+  ]},
+  { group: 'Net & Cash', items: [
+    { id:'net-position', label:'Net Position YTD',        description:'Giving minus expenses with forecast & prior year' },
+    { id:'cash',         label:'Cash Position',           description:'Current cash vs prior month & prior year' },
+    { id:'reserves',     label:'Operating Reserves',      description:'Months of operating expenses covered by reserves' },
+    { id:'runway',       label:'Cash Runway',             description:'Estimated months of operations at current burn rate' },
+  ]},
 ]
 
-function AddCardPanel({ title, suggestedCards, existingIds, onAdd, onClose }) {
-  const [mode, setMode] = useState('suggested')
-  const [manualLabel, setManualLabel] = useState('')
-  const [manualValue, setManualValue] = useState('')
-  const available = suggestedCards.filter(c => !existingIds.includes(c.id))
+const CHART_CATALOG = [
+  { group: 'Giving & Supporters', items: [
+    { id:'new-patron-chart',   label:'New Supporters by Month',    description:'Year-over-year monthly new supporter comparison' },
+    { id:'patron-base-chart',  label:'Monthly Supporter Base',     description:'Total active supporters each month' },
+    { id:'giving-trend',       label:'Giving Trend',               description:'Monthly giving over time vs prior year' },
+    { id:'avg-gift-trend',     label:'Avg Gift Size Trend',        description:'Average gift amount month-over-month' },
+  ]},
+  { group: 'Expenses & Operations', items: [
+    { id:'expense-trend',      label:'Expense Trend',              description:'Monthly expenses vs budget over time' },
+    { id:'expense-breakdown',  label:'Expense Breakdown',          description:'Spending by category as stacked bars' },
+    { id:'budget-utilization', label:'Budget Utilization',         description:'% of budget consumed each month, cumulative' },
+    { id:'staff-ratio-trend',  label:'Staff Cost Ratio Trend',     description:'Staff % of income over time' },
+  ]},
+  { group: 'Net & Cash', items: [
+    { id:'net-income-trend',   label:'Net Income Trend',           description:'Monthly net operating income over time' },
+    { id:'cash-position',      label:'Cash Position Trend',        description:'Cash balance over time' },
+    { id:'giving-vs-budget',   label:'Giving vs Budget',           description:'Actual giving vs budget line — monthly' },
+  ]},
+]
+
+const MONTHLY_SUGGESTED_KPI = [
+  { id: 'monthly-giving',   label: 'Monthly Giving',   description: 'Total giving for selected month vs budget & prior year' },
+  { id: 'monthly-expenses', label: 'Monthly Expenses', description: 'Total expenses for selected month vs budget & prior year' },
+  { id: 'monthly-net',      label: 'Monthly Net',      description: 'Net position for selected month vs budget & prior year' },
+  { id: 'monthly-cash',     label: 'Month-End Cash',   description: 'Cash on hand at month-end vs prior month' },
+  { id: 'monthly-supporters', label: 'Monthly Supporters', description: 'Active supporter count vs prior month & prior year' },
+]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddCardPanel — Library + Manual entry tabs
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onClose, isChart=false }) {
+  const [mode, setMode] = useState('library')
+  const [manualLabel, setManualLabel]   = useState('')
+  const [manualValue, setManualValue]   = useState('')
+  const [manualCmp1L, setManualCmp1L]   = useState('')
+  const [manualCmp1V, setManualCmp1V]   = useState('')
+  const [manualCmp2L, setManualCmp2L]   = useState('')
+  const [manualCmp2V, setManualCmp2V]   = useState('')
+  const [addVariance, setAddVariance]   = useState(false)
+
+  const flatCatalog = catalog ? catalog.flatMap(g => g.items) : (suggestedCards || [])
+  const available = flatCatalog.filter(c => !existingIds.includes(c.id))
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[420px] max-h-[80vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[460px] max-h-[82vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
         </div>
-        <div className="flex items-center gap-1 mx-5 mt-4 bg-gray-100 rounded-full p-1">
-          {['suggested','manual'].map(m=>(
-            <button key={m} onClick={()=>setMode(m)} className={`flex-1 py-1 rounded-full text-xs font-medium transition-all ${mode===m?'bg-white text-gray-900 shadow-sm':'text-gray-500'}`}>
-              {m==='suggested'?'Suggested from data':'Manual entry'}
-            </button>
-          ))}
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">
-          {mode==='suggested' ? (
-            <div className="space-y-2">
-              {available.length===0 && <p className="text-sm text-gray-400 text-center py-4">All suggested cards already added.</p>}
-              {available.map(card=>(
-                <button key={card.id} onClick={()=>{onAdd(card);onClose()}} className="w-full text-left px-4 py-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition-all group">
-                  <div className="flex items-center justify-between">
-                    <div><div className="text-sm font-medium text-gray-900">{card.label}</div><div className="text-xs text-gray-500 mt-0.5">{card.description}</div></div>
-                    <Plus size={14} className="text-gray-300 group-hover:text-gray-600 flex-shrink-0"/>
+
+        {!isChart && (
+          <div className="flex items-center gap-1 mx-5 mt-4 bg-gray-100 rounded-full p-1">
+            {['library','manual'].map(m=>(
+              <button key={m} onClick={()=>setMode(m)} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-all ${mode===m?'bg-white text-gray-900 shadow-sm':'text-gray-500'}`}>
+                {m==='library' ? <span className="flex items-center justify-center gap-1.5"><BookOpen size={11}/> Library</span>
+                              : <span className="flex items-center justify-center gap-1.5"><SlidersHorizontal size={11}/> Manual Entry</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {(mode === 'library' || isChart) ? (
+            catalog ? catalog.map(group => {
+              const groupAvailable = group.items.filter(c => !existingIds.includes(c.id))
+              if (groupAvailable.length === 0) return null
+              return (
+                <div key={group.group}>
+                  <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{color:'var(--color-accent)'}}>{group.group}</div>
+                  <div className="space-y-1.5">
+                    {groupAvailable.map(card=>(
+                      <button key={card.id} onClick={()=>{onAdd(card);onClose()}} className="w-full text-left px-4 py-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{card.label}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">{card.description}</div>
+                          </div>
+                          <Plus size={14} className="text-gray-300 group-hover:text-gray-600 flex-shrink-0"/>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              ))}
-            </div>
+                </div>
+              )
+            }) : (
+              <div className="space-y-1.5">
+                {available.length===0 && <p className="text-sm text-gray-400 text-center py-4">All cards already added.</p>}
+                {available.map(card=>(
+                  <button key={card.id} onClick={()=>{onAdd(card);onClose()}} className="w-full text-left px-4 py-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all group">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{card.label}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">{card.description}</div>
+                      </div>
+                      <Plus size={14} className="text-gray-300 group-hover:text-gray-600 flex-shrink-0"/>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
           ) : (
+            /* Manual entry mode */
             <div className="space-y-4">
-              <div><label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Card Label</label>
-                <input type="text" value={manualLabel} onChange={e=>setManualLabel(e.target.value)} placeholder="e.g. Reserve Fund Balance" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400"/></div>
-              <div><label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Value</label>
-                <input type="text" value={manualValue} onChange={e=>setManualValue(e.target.value)} placeholder="e.g. $1,250,000 or 94.5%" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400"/></div>
-              <button onClick={()=>{if(!manualLabel.trim())return;onAdd({id:'manual-'+Date.now(),label:manualLabel,value:manualValue,manual:true});onClose();}} disabled={!manualLabel.trim()} className="w-full py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity" style={{backgroundColor:'var(--color-accent)'}}>Add Card</button>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Card Label</label>
+                <input type="text" value={manualLabel} onChange={e=>setManualLabel(e.target.value)}
+                  placeholder="e.g. Reserve Fund Balance"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-500"/>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Primary Value</label>
+                <input type="text" value={manualValue} onChange={e=>setManualValue(e.target.value)}
+                  placeholder="e.g. $1,250,000 or 94.5%"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-500"/>
+              </div>
+              <button onClick={()=>setAddVariance(v=>!v)}
+                className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all ${addVariance ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                <Plus size={11}/> {addVariance ? 'Remove variance rows' : 'Add variance rows (optional)'}
+              </button>
+              {addVariance && (
+                <div className="space-y-3 pl-3 border-l-2 border-gray-100">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Comparison 1 Label</label>
+                    <input type="text" value={manualCmp1L} onChange={e=>setManualCmp1L(e.target.value)} placeholder="e.g. vs Budget"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Comparison 1 Value</label>
+                    <input type="text" value={manualCmp1V} onChange={e=>setManualCmp1V(e.target.value)} placeholder="e.g. $1,200,000"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Comparison 2 Label (optional)</label>
+                    <input type="text" value={manualCmp2L} onChange={e=>setManualCmp2L(e.target.value)} placeholder="e.g. vs Prior Year"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Comparison 2 Value (optional)</label>
+                    <input type="text" value={manualCmp2V} onChange={e=>setManualCmp2V(e.target.value)} placeholder="e.g. $1,100,000"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-gray-400"/>
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={()=>{
+                  if(!manualLabel.trim()) return
+                  onAdd({ id:'manual-'+Date.now(), label:manualLabel, value:manualValue,
+                    cmp1Label:manualCmp1L||null, cmp1Value:manualCmp1V||null,
+                    cmp2Label:manualCmp2L||null, cmp2Value:manualCmp2V||null, manual:true })
+                  onClose()
+                }}
+                disabled={!manualLabel.trim()}
+                className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
+                style={{backgroundColor:'var(--color-accent)'}}>
+                Add Card
+              </button>
             </div>
           )}
         </div>
@@ -535,6 +773,23 @@ function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
           {editMode?<><Check size={12}/> Done</>:<><Pencil size={12}/> Edit</>}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart Type Toggle
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ChartTypeToggle({ type, onChange }) {
+  return (
+    <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5">
+      {['line','area','bar'].map(t => (
+        <button key={t} onClick={() => onChange(t)}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all ${type===t ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}>
+          {t}
+        </button>
+      ))}
     </div>
   )
 }
@@ -616,41 +871,82 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Format, 
   )
 }
 
+const TOOLTIP_STYLE = { backgroundColor:'#fff', border:'1px solid #e5e7eb', borderRadius:'8px', fontSize:'12px' }
+
 function NewPatronChartCard({ data, editMode, onRemove }) {
+  const [chartType, setChartType] = useState('line')
+  const sharedProps = { data, margin:{top:5,right:5,left:-20,bottom:0} }
+  const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+  const yAxis = <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+  const grid  = <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE}/>
+  const leg   = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       {editMode&&onRemove&&<button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors z-10"><X size={11}/></button>}
-      <div className="text-xs font-semibold text-gray-700 mb-0.5">New Patrons by Month</div>
-      <div className="text-[10px] text-gray-400 mb-4">Year-over-year comparison</div>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
+          <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
+        </div>
+        <ChartTypeToggle type={chartType} onChange={setChartType}/>
+      </div>
       <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={data} margin={{top:5,right:5,left:-20,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-          <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
-          <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
-          <Tooltip contentStyle={{backgroundColor:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px'}}/>
-          <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
-          <Line type="monotone" dataKey="newCY" name="This Year" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} activeDot={{r:4, fill:'var(--color-accent)'}}/>
-          <Line type="monotone" dataKey="newPY" name="Prior Year" stroke="var(--color-primary)" strokeWidth={2} dot={false} strokeDasharray="5 3" opacity={0.7}/>
-        </LineChart>
+        {chartType==='bar' ? (
+          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+            <Bar dataKey="newCY" name="This Year"  fill="var(--color-accent)"  radius={[3,3,0,0]} opacity={0.85}/>
+            <Bar dataKey="newPY" name="Prior Year" fill="var(--color-primary)" radius={[3,3,0,0]} opacity={0.6}/>
+          </BarChart>
+        ) : chartType==='area' ? (
+          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+            <Area type="monotone" dataKey="newCY" name="This Year"  stroke="var(--color-accent)"  fill="var(--color-accent-light)"   strokeWidth={2.5} fillOpacity={0.4}/>
+            <Area type="monotone" dataKey="newPY" name="Prior Year" stroke="var(--color-primary)" fill="var(--color-primary-light)"  strokeWidth={2}   fillOpacity={0.3}/>
+          </AreaChart>
+        ) : (
+          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+            <Line type="monotone" dataKey="newCY" name="This Year"  stroke="var(--color-accent)"  strokeWidth={2.5} dot={false} activeDot={{r:4}}/>
+            <Line type="monotone" dataKey="newPY" name="Prior Year" stroke="var(--color-primary)" strokeWidth={2}   dot={false} strokeDasharray="5 3" opacity={0.7}/>
+          </LineChart>
+        )}
       </ResponsiveContainer>
     </div>
   )
 }
 
 function PatronBaseChartCard({ data, editMode, onRemove }) {
+  const [chartType, setChartType] = useState('bar')
+  const sharedProps = { data, margin:{top:5,right:5,left:-20,bottom:0} }
+  const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+  const yAxis = <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false} domain={[20000,'auto']} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}K`:v}/>
+  const grid  = <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false}/>
+  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>v.toLocaleString()}/>
+  const leg   = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       {editMode&&onRemove&&<button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors z-10"><X size={11}/></button>}
-      <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Patron Base</div>
-      <div className="text-[10px] text-gray-400 mb-4">Total active patrons per month</div>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
+          <div className="text-[10px] text-gray-400">Total active supporters per month</div>
+        </div>
+        <ChartTypeToggle type={chartType} onChange={setChartType}/>
+      </div>
       <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{top:5,right:5,left:-20,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false}/>
-          <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
-          <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false} domain={[20000,'auto']} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}K`:v}/>
-          <Tooltip contentStyle={{backgroundColor:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px'}} formatter={v=>v.toLocaleString()}/>
-          <Bar dataKey="total" name="Total Patrons" fill="var(--color-accent)" radius={[4,4,0,0]} opacity={0.85}/>
-        </BarChart>
+        {chartType==='line' ? (
+          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+            <Line type="monotone" dataKey="total" name="Total Supporters" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} activeDot={{r:4}}/>
+          </LineChart>
+        ) : chartType==='area' ? (
+          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+            <Area type="monotone" dataKey="total" name="Total Supporters" stroke="var(--color-accent)" fill="var(--color-accent-light)" strokeWidth={2.5} fillOpacity={0.5}/>
+          </AreaChart>
+        ) : (
+          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+            <Bar dataKey="total" name="Total Supporters" fill="var(--color-accent)" radius={[4,4,0,0]} opacity={0.85}/>
+          </BarChart>
+        )}
       </ResponsiveContainer>
     </div>
   )
@@ -704,12 +1000,6 @@ function RollingQuoteSection() {
     </div>
   )
 }
-
-const MONTHLY_SUGGESTED_KPI = [
-  { id: 'monthly-giving',   label: 'Monthly Giving',   description: 'Total giving for selected month vs budget & prior year' },
-  { id: 'monthly-expenses', label: 'Monthly Expenses', description: 'Total expenses for selected month vs budget & prior year' },
-  { id: 'monthly-net',      label: 'Monthly Net',      description: 'Net position for selected month' },
-]
 
 function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
   // Months that have data
@@ -777,27 +1067,35 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
   const netBudget  = (fin.giving?.budget||0) - (fin.expenses?.budget||0)
   const netPriorYr = (fin.giving?.priorYear||0) - (fin.expenses?.priorYear||0)
 
+  // Extract just the month name (e.g. "April 2026" → "April")
+  const monthLabel = currentMonth.split(' ')[0]
+
   function renderMonthlyKPICard(cardId) {
+    const remove = () => update('kpiCards', (summary.kpiCards||[]).filter(c=>c!==cardId))
     if (cardId === 'monthly-giving') {
-      return <MonthlyMiniCard key={cardId} title="Total Giving"
+      return <MonthlyKPICard key={cardId} title={`Total Giving — ${monthLabel}`}
         actual={fin.giving?.actual||0} budget={fin.giving?.budget||0} priorYear={fin.giving?.priorYear||0}
-        editMode={editMode}
-        onEdit={(f,v)=>updateFinancials('giving',f,v)}
-        onRemove={()=>update('kpiCards',(summary.kpiCards||[]).filter(c=>c!==cardId))}/>
+        editMode={editMode} onEdit={(f,v)=>updateFinancials('giving',f,v)} onRemove={remove}/>
     }
     if (cardId === 'monthly-expenses') {
-      return <MonthlyMiniCard key={cardId} title="Expenses" inverse
+      return <MonthlyKPICard key={cardId} title={`Expenses — ${monthLabel}`} inverse
         actual={fin.expenses?.actual||0} budget={fin.expenses?.budget||0} priorYear={fin.expenses?.priorYear||0}
-        editMode={editMode}
-        onEdit={(f,v)=>updateFinancials('expenses',f,v)}
-        onRemove={()=>update('kpiCards',(summary.kpiCards||[]).filter(c=>c!==cardId))}/>
+        editMode={editMode} onEdit={(f,v)=>updateFinancials('expenses',f,v)} onRemove={remove}/>
     }
     if (cardId === 'monthly-net') {
-      return <MonthlyMiniCard key={cardId} title="Net Position"
+      return <MonthlyKPICard key={cardId} title={`Net Position — ${monthLabel}`}
         actual={netActual} budget={netBudget} priorYear={netPriorYr}
-        editMode={editMode}
-        onEdit={()=>{}} // computed, not directly editable
-        onRemove={()=>update('kpiCards',(summary.kpiCards||[]).filter(c=>c!==cardId))}/>
+        editMode={editMode} onEdit={()=>{}} onRemove={remove}/>
+    }
+    if (cardId === 'monthly-cash') {
+      return <MonthlyKPICard key={cardId} title={`Month-End Cash — ${monthLabel}`}
+        actual={summary.cash?.actual||0} budget={summary.cash?.budget||0} priorYear={summary.cash?.priorYear||0}
+        editMode={editMode} onEdit={(f,v)=>{const c={...(summary.cash||{}),[f]:v};update('cash',c)}} onRemove={remove}/>
+    }
+    if (cardId === 'monthly-supporters') {
+      return <MonthlyKPICard key={cardId} title={`Active Supporters — ${monthLabel}`}
+        actual={summary.supporters?.actual||0} budget={summary.supporters?.budget||0} priorYear={summary.supporters?.priorYear||0}
+        editMode={editMode} onEdit={(f,v)=>{const s={...(summary.supporters||{}),[f]:v};update('supporters',s)}} onRemove={remove}/>
     }
     return null
   }
@@ -1024,7 +1322,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
       {/* Add KPI Card Panel */}
       {showAddKPI && (
-        <AddCardPanel title="Add Financial Card"
+        <AddCardPanel title="Add Monthly KPI Card"
           suggestedCards={MONTHLY_SUGGESTED_KPI}
           existingIds={summary?.kpiCards||[]}
           onAdd={card=>update('kpiCards',[...(summary.kpiCards||[]),card.id])}
@@ -1196,58 +1494,371 @@ function DashboardTab({ dateRange, orgConfig }) {
       {/* P&L */}
       <section><PLTable data={plData}/></section>
 
-      {showAddKPI&&<AddCardPanel title="Add KPI Card" suggestedCards={SUGGESTED_KPI_CARDS} existingIds={kpiCards} onAdd={card=>{if(card.manual)manualCardStore[card.id]=card;setKpiCards(p=>[...p,card.id])}} onClose={()=>setShowAddKPI(false)}/>}
-      {showAddPatron&&<AddCardPanel title="Add Patron Card" suggestedCards={SUGGESTED_PATRON_CARDS} existingIds={patronCards} onAdd={card=>{if(card.manual)manualCardStore[card.id]=card;setPatronCards(p=>[...p,card.id])}} onClose={()=>setShowAddPatron(false)}/>}
+      {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards} onAdd={card=>{if(card.manual)manualCardStore[card.id]=card;setKpiCards(p=>[...p,card.id])}} onClose={()=>setShowAddKPI(false)}/>}
+      {showAddPatron&&<AddCardPanel title="Add Chart / Patron Card" catalog={CHART_CATALOG} existingIds={patronCards} onAdd={card=>{if(card.manual)manualCardStore[card.id]=card;setPatronCards(p=>[...p,card.id])}} onClose={()=>setShowAddPatron(false)} isChart/>}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Teams Tab
+// Team Detail Drawer
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TeamsTab() {
-  const teams = [
-    {name:'Product Design',dept:'101',actual:482_310,budget:510_000},
-    {name:'Product Engineering',dept:'102',actual:623_880,budget:595_000},
-    {name:'Operations',dept:'103',actual:481_000,budget:485_000},
-  ]
-  const totalActual=teams.reduce((s,t)=>s+t.actual,0), totalBudget=teams.reduce((s,t)=>s+t.budget,0)
+function TeamDetailDrawer({ team, onClose }) {
+  const [chartType, setChartType] = useState('bar')
+  const [notes, setNotes] = useState('')
+  const monthly = teamMonthly(team.cats, team.spreadKey)
+  const catKeys = Object.keys(team.cats)
+  const variance    = team.actual - team.budget
+  const variancePct = team.budget > 0 ? (variance / team.budget * 100) : 0
+
+  const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+  const yAxis = <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}
+    tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}K`:v}/>
+  const grid  = <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false}/>
+  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>formatCurrency(v,{compact:false})}/>
+  const leg   = <Legend wrapperStyle={{fontSize:'10px',paddingTop:'8px'}}/>
+
   return (
-    <div className="p-6 max-w-screen-lg mx-auto">
-      <div className="mb-6"><span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Team Spend Overview</span></div>
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={onClose}/>
+      <div className="fixed top-0 right-0 h-full w-[580px] z-50 bg-white shadow-2xl border-l border-gray-200 flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--color-accent)'}}>Team Detail</p>
+            <h2 className="text-xl font-bold text-gray-900">{team.name}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button disabled title="Dashboard not yet created"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed opacity-60">
+              <LayoutDashboard size={12}/> Open Dashboard
+            </button>
+            <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+              <X size={18}/>
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-gray-50 rounded-xl p-3 text-center">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actual YTD</div>
+              <div className="text-lg font-bold text-gray-900">{formatCurrency(team.actual)}</div>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 text-center">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Budget YTD</div>
+              <div className="text-lg font-bold text-gray-900">{formatCurrency(team.budget)}</div>
+            </div>
+            <div className={`rounded-xl p-3 text-center ${variance>0?'bg-red-50':'bg-emerald-50'}`}>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Variance</div>
+              <div className={`text-lg font-bold ${variance>0?'text-red-600':'text-emerald-600'}`}>
+                {variance>0?'+':''}{formatCurrency(variance)}
+              </div>
+              <div className={`text-[10px] font-medium mt-0.5 ${variance>0?'text-red-500':'text-emerald-500'}`}>
+                {variance>0?'+':''}{variancePct.toFixed(1)}%
+              </div>
+            </div>
+          </div>
+
+          {/* Monthly spend chart */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-xs font-semibold text-gray-700">Monthly Spend by Category</div>
+                <div className="text-[10px] text-gray-400">Based on annual actuals with seasonal distribution</div>
+              </div>
+              <ChartTypeToggle type={chartType} onChange={setChartType}/>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              {chartType==='line' ? (
+                <LineChart data={monthly} margin={{top:5,right:5,left:-10,bottom:0}}>
+                  {grid}{xAxis}{yAxis}{tip}{leg}
+                  {catKeys.map((key,i)=>(
+                    <Line key={key} type="monotone" dataKey={key}
+                      name={TEAM_CAT_MAP[key]?.label||key}
+                      stroke={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
+                      strokeWidth={2} dot={false}/>
+                  ))}
+                </LineChart>
+              ) : chartType==='area' ? (
+                <AreaChart data={monthly} margin={{top:5,right:5,left:-10,bottom:0}}>
+                  {grid}{xAxis}{yAxis}{tip}{leg}
+                  {catKeys.map((key,i)=>(
+                    <Area key={key} type="monotone" dataKey={key} stackId="1"
+                      name={TEAM_CAT_MAP[key]?.label||key}
+                      stroke={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
+                      fill={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
+                      fillOpacity={0.65}/>
+                  ))}
+                </AreaChart>
+              ) : (
+                <BarChart data={monthly} margin={{top:5,right:5,left:-10,bottom:0}}>
+                  {grid}{xAxis}{yAxis}{tip}{leg}
+                  {catKeys.map((key,i)=>(
+                    <Bar key={key} dataKey={key} stackId="a"
+                      name={TEAM_CAT_MAP[key]?.label||key}
+                      fill={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
+                      radius={i===catKeys.length-1?[3,3,0,0]:[0,0,0,0]}/>
+                  ))}
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+
+          {/* Category line-item variance table */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-3">Category Breakdown</div>
+            <div className="rounded-xl border border-gray-100 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="text-left  px-4 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Line Item</th>
+                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Actual</th>
+                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
+                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var $</th>
+                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var %</th>
+                    <th className="text-right px-4 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">PY Actual</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catKeys.map((key,i) => {
+                    const cat   = team.cats[key]
+                    const label = TEAM_CAT_MAP[key]?.label || key
+                    const color = TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color
+                    const v     = cat.actual - cat.budget
+                    const vPct  = cat.budget > 0 ? (v/cat.budget*100) : 0
+                    const vsPY  = cat.actual - (cat.priorYear||0)
+                    return (
+                      <tr key={key} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:color}}/>
+                            <span className="font-medium text-gray-700">{label}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{formatCurrency(cat.actual)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(cat.budget)}</td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${v>0?'text-red-600':'text-emerald-600'}`}>
+                          {v>0?'+':''}{formatCurrency(v)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${v>0?'text-red-600':'text-emerald-600'}`}>
+                          {v>0?'+':''}{vPct.toFixed(1)}%
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-gray-400">
+                          {cat.priorYear ? formatCurrency(cat.priorYear) : '—'}
+                          {cat.priorYear && <span className={`ml-1 text-[9px] font-medium ${vsPY>0?'text-red-500':'text-emerald-500'}`}>
+                            {vsPY>0?'▲':'▼'}{Math.abs(vsPY/cat.priorYear*100).toFixed(0)}%
+                          </span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {/* Totals row */}
+                  <tr className="bg-gray-900">
+                    <td className="px-4 py-2.5 font-bold text-white text-xs">Total</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-white">{formatCurrency(team.actual)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(team.budget)}</td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${variance>0?'text-red-400':'text-emerald-400'}`}>
+                      {variance>0?'+':''}{formatCurrency(variance)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${variancePct>0?'text-red-400':'text-emerald-400'}`}>
+                      {variancePct>0?'+':''}{variancePct.toFixed(1)}%
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">
+                      {formatCurrency(catKeys.reduce((s,k)=>s+(team.cats[k].priorYear||0),0))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Manager notes */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-2">Manager Notes</div>
+            <textarea
+              value={notes} onChange={e=>setNotes(e.target.value)}
+              placeholder="Add context, action items, or notes about this team's performance..."
+              rows={4}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 resize-none focus:outline-none focus:border-gray-400 placeholder-gray-300"/>
+          </div>
+
+        </div>{/* end scroll */}
+      </div>
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Teams Tab — full enterprise layout
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TeamsTab({ dateRange }) {
+  const teams = TEAMS_MOCK
+  const totalActual  = teams.reduce((s,t) => s+t.actual, 0)
+  const totalBudget  = teams.reduce((s,t) => s+t.budget, 0)
+  const totalVariance = totalActual - totalBudget
+  const overBudget   = teams.filter(t => t.actual > t.budget).length
+
+  const [sortKey,  setSortKey]  = useState('name')
+  const [sortDir,  setSortDir]  = useState(1)
+  const [selected, setSelected] = useState(null)
+
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir(d => -d)
+    else { setSortKey(key); setSortDir(1) }
+  }
+
+  const sorted = [...teams].sort((a,b) => {
+    let av, bv
+    if (sortKey==='name')    { av=a.name;                 bv=b.name }
+    if (sortKey==='actual')  { av=a.actual;               bv=b.actual }
+    if (sortKey==='budget')  { av=a.budget;               bv=b.budget }
+    if (sortKey==='variance'){ av=a.actual-a.budget;      bv=b.actual-b.budget }
+    if (sortKey==='pct')     { av=a.actual/a.budget;      bv=b.actual/b.budget }
+    if (sortKey==='share')   { av=a.actual/totalActual;   bv=b.actual/totalActual }
+    if (typeof av === 'string') return sortDir * av.localeCompare(bv)
+    return sortDir * (av - bv)
+  })
+
+  function SortTh({ col, children, right=false }) {
+    const active = sortKey === col
+    return (
+      <th onClick={() => toggleSort(col)}
+        className={`py-3 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none transition-colors hover:text-gray-600
+          ${right ? 'text-right px-4' : 'text-left px-6'}
+          ${active ? 'text-gray-800' : 'text-gray-400'}`}>
+        <span className="inline-flex items-center gap-1">
+          {children}
+          <ArrowUpDown size={10} className={active ? 'opacity-80' : 'opacity-30'}/>
+        </span>
+      </th>
+    )
+  }
+
+  return (
+    <div className="p-6 max-w-screen-xl mx-auto space-y-6">
+
+      {/* Page header */}
+      <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{backgroundColor:'var(--color-accent-light)'}}>
+          <Users size={18} style={{color:'var(--color-accent)'}}/>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--color-accent)'}}>
+            Financial Summary / Team Breakdown
+          </p>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span className="text-2xl font-bold tracking-tight text-gray-900">Team Spend</span>
+            <span className="text-xl font-extralight text-gray-300 leading-none">|</span>
+            <span className="text-xl font-semibold text-gray-500">{presetLabel(dateRange.preset)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4 KPI summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label:`Total Actuals · ${presetLabel(dateRange.preset)}`, value: formatCurrency(totalActual), sub: null, positive: true },
+          { label:`Total Budget · ${presetLabel(dateRange.preset)}`,  value: formatCurrency(totalBudget), sub: null, positive: true },
+          { label:'Variance YTD', value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
+            sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
+            positive: totalVariance <= 0 },
+          { label:'Teams Over Budget', value: String(overBudget),
+            sub: `${teams.length - overBudget} of ${teams.length} within budget`,
+            positive: overBudget === 0 },
+        ].map((card,i) => (
+          <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{card.label}</div>
+            <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>
+              {card.value}
+            </div>
+            {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Teams table */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="text-left px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Team</th>
-              <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Actual</th>
-              <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Budget</th>
-              <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Variance</th>
-              <th className="text-right px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">% of Org</th>
+              <SortTh col="name">Team</SortTh>
+              <SortTh col="actual" right>Actual</SortTh>
+              <SortTh col="budget" right>Budget</SortTh>
+              <SortTh col="variance" right>Variance</SortTh>
+              <SortTh col="pct" right>Var %</SortTh>
+              <th className="text-right px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">% of Total</th>
             </tr>
           </thead>
           <tbody>
-            {teams.map(t=>{const v=t.actual-t.budget;return(
-              <tr key={t.dept} className="border-b border-gray-50 hover:bg-gray-50 transition-colors cursor-pointer group">
-                <td className="px-6 py-3 font-medium text-gray-800"><div className="flex items-center gap-2">{t.name}<ChevronRight size={12} className="text-gray-300 group-hover:text-gray-500"/></div></td>
-                <td className="px-4 py-3 text-right tabular-nums font-medium text-gray-700">{formatCurrency(t.actual,{compact:false})}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-gray-500">{formatCurrency(t.budget,{compact:false})}</td>
-                <td className={`px-4 py-3 text-right tabular-nums font-medium ${v<=0?'text-emerald-600':'text-red-600'}`}>{v>0?'+':''}{formatCurrency(v,{compact:false})}</td>
-                <td className="px-6 py-3 text-right tabular-nums text-gray-400 text-xs">{formatPercent(t.actual/totalActual*100,{decimals:1})}</td>
-              </tr>
-            )})}
+            {sorted.map(team => {
+              const v    = team.actual - team.budget
+              const vPct = team.budget > 0 ? (v/team.budget*100) : 0
+              const share = totalActual > 0 ? (team.actual/totalActual*100) : 0
+              const overBudget = v > 0
+              return (
+                <tr key={team.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
+                  <td className="px-6 py-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={()=>setSelected(team)}
+                        className="font-medium text-gray-800 hover:text-gray-600 hover:underline text-left transition-colors">
+                        {team.name}
+                      </button>
+                      <button disabled title="Dashboard not yet created"
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-200 text-gray-400 cursor-not-allowed transition-all">
+                        <ExternalLink size={9}/> Dashboard
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">{team.manager}</div>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium text-gray-700">{formatCurrency(team.actual,{compact:false})}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-400">{formatCurrency(team.budget,{compact:false})}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${overBudget?'text-red-600':'text-emerald-600'}`}>
+                    {v>0?'+':''}{formatCurrency(v,{compact:false})}
+                  </td>
+                  <td className={`px-4 py-3 text-right tabular-nums font-medium text-xs ${overBudget?'text-red-500':'text-emerald-500'}`}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${overBudget?'bg-red-50':'bg-emerald-50'}`}>
+                      {vPct>0?'+':''}{vPct.toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="px-6 py-3">
+                    <div className="flex items-center gap-2 justify-end">
+                      <div className="w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-accent)'}}/>
+                      </div>
+                      <span className="text-xs tabular-nums text-gray-500 w-10 text-right">{share.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            {/* Totals */}
             <tr className="bg-gray-900">
-              <td className="px-6 py-3 font-bold text-white">Total</td>
+              <td className="px-6 py-3 font-bold text-white">Total — All Teams</td>
               <td className="px-4 py-3 text-right tabular-nums font-bold text-white">{formatCurrency(totalActual,{compact:false})}</td>
               <td className="px-4 py-3 text-right tabular-nums text-gray-400">{formatCurrency(totalBudget,{compact:false})}</td>
-              <td className={`px-4 py-3 text-right tabular-nums font-bold ${totalActual-totalBudget<=0?'text-emerald-400':'text-red-400'}`}>{(()=>{const v=totalActual-totalBudget;return(v>0?'+':'')+formatCurrency(v,{compact:false})})()}</td>
+              <td className={`px-4 py-3 text-right tabular-nums font-bold ${totalVariance>0?'text-red-400':'text-emerald-400'}`}>
+                {totalVariance>0?'+':''}{formatCurrency(totalVariance,{compact:false})}
+              </td>
+              <td className="px-4 py-3 text-right">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${totalVariance>0?'bg-red-900/50 text-red-300':'bg-emerald-900/50 text-emerald-300'}`}>
+                  {totalVariance>0?'+':''}{((totalVariance/totalBudget)*100).toFixed(1)}%
+                </span>
+              </td>
               <td className="px-6 py-3 text-right text-gray-400 text-xs">100%</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-gray-400 mt-4 text-center">Click a team row to drill into their detailed dashboard.</p>
+
+      {selected && <TeamDetailDrawer team={selected} onClose={()=>setSelected(null)}/>}
     </div>
   )
 }
@@ -1422,7 +2033,7 @@ export default function ELTDashboard() {
       <main className="flex-1 overflow-auto">
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
-        {activeTab==='teams'     && <TeamsTab/>}
+        {activeTab==='teams'     && <TeamsTab dateRange={dateRange}/>}
         {activeTab==='documents' && <DocumentsTab/>}
         {activeTab==='import'    && <ELTImportTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
       </main>
