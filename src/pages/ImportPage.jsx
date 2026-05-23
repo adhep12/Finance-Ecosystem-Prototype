@@ -671,7 +671,7 @@ export default function ImportPage() {
 
       {/* Tab toggle */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {[['actuals', '• Actuals'], ['budget', '◦ Budget (Edit + Locked)']].map(([v, l]) => (
+        {[['actuals', '• Actuals'], ['budget', '◦ Budget']].map(([v, l]) => (
           <button
             key={v}
             onClick={() => setTab(v)}
