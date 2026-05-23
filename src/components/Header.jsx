@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
-import { ChevronDown, X } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { ChevronDown, X, BarChart2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { daysBetween, formatDateInput } from '../utils/formatters'
 
@@ -148,6 +148,7 @@ export default function Header() {
   const { orgConfig, availableScenarios, selectedScenario, setSelectedScenario, dateRange } = useApp()
   const [showDatePicker, setShowDatePicker] = useState(false)
   const pickerRef = useRef(null)
+  const navigate = useNavigate()
 
   // Close picker on outside click
   useEffect(() => {
@@ -206,8 +207,17 @@ export default function Header() {
           </div>
         </nav>
 
-        {/* Right: scenario selector + date range */}
+        {/* Right: ELT link + scenario selector + date range */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Executive Overview link */}
+          <button
+            onClick={() => navigate('/elt')}
+            title="Executive Overview"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"
+          >
+            <BarChart2 size={13} />
+            <span className="hidden sm:inline">Executive</span>
+          </button>
           {/* Scenario buttons */}
           <div className="flex items-center gap-1 bg-gray-100 rounded-full px-1 py-1">
             {availableScenarios.map(s => (

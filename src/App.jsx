@@ -6,6 +6,7 @@ import BreakdownPage     from './pages/BreakdownPage'
 import CommentsPage      from './pages/CommentsPage'
 import ImportPage        from './pages/ImportPage'
 import TransactionsPage  from './pages/TransactionsPage'
+import ELTDashboard      from './pages/ELTDashboard'
 import Header            from './components/Header'
 
 function AppShell() {
@@ -26,11 +27,15 @@ function AppShell() {
   )
 }
 
+
 export default function App() {
   return (
     <BrowserRouter>
       <AppProvider>
-        <AppShell />
+        <Routes>
+          <Route path="/elt" element={<ELTDashboard />} />
+          <Route path="/*"   element={<AppShell />} />
+        </Routes>
       </AppProvider>
     </BrowserRouter>
   )
