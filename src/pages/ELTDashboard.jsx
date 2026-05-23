@@ -225,6 +225,61 @@ function teamMonthly(cats, spreadKey = 'flat') {
   })
 }
 
+// Account-level breakdown per category key — shares must sum to 1
+const TEAM_CAT_ACCOUNTS = {
+  staff: [
+    { key: 'salaries',   label: 'Salaries & Wages',        share: 0.65 },
+    { key: 'benefits',   label: 'Benefits & Payroll Tax',  share: 0.18 },
+    { key: 'contractor', label: 'Contract Staff (Aug)',     share: 0.17 },
+  ],
+  contract: [
+    { key: 'creative',   label: 'Creative & Production',   share: 0.48 },
+    { key: 'legal',      label: 'Legal & Professional',    share: 0.32 },
+    { key: 'consulting', label: 'Consulting',               share: 0.20 },
+  ],
+  technology: [
+    { key: 'software',   label: 'Software Subscriptions',  share: 0.44 },
+    { key: 'infra',      label: 'Infrastructure & Hosting',share: 0.34 },
+    { key: 'hardware',   label: 'Hardware & Equipment',     share: 0.22 },
+  ],
+  travel: [
+    { key: 'domestic',   label: 'Domestic Travel',         share: 0.55 },
+    { key: 'intl',       label: 'International Travel',    share: 0.28 },
+    { key: 'lodging',    label: 'Lodging & Meals',         share: 0.17 },
+  ],
+  marketing: [
+    { key: 'digital',    label: 'Digital Advertising',     share: 0.52 },
+    { key: 'print',      label: 'Print & Collateral',      share: 0.28 },
+    { key: 'events-mkt', label: 'Events & Sponsorships',   share: 0.20 },
+  ],
+  facilities: [
+    { key: 'rent',       label: 'Rent & Lease',            share: 0.60 },
+    { key: 'utilities',  label: 'Utilities',                share: 0.25 },
+    { key: 'maintenance',label: 'Maintenance & Repairs',   share: 0.15 },
+  ],
+  supplies: [
+    { key: 'office',     label: 'Office Supplies',         share: 0.45 },
+    { key: 'production', label: 'Production Materials',    share: 0.35 },
+    { key: 'shipping',   label: 'Shipping & Postage',      share: 0.20 },
+  ],
+  training: [
+    { key: 'courses',    label: 'Courses & Certifications',share: 0.55 },
+    { key: 'conferences',label: 'Conferences & Seminars',  share: 0.30 },
+    { key: 'books',      label: 'Books & Resources',       share: 0.15 },
+  ],
+}
+
+// Generate monthly data for a single account within a category
+function accountMonthly(catKey, annualActual, accountShare, spreadKey = 'flat') {
+  const sp   = SPREADS[spreadKey] || SPREADS.flat
+  const norm = sp.reduce((s, x) => s + x, 0)
+  const accountTotal = annualActual * accountShare
+  return TEAM_MONTHS.map((month, i) => ({
+    month,
+    value: Math.round(accountTotal * sp[i] / norm),
+  }))
+}
+
 // 19 fictional teams — all numbers are illustrative demo data
 const TEAMS_MOCK = [
   { id:'EXE', name:'Executive Leadership',       manager:'Sarah Chen',
@@ -497,6 +552,13 @@ function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2L
 // Manual KPI Card — editable after creation
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Parse a user-entered value string → number (strips $, commas, %, spaces)
+function parseMetric(str) {
+  if (!str) return null
+  const n = parseFloat(String(str).replace(/[$,%\s]/g,'').replace(/,/g,''))
+  return isNaN(n) ? null : n
+}
+
 function ManualKPICard({ card, editMode, onRemove, onEdit }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState(card)
@@ -505,13 +567,19 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
   function cancel() { setEditing(false); setDraft(card) }
   function save()   { onEdit({ ...card, ...draft }); setEditing(false) }
 
+  // Compute variance rows from parsed numbers when possible
+  const mainNum  = parseMetric(card.value)
+  const cmp1Num  = parseMetric(card.cmp1Value)
+  const cmp2Num  = parseMetric(card.cmp2Value)
+  const delta1   = (mainNum !== null && cmp1Num !== null) ? mainNum - cmp1Num : null
+  const delta2   = (mainNum !== null && cmp2Num !== null) ? mainNum - cmp2Num : null
+  const pct1     = (delta1 !== null && cmp1Num !== 0) ? formatPercent(delta1 / cmp1Num * 100, { showSign:true, decimals:1 }) : null
+  const pct2     = (delta2 !== null && cmp2Num !== 0) ? formatPercent(delta2 / cmp2Num * 100, { showSign:true, decimals:1 }) : null
+
   const fields = [
-    ['Card Label',              'label'],
-    ['Primary Value',           'value'],
-    ['Comparison 1 Label',      'cmp1Label'],
-    ['Comparison 1 Value',      'cmp1Value'],
-    ['Comparison 2 Label',      'cmp2Label'],
-    ['Comparison 2 Value',      'cmp2Value'],
+    ['Card Label', 'label'], ['Primary Value', 'value'],
+    ['Comparison 1 Label', 'cmp1Label'], ['Comparison 1 Value', 'cmp1Value'],
+    ['Comparison 2 Label', 'cmp2Label'], ['Comparison 2 Value', 'cmp2Value'],
   ]
 
   if (editing) {
@@ -528,9 +596,30 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
               placeholder={lbl} className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"/>
           </div>
         ))}
-        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white mt-1" style={{backgroundColor:'var(--color-accent)'}}>
+        <p className="text-[9px] text-gray-400">Tip: Enter numeric values (e.g. $1,250,000) to auto-calculate % variance.</p>
+        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
           Save Changes
         </button>
+      </div>
+    )
+  }
+
+  function CmpRow({ label, delta, pct, cmpValue }) {
+    if (!label) return null
+    return (
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{label}</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {pct && delta !== null ? (
+            <>
+              <TrendBadge delta={delta} label={pct}/>
+              <span className={`text-sm font-semibold ${varColor(delta)}`}>{delta>0?'+':''}{formatCurrency(delta)}</span>
+              {cmpValue && <span className="text-xs text-gray-400">vs {cmpValue}</span>}
+            </>
+          ) : (
+            <span className="text-sm font-semibold text-gray-700">{cmpValue || '—'}</span>
+          )}
+        </div>
       </div>
     )
   }
@@ -539,7 +628,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
     <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
       {editMode && (
         <div className="absolute top-2 right-2 flex gap-1">
-          <button onClick={()=>setEditing(true)} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-blue-100 text-gray-400 hover:text-blue-500 flex items-center justify-center transition-colors" title="Edit">
+          <button onClick={()=>setEditing(true)} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-blue-100 text-gray-400 hover:text-blue-500 flex items-center justify-center transition-colors" title="Edit card">
             <Pencil size={9}/>
           </button>
           <button onClick={onRemove} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors" title="Remove">
@@ -548,21 +637,11 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
         </div>
       )}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{card.label || 'Custom KPI'}</div>
-      <div className="text-3xl font-bold text-gray-900 mb-3">{card.value || '—'}</div>
+      <div className="text-3xl font-bold text-gray-900 mb-4">{card.value || '—'}</div>
       {(card.cmp1Label || card.cmp2Label) && (
-        <div className="space-y-2">
-          {card.cmp1Label && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">{card.cmp1Label}</div>
-              <div className="text-sm font-semibold text-gray-700">{card.cmp1Value || '—'}</div>
-            </div>
-          )}
-          {card.cmp2Label && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">{card.cmp2Label}</div>
-              <div className="text-sm font-semibold text-gray-700">{card.cmp2Value || '—'}</div>
-            </div>
-          )}
+        <div className="space-y-2.5">
+          <CmpRow label={card.cmp1Label} delta={delta1} pct={pct1} cmpValue={card.cmp1Value}/>
+          <CmpRow label={card.cmp2Label} delta={delta2} pct={pct2} cmpValue={card.cmp2Value}/>
         </div>
       )}
     </div>
@@ -723,6 +802,13 @@ const CHART_CATALOG = [
   ]},
 ]
 
+// IDs that have live data wired — used to flag "No data" in catalog
+const KPI_DATA_AVAILABLE = new Set([
+  'giving','expenses','net-position','cash',
+  'total-patrons','new-patrons','avg-gift','retention','recurring-ratio',
+  'new-patron-chart','patron-base-chart',
+])
+
 const PATRON_KPI_CATALOG = [
   { group: 'Supporter Metrics', items: [
     { id:'total-patrons',   label:'Total Active Supporters',  description:'Active supporter count vs prior month & year' },
@@ -786,17 +872,20 @@ function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onCl
                 <div key={group.group}>
                   <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{color:'var(--color-accent)'}}>{group.group}</div>
                   <div className="space-y-1.5">
-                    {groupAvailable.map(card=>(
-                      <button key={card.id} onClick={()=>{onAdd(card);onClose()}} className="w-full text-left px-4 py-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group">
+                    {groupAvailable.map(card=>{
+                      const hasData = KPI_DATA_AVAILABLE.has(card.id)
+                      return (
+                      <button key={card.id} onClick={()=>{onAdd(card);onClose()}} className={`w-full text-left px-4 py-3 rounded-xl border transition-all group ${hasData ? 'border-gray-100 hover:bg-gray-50 hover:border-gray-200' : 'border-gray-100 hover:bg-amber-50/50 hover:border-amber-200/50'}`}>
                         <div className="flex items-center justify-between gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <div className="text-sm font-medium text-gray-900">{card.label}</div>
                             <div className="text-xs text-gray-400 mt-0.5">{card.description}</div>
+                            {!hasData && <div className="text-[9px] font-bold uppercase tracking-widest text-amber-600 mt-1">No data connected yet</div>}
                           </div>
                           <Plus size={14} className="text-gray-300 group-hover:text-gray-600 flex-shrink-0"/>
                         </div>
                       </button>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )
@@ -1064,22 +1153,69 @@ function PLTable({ data, accounts = PL_ACCOUNTS }) {
 // Patron cards (dashboard)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Format, sub2Label, sub2Delta, sub2Format, editMode, onRemove }) {
-  function fmt(d, f) {
-    if(d===null||d===undefined) return '—'
-    if(f==='currency') return (d>0?'+':'')+formatCurrency(d)
-    if(f==='percent') return formatPercent(d,{showSign:true,decimals:1})
-    if(f==='count') return (d>0?'+':'')+d.toLocaleString()
-    return (d>0?'+':'')+d
+function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, sub1Format, sub2Label, sub2Delta, sub2Base, sub2Format, editMode, onRemove }) {
+  function fmtDelta(delta, fmt) {
+    if (delta === null || delta === undefined) return '—'
+    const sign = delta > 0 ? '+' : ''
+    if (fmt === 'currency') return sign + formatCurrency(delta)
+    if (fmt === 'count')    return sign + Math.abs(delta).toLocaleString()
+    if (fmt === 'percent')  return formatPercent(delta, { showSign: true, decimals: 1 })
+    return sign + delta
   }
+  function fmtBase(base, fmt) {
+    if (base === null || base === undefined) return null
+    if (fmt === 'currency') return formatCurrency(base)
+    if (fmt === 'count')    return base.toLocaleString()
+    return String(base)
+  }
+  function pct(delta, base) {
+    if (delta === null || !base) return null
+    return formatPercent(delta / base * 100, { showSign: true, decimals: 1 })
+  }
+
+  const p1 = sub1Format === 'percent' ? null : pct(sub1Delta, sub1Base)
+  const p2 = sub2Format === 'percent' ? null : pct(sub2Delta, sub2Base)
+  const b1 = fmtBase(sub1Base, sub1Format)
+  const b2 = fmtBase(sub2Base, sub2Format)
+
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
-      {editMode&&onRemove&&<button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+      {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{label}</div>
-      <div className="text-3xl font-bold text-gray-900 mb-3">{mainValue}</div>
-      <div className="space-y-1.5">
-        {sub1Label&&<div className="flex items-center justify-between gap-2"><span className="text-xs text-gray-400">{sub1Label}</span><span className={`text-xs font-semibold tabular-nums ${varColor(sub1Delta)}`}>{fmt(sub1Delta,sub1Format)}</span></div>}
-        {sub2Label&&<div className="flex items-center justify-between gap-2"><span className="text-xs text-gray-400">{sub2Label}</span><span className={`text-xs font-semibold tabular-nums ${varColor(sub2Delta)}`}>{fmt(sub2Delta,sub2Format)}</span></div>}
+      <div className="text-3xl font-bold text-gray-900 mb-4">{mainValue}</div>
+      <div className="space-y-2.5">
+        {sub1Label && (
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{sub1Label}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {sub1Format === 'percent' ? (
+                <TrendBadge delta={sub1Delta} label={fmtDelta(sub1Delta, 'percent')}/>
+              ) : p1 ? (
+                <><TrendBadge delta={sub1Delta} label={p1}/>
+                <span className={`text-sm font-semibold ${varColor(sub1Delta)}`}>{fmtDelta(sub1Delta, sub1Format)}</span>
+                {b1 && <span className="text-xs text-gray-400">vs {b1}</span>}</>
+              ) : (
+                <span className={`text-sm font-semibold ${varColor(sub1Delta)}`}>{fmtDelta(sub1Delta, sub1Format)}</span>
+              )}
+            </div>
+          </div>
+        )}
+        {sub2Label && (
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{sub2Label}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {sub2Format === 'percent' ? (
+                <TrendBadge delta={sub2Delta} label={fmtDelta(sub2Delta, 'percent')}/>
+              ) : p2 ? (
+                <><TrendBadge delta={sub2Delta} label={p2}/>
+                <span className={`text-sm font-semibold ${varColor(sub2Delta)}`}>{fmtDelta(sub2Delta, sub2Format)}</span>
+                {b2 && <span className="text-xs text-gray-400">vs {b2}</span>}</>
+              ) : (
+                <span className={`text-sm font-semibold ${varColor(sub2Delta)}`}>{fmtDelta(sub2Delta, sub2Format)}</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1646,9 +1782,9 @@ function DashboardTab({ dateRange, orgConfig }) {
   function renderPatronMetricCard(cardId) {
     const p = d.patrons
     const removeMetric = () => setPatronMetricCards(c=>c.filter(x=>x!==cardId))
-    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label="vs Prior Month" sub1Delta={p.total-p.priorMonth} sub1Format="count" sub2Label="vs Prior Year" sub2Delta={p.total-p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
-    if(cardId==='new-patrons') return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={(p.newThisPeriod/p.newPriorPeriod-1)*100} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
-    if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label="vs Prior Month" sub1Delta={p.total-p.priorMonth} sub1Base={p.priorMonth} sub1Format="count" sub2Label="vs Prior Year" sub2Delta={p.total-p.priorYear} sub2Base={p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='new-patrons') return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Base={p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={(p.newThisPeriod/p.newPriorPeriod-1)*100} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Base={p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Base={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
     if(cardId==='retention') return (
       <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
@@ -1775,17 +1911,78 @@ function DashboardTab({ dateRange, orgConfig }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Team Detail Drawer
+// Team Detail Modal — centered, with category→account drill-down
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TeamDetailDrawer({ team, onClose }) {
-  const [chartType, setChartType] = useState('bar')
-  const [notes, setNotes] = useState('')
-  const monthly = teamMonthly(team.cats, team.spreadKey)
-  const catKeys = Object.keys(team.cats)
-  const variance    = team.actual - team.budget
-  const variancePct = team.budget > 0 ? (variance / team.budget * 100) : 0
+  // selectedCat: null = all categories view; string = a category key
+  // selectedAcct: null = category total view; string = an account key
+  const [selectedCat,  setSelectedCat]  = useState(null)
+  const [selectedAcct, setSelectedAcct] = useState(null)
+  const [chartType,    setChartType]    = useState('bar')
+  const [notes,        setNotes]        = useState('')
 
+  const catKeys    = Object.keys(team.cats)
+  const variance   = team.actual - team.budget
+  const varPct     = team.budget > 0 ? (variance / team.budget * 100) : 0
+
+  // ── chart data based on drill-down level
+  const allMonthly = teamMonthly(team.cats, team.spreadKey)
+
+  // Category-level: stacked accounts for the selected category
+  const catAccounts = selectedCat ? (TEAM_CAT_ACCOUNTS[selectedCat] || []) : []
+  const catActual   = selectedCat ? team.cats[selectedCat]?.actual || 0 : 0
+
+  const catAcctMonthly = catAccounts.length > 0
+    ? TEAM_MONTHS.map((month, i) => {
+        const obj = { month }
+        catAccounts.forEach(acct => {
+          const sp    = SPREADS[team.spreadKey] || SPREADS.flat
+          const norm  = sp.reduce((s, x) => s + x, 0)
+          obj[acct.key] = Math.round(catActual * acct.share * sp[i] / norm)
+        })
+        return obj
+      })
+    : []
+
+  // Account-level: single account monthly trend
+  const acctData = selectedAcct && selectedCat
+    ? (() => {
+        const acct = catAccounts.find(a => a.key === selectedAcct)
+        if (!acct) return []
+        return accountMonthly(selectedCat, catActual, acct.share, team.spreadKey)
+          .map(row => ({ month: row.month, value: row.value }))
+      })()
+    : []
+
+  function handleCatClick(catKey) {
+    if (selectedCat === catKey) {
+      // clicking same cat → go back to all
+      setSelectedCat(null); setSelectedAcct(null)
+    } else {
+      setSelectedCat(catKey); setSelectedAcct(null)
+    }
+  }
+
+  function handleAcctClick(acctKey) {
+    setSelectedAcct(prev => prev === acctKey ? null : acctKey)
+  }
+
+  function handleBackToAll() { setSelectedCat(null); setSelectedAcct(null) }
+
+  // Chart title / subtitle
+  const chartTitle = selectedAcct
+    ? (catAccounts.find(a=>a.key===selectedAcct)?.label || selectedAcct) + ' — Monthly Trend'
+    : selectedCat
+      ? (TEAM_CAT_MAP[selectedCat]?.label || selectedCat) + ' — Account Breakdown'
+      : 'Monthly Spend by Category'
+  const chartSub = selectedAcct
+    ? 'Single account monthly spending'
+    : selectedCat
+      ? 'Accounts within this category'
+      : 'Seasonal distribution of annual actuals'
+
+  // Shared recharts elements
   const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
   const yAxis = <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}
     tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}K`:v}/>
@@ -1793,19 +1990,109 @@ function TeamDetailDrawer({ team, onClose }) {
   const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>formatCurrency(v,{compact:false})}/>
   const leg   = <Legend wrapperStyle={{fontSize:'10px',paddingTop:'8px'}}/>
 
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm" onClick={onClose}/>
-      <div className="fixed top-0 right-0 h-full w-[580px] z-50 bg-white shadow-2xl border-l border-gray-200 flex flex-col overflow-hidden">
+  function renderChart() {
+    // ── Account selected → single line/area/bar
+    if (selectedAcct && acctData.length > 0) {
+      const acct  = catAccounts.find(a => a.key === selectedAcct)
+      const color = TEAM_CAT_MAP[selectedCat]?.color || '#0EA5A0'
+      const sharedProps = { data: acctData, margin:{top:5,right:5,left:-10,bottom:0} }
+      if (chartType==='bar') return (
+        <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+          <Bar dataKey="value" name={acct?.label||selectedAcct} fill={color} radius={[3,3,0,0]} opacity={0.85}/>
+        </BarChart>
+      )
+      if (chartType==='area') return (
+        <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+          <Area type="monotone" dataKey="value" name={acct?.label||selectedAcct} stroke={color} fill={color} fillOpacity={0.35} strokeWidth={2.5}/>
+        </AreaChart>
+      )
+      return (
+        <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+          <Line type="monotone" dataKey="value" name={acct?.label||selectedAcct} stroke={color} strokeWidth={2.5} dot={false} activeDot={{r:4}}/>
+        </LineChart>
+      )
+    }
 
-        {/* Header */}
+    // ── Category selected → stacked accounts
+    if (selectedCat && catAcctMonthly.length > 0) {
+      const catColor = TEAM_CAT_MAP[selectedCat]?.color || '#0EA5A0'
+      // Generate lighter shades for accounts
+      const acctColors = catAccounts.map((_, i) => {
+        const hsl = catColor.startsWith('#')
+          ? `${catColor}` : catColor
+        // Use opacity variants approximated by mixing with white
+        return [catColor, '#64B5B1', '#A0D8D5', '#C8ECEA', '#E0F5F4'][i % 5]
+      })
+      const sharedProps = { data: catAcctMonthly, margin:{top:5,right:5,left:-10,bottom:0} }
+      if (chartType==='bar') return (
+        <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+          {catAccounts.map((acct,i)=>(
+            <Bar key={acct.key} dataKey={acct.key} stackId="a" name={acct.label}
+              fill={acctColors[i]} radius={i===catAccounts.length-1?[3,3,0,0]:[0,0,0,0]}/>
+          ))}
+        </BarChart>
+      )
+      if (chartType==='area') return (
+        <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+          {catAccounts.map((acct,i)=>(
+            <Area key={acct.key} type="monotone" dataKey={acct.key} stackId="1" name={acct.label}
+              stroke={acctColors[i]} fill={acctColors[i]} fillOpacity={0.7}/>
+          ))}
+        </AreaChart>
+      )
+      return (
+        <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+          {catAccounts.map((acct,i)=>(
+            <Line key={acct.key} type="monotone" dataKey={acct.key} name={acct.label}
+              stroke={acctColors[i]} strokeWidth={2} dot={false}/>
+          ))}
+        </LineChart>
+      )
+    }
+
+    // ── All categories → stacked categories
+    const sharedProps = { data: allMonthly, margin:{top:5,right:5,left:-10,bottom:0} }
+    if (chartType==='bar') return (
+      <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+        {catKeys.map((key,i)=>(
+          <Bar key={key} dataKey={key} stackId="a" name={TEAM_CAT_MAP[key]?.label||key}
+            fill={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
+            radius={i===catKeys.length-1?[3,3,0,0]:[0,0,0,0]}/>
+        ))}
+      </BarChart>
+    )
+    if (chartType==='area') return (
+      <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+        {catKeys.map((key,i)=>(
+          <Area key={key} type="monotone" dataKey={key} stackId="1" name={TEAM_CAT_MAP[key]?.label||key}
+            stroke={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
+            fill={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color} fillOpacity={0.65}/>
+        ))}
+      </AreaChart>
+    )
+    return (
+      <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
+        {catKeys.map((key,i)=>(
+          <Line key={key} type="monotone" dataKey={key} name={TEAM_CAT_MAP[key]?.label||key}
+            stroke={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color} strokeWidth={2} dot={false}/>
+        ))}
+      </LineChart>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden"
+           onClick={e=>e.stopPropagation()}>
+
+        {/* ── Modal header ── */}
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--color-accent)'}}>Team Detail</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--color-accent)'}}>Team Detail</p>
             <h2 className="text-xl font-bold text-gray-900">{team.name}</h2>
             <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button disabled title="Dashboard not yet created"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed opacity-60">
               <LayoutDashboard size={12}/> Open Dashboard
@@ -1816,11 +2103,11 @@ function TeamDetailDrawer({ team, onClose }) {
           </div>
         </div>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+        {/* ── Modal body: stats + two-column main ── */}
+        <div className="flex-1 overflow-hidden flex flex-col">
 
           {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 px-6 pt-5 pb-4 flex-shrink-0">
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actual YTD</div>
               <div className="text-lg font-bold text-gray-900">{formatCurrency(team.actual)}</div>
@@ -1835,137 +2122,240 @@ function TeamDetailDrawer({ team, onClose }) {
                 {variance>0?'+':''}{formatCurrency(variance)}
               </div>
               <div className={`text-[10px] font-medium mt-0.5 ${variance>0?'text-red-500':'text-emerald-500'}`}>
-                {variance>0?'+':''}{variancePct.toFixed(1)}%
+                {varPct>0?'+':''}{varPct.toFixed(1)}%
               </div>
             </div>
           </div>
 
-          {/* Monthly spend chart */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="text-xs font-semibold text-gray-700">Monthly Spend by Category</div>
-                <div className="text-[10px] text-gray-400">Based on annual actuals with seasonal distribution</div>
+          {/* Two-column: left nav + right content */}
+          <div className="flex flex-1 gap-0 overflow-hidden border-t border-gray-100">
+
+            {/* ── Left: drill-down nav ── */}
+            <div className="w-52 flex-shrink-0 border-r border-gray-100 overflow-y-auto py-3 px-2 space-y-0.5">
+              {/* All categories link */}
+              <button onClick={handleBackToAll}
+                className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${!selectedCat ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}>
+                <BarChart2 size={11}/> All Categories
+              </button>
+              <div className="px-3 pt-3 pb-1">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-gray-300">Categories</span>
               </div>
-              <ChartTypeToggle type={chartType} onChange={setChartType}/>
+              {catKeys.map((key, i) => {
+                const cat   = team.cats[key]
+                const label = TEAM_CAT_MAP[key]?.label || key
+                const color = TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color
+                const isActive = selectedCat === key
+                const accts = TEAM_CAT_ACCOUNTS[key] || []
+                return (
+                  <div key={key}>
+                    <button onClick={()=>handleCatClick(key)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${isActive ? 'bg-gray-100 text-gray-900 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}>
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:color}}/>
+                      <span className="flex-1 truncate">{label}</span>
+                      {accts.length > 0 && <ChevronRight size={10} className={`transition-transform ${isActive?'rotate-90 text-gray-700':'text-gray-300'}`}/>}
+                    </button>
+                    {/* Account sub-items when category selected */}
+                    {isActive && accts.map(acct => (
+                      <button key={acct.key} onClick={()=>handleAcctClick(acct.key)}
+                        className={`w-full text-left pl-8 pr-3 py-1.5 rounded-lg text-[10px] transition-colors flex items-center gap-1.5 ${selectedAcct===acct.key ? 'bg-gray-900 text-white font-medium' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'}`}>
+                        <span className="w-1 h-1 rounded-full bg-current flex-shrink-0"/>
+                        <span className="truncate">{acct.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })}
             </div>
-            <ResponsiveContainer width="100%" height={220}>
-              {chartType==='line' ? (
-                <LineChart data={monthly} margin={{top:5,right:5,left:-10,bottom:0}}>
-                  {grid}{xAxis}{yAxis}{tip}{leg}
-                  {catKeys.map((key,i)=>(
-                    <Line key={key} type="monotone" dataKey={key}
-                      name={TEAM_CAT_MAP[key]?.label||key}
-                      stroke={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
-                      strokeWidth={2} dot={false}/>
-                  ))}
-                </LineChart>
-              ) : chartType==='area' ? (
-                <AreaChart data={monthly} margin={{top:5,right:5,left:-10,bottom:0}}>
-                  {grid}{xAxis}{yAxis}{tip}{leg}
-                  {catKeys.map((key,i)=>(
-                    <Area key={key} type="monotone" dataKey={key} stackId="1"
-                      name={TEAM_CAT_MAP[key]?.label||key}
-                      stroke={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
-                      fill={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
-                      fillOpacity={0.65}/>
-                  ))}
-                </AreaChart>
-              ) : (
-                <BarChart data={monthly} margin={{top:5,right:5,left:-10,bottom:0}}>
-                  {grid}{xAxis}{yAxis}{tip}{leg}
-                  {catKeys.map((key,i)=>(
-                    <Bar key={key} dataKey={key} stackId="a"
-                      name={TEAM_CAT_MAP[key]?.label||key}
-                      fill={TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color}
-                      radius={i===catKeys.length-1?[3,3,0,0]:[0,0,0,0]}/>
-                  ))}
-                </BarChart>
+
+            {/* ── Right: chart + table + notes ── */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              {/* Breadcrumb */}
+              {(selectedCat || selectedAcct) && (
+                <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                  <button onClick={handleBackToAll} className="hover:text-gray-700 transition-colors font-medium">All Categories</button>
+                  {selectedCat && <>
+                    <ChevronRight size={10}/>
+                    <button onClick={()=>setSelectedAcct(null)} className={`transition-colors font-medium ${!selectedAcct?'text-gray-700':'hover:text-gray-700'}`}>
+                      {TEAM_CAT_MAP[selectedCat]?.label || selectedCat}
+                    </button>
+                  </>}
+                  {selectedAcct && <>
+                    <ChevronRight size={10}/>
+                    <span className="text-gray-700 font-medium">
+                      {catAccounts.find(a=>a.key===selectedAcct)?.label || selectedAcct}
+                    </span>
+                  </>}
+                </div>
               )}
-            </ResponsiveContainer>
-          </div>
 
-          {/* Category line-item variance table */}
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-3">Category Breakdown</div>
-            <div className="rounded-xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-left  px-4 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Line Item</th>
-                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Actual</th>
-                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
-                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var $</th>
-                    <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var %</th>
-                    <th className="text-right px-4 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">PY Actual</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {catKeys.map((key,i) => {
-                    const cat   = team.cats[key]
-                    const label = TEAM_CAT_MAP[key]?.label || key
-                    const color = TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color
-                    const v     = cat.actual - cat.budget
-                    const vPct  = cat.budget > 0 ? (v/cat.budget*100) : 0
-                    const vsPY  = cat.actual - (cat.priorYear||0)
-                    return (
-                      <tr key={key} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:color}}/>
-                            <span className="font-medium text-gray-700">{label}</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{formatCurrency(cat.actual)}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(cat.budget)}</td>
-                        <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${v>0?'text-red-600':'text-emerald-600'}`}>
-                          {v>0?'+':''}{formatCurrency(v)}
-                        </td>
-                        <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${v>0?'text-red-600':'text-emerald-600'}`}>
-                          {v>0?'+':''}{vPct.toFixed(1)}%
-                        </td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-gray-400">
-                          {cat.priorYear ? formatCurrency(cat.priorYear) : '—'}
-                          {cat.priorYear && <span className={`ml-1 text-[9px] font-medium ${vsPY>0?'text-red-500':'text-emerald-500'}`}>
-                            {vsPY>0?'▲':'▼'}{Math.abs(vsPY/cat.priorYear*100).toFixed(0)}%
-                          </span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {/* Totals row */}
-                  <tr className="bg-gray-900">
-                    <td className="px-4 py-2.5 font-bold text-white text-xs">Total</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-white">{formatCurrency(team.actual)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(team.budget)}</td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${variance>0?'text-red-400':'text-emerald-400'}`}>
-                      {variance>0?'+':''}{formatCurrency(variance)}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${variancePct>0?'text-red-400':'text-emerald-400'}`}>
-                      {variancePct>0?'+':''}{variancePct.toFixed(1)}%
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">
-                      {formatCurrency(catKeys.reduce((s,k)=>s+(team.cats[k].priorYear||0),0))}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+              {/* Chart */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700">{chartTitle}</div>
+                    <div className="text-[10px] text-gray-400">{chartSub}</div>
+                  </div>
+                  <ChartTypeToggle type={chartType} onChange={setChartType}/>
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  {renderChart()}
+                </ResponsiveContainer>
+              </div>
 
-          {/* Manager notes */}
-          <div>
-            <div className="text-xs font-semibold text-gray-700 mb-2">Manager Notes</div>
-            <textarea
-              value={notes} onChange={e=>setNotes(e.target.value)}
-              placeholder="Add context, action items, or notes about this team's performance..."
-              rows={4}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 resize-none focus:outline-none focus:border-gray-400 placeholder-gray-300"/>
-          </div>
+              {/* ── Detail table: accounts or categories depending on drill level ── */}
+              {selectedCat && catAccounts.length > 0 ? (
+                /* Account breakdown table */
+                <div>
+                  <div className="text-xs font-semibold text-gray-700 mb-2">
+                    {selectedAcct
+                      ? (catAccounts.find(a=>a.key===selectedAcct)?.label) + ' — Detail'
+                      : (TEAM_CAT_MAP[selectedCat]?.label || selectedCat) + ' — Accounts'}
+                  </div>
+                  <div className="rounded-xl border border-gray-100 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="text-left px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-gray-400">Account</th>
+                          <th className="text-right px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-gray-400">Actual</th>
+                          <th className="text-right px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
+                          <th className="text-right px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var $</th>
+                          <th className="text-right px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {catAccounts.map(acct => {
+                          const catData = team.cats[selectedCat]
+                          const aActual = Math.round(catData.actual * acct.share)
+                          const aBudget = Math.round(catData.budget * acct.share)
+                          const av      = aActual - aBudget
+                          const avPct   = aBudget > 0 ? (av/aBudget*100) : 0
+                          const isHighlight = selectedAcct === acct.key
+                          return (
+                            <tr key={acct.key}
+                              onClick={()=>handleAcctClick(acct.key)}
+                              className={`border-b border-gray-50 cursor-pointer transition-colors ${isHighlight?'bg-gray-900':'hover:bg-gray-50'}`}>
+                              <td className={`px-4 py-2 font-medium ${isHighlight?'text-white':'text-gray-700'}`}>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-1 h-1 rounded-full bg-current flex-shrink-0"/>
+                                  {acct.label}
+                                </div>
+                              </td>
+                              <td className={`px-3 py-2 text-right tabular-nums ${isHighlight?'text-white':'text-gray-700'}`}>{formatCurrency(aActual)}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums ${isHighlight?'text-gray-300':'text-gray-400'}`}>{formatCurrency(aBudget)}</td>
+                              <td className={`px-3 py-2 text-right tabular-nums font-medium ${isHighlight?(av>0?'text-red-300':'text-emerald-300'):(av>0?'text-red-600':'text-emerald-600')}`}>
+                                {av>0?'+':''}{formatCurrency(av)}
+                              </td>
+                              <td className={`px-4 py-2 text-right tabular-nums font-medium ${isHighlight?(avPct>0?'text-red-300':'text-emerald-300'):(avPct>0?'text-red-600':'text-emerald-600')}`}>
+                                {avPct>0?'+':''}{avPct.toFixed(1)}%
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {/* Category total */}
+                        <tr className="bg-gray-900">
+                          <td className="px-4 py-2 font-bold text-white">Total — {TEAM_CAT_MAP[selectedCat]?.label||selectedCat}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-bold text-white">{formatCurrency(team.cats[selectedCat].actual)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-400">{formatCurrency(team.cats[selectedCat].budget)}</td>
+                          {(() => {
+                            const cv = team.cats[selectedCat].actual - team.cats[selectedCat].budget
+                            const cvp = team.cats[selectedCat].budget > 0 ? cv/team.cats[selectedCat].budget*100 : 0
+                            return <>
+                              <td className={`px-3 py-2 text-right tabular-nums font-bold ${cv>0?'text-red-400':'text-emerald-400'}`}>{cv>0?'+':''}{formatCurrency(cv)}</td>
+                              <td className={`px-4 py-2 text-right tabular-nums font-bold ${cvp>0?'text-red-400':'text-emerald-400'}`}>{cvp>0?'+':''}{cvp.toFixed(1)}%</td>
+                            </>
+                          })()}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                /* All-categories table */
+                <div>
+                  <div className="text-xs font-semibold text-gray-700 mb-2">Category Breakdown</div>
+                  <div className="rounded-xl border border-gray-100 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="text-left px-4 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Line Item</th>
+                          <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Actual</th>
+                          <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
+                          <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var $</th>
+                          <th className="text-right px-3 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">Var %</th>
+                          <th className="text-right px-4 py-2.5 text-[9px] font-bold uppercase tracking-widest text-gray-400">PY Actual</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {catKeys.map((key,i) => {
+                          const cat   = team.cats[key]
+                          const label = TEAM_CAT_MAP[key]?.label || key
+                          const color = TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color
+                          const v     = cat.actual - cat.budget
+                          const vPct  = cat.budget > 0 ? (v/cat.budget*100) : 0
+                          const vsPY  = cat.actual - (cat.priorYear||0)
+                          return (
+                            <tr key={key} onClick={()=>handleCatClick(key)}
+                              className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors">
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:color}}/>
+                                  <span className="font-medium text-gray-700">{label}</span>
+                                  {TEAM_CAT_ACCOUNTS[key]?.length > 0 && <ChevronRight size={10} className="text-gray-300"/>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{formatCurrency(cat.actual)}</td>
+                              <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(cat.budget)}</td>
+                              <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${v>0?'text-red-600':'text-emerald-600'}`}>
+                                {v>0?'+':''}{formatCurrency(v)}
+                              </td>
+                              <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${v>0?'text-red-600':'text-emerald-600'}`}>
+                                {v>0?'+':''}{vPct.toFixed(1)}%
+                              </td>
+                              <td className="px-4 py-2.5 text-right tabular-nums text-gray-400">
+                                {cat.priorYear ? formatCurrency(cat.priorYear) : '—'}
+                                {cat.priorYear && <span className={`ml-1 text-[9px] font-medium ${vsPY>0?'text-red-500':'text-emerald-500'}`}>
+                                  {vsPY>0?'▲':'▼'}{Math.abs(vsPY/cat.priorYear*100).toFixed(0)}%
+                                </span>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        <tr className="bg-gray-900">
+                          <td className="px-4 py-2.5 font-bold text-white text-xs">Total</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums font-bold text-white">{formatCurrency(team.actual)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(team.budget)}</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${variance>0?'text-red-400':'text-emerald-400'}`}>
+                            {variance>0?'+':''}{formatCurrency(variance)}
+                          </td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${varPct>0?'text-red-400':'text-emerald-400'}`}>
+                            {varPct>0?'+':''}{varPct.toFixed(1)}%
+                          </td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">
+                            {formatCurrency(catKeys.reduce((s,k)=>s+(team.cats[k].priorYear||0),0))}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
-        </div>{/* end scroll */}
-      </div>
-    </>
+              {/* Manager notes */}
+              <div>
+                <div className="text-xs font-semibold text-gray-700 mb-2">Manager Notes</div>
+                <textarea
+                  value={notes} onChange={e=>setNotes(e.target.value)}
+                  placeholder="Add context, action items, or notes about this team's performance..."
+                  rows={3}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 resize-none focus:outline-none focus:border-gray-400 placeholder-gray-300"/>
+              </div>
+
+            </div>{/* end right column */}
+          </div>{/* end two-column */}
+        </div>{/* end modal body */}
+      </div>{/* end modal */}
+    </div>
   )
 }
 
