@@ -1,0 +1,684 @@
+import React, { useState } from 'react'
+import {
+  Plus, X, ChevronRight,
+  Star, DollarSign, TrendingUp, HelpCircle, RefreshCw,
+  BarChart2, Users, Tag, Award,
+} from 'lucide-react'
+import { useApp } from '../context/AppContext'
+import { formatCurrency, formatOverUnder } from '../utils/formatters'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card registry — single source of truth for all card types
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CARD_REGISTRY = [
+  // ── Comments group ──
+  {
+    type:        'financial-highlights',
+    group:       'Comments',
+    label:       'Financial Highlights',
+    commentType: 'financial-highlight',
+    variant:     'full',
+    icon:        Star,
+  },
+  {
+    type:        'budget-requests',
+    group:       'Comments',
+    label:       'Budget Requests',
+    commentType: 'budget-request',
+    variant:     'full',
+    icon:        DollarSign,
+  },
+  {
+    type:        'variance-explanations',
+    group:       'Comments',
+    label:       'Variance Explanations',
+    commentType: 'variance-explanation',
+    variant:     'full',
+    icon:        TrendingUp,
+  },
+  {
+    type:        'open-questions',
+    group:       'Comments',
+    label:       'Open Questions',
+    commentType: 'question',
+    variant:     'mini',
+    icon:        HelpCircle,
+  },
+  {
+    type:        'reclassifications',
+    group:       'Comments',
+    label:       'Reclassifications',
+    commentType: 'reclassification',
+    variant:     'mini',
+    icon:        RefreshCw,
+  },
+  {
+    type:        'budget-requests-total',
+    group:       'Comments',
+    label:       'Budget Requests · $ Total',
+    commentType: 'budget-request',
+    variant:     'total',
+    icon:        DollarSign,
+  },
+  // ── Top Lists group ──
+  {
+    type:     'top-categories',
+    group:    'Top Lists',
+    label:    'Top categories',
+    field:    'category',
+    defaultN: 5,
+    icon:     BarChart2,
+  },
+  {
+    type:     'top-vendors',
+    group:    'Top Lists',
+    label:    'Top vendors',
+    field:    'vendor',
+    defaultN: 10,
+    icon:     Users,
+  },
+  {
+    type:     'top-accounts',
+    group:    'Top Lists',
+    label:    'Top accounts',
+    field:    'account',
+    defaultN: 5,
+    icon:     Tag,
+  },
+  {
+    type:     'top-grants',
+    group:    'Top Lists',
+    label:    'Top grants',
+    field:    'grant',
+    defaultN: 5,
+    icon:     Award,
+  },
+]
+
+const DEFAULT_CARDS = [
+  { id: 'c1',  type: 'financial-highlights' },
+  { id: 'c2',  type: 'budget-requests' },
+  { id: 'c3',  type: 'variance-explanations' },
+  { id: 'c4',  type: 'open-questions' },
+  { id: 'c5',  type: 'reclassifications' },
+  { id: 'c6',  type: 'budget-requests-total' },
+  { id: 'c7',  type: 'top-categories',  n: 5 },
+  { id: 'c8',  type: 'top-vendors',     n: 10 },
+  { id: 'c9',  type: 'top-accounts',    n: 5 },
+  { id: 'c10', type: 'top-grants',      n: 5 },
+]
+
+// Coming-soon placeholders (greyed out in Add Card panel)
+const FUTURE_GROUPS = [
+  { label: 'Variance',  description: 'Category-level actuals vs budget breakdown' },
+  { label: 'Pacing',    description: 'Monthly burn-rate projections vs target' },
+  { label: 'Outliers',  description: 'Transactions above expected thresholds' },
+  { label: 'Review',    description: 'Flagged transactions needing approval' },
+  { label: 'Activity',  description: 'Recent changes, imports, and comments' },
+]
+
+// Per-type display config used in comment cards
+const COMMENT_TYPE_CONFIG = {
+  'financial-highlight':  { color: '#10B981', bg: '#ECFDF5' },
+  'budget-request':       { color: '#8B5CF6', bg: '#F5F3FF' },
+  'variance-explanation': { color: '#F97316', bg: '#FFF7ED' },
+  reclassification:       { color: '#EC4899', bg: '#FDF2F8' },
+  question:               { color: '#F59E0B', bg: '#FFFBEB' },
+  comment:                { color: '#6B7280', bg: '#F3F4F6' },
+  request:                { color: '#8B5CF6', bg: '#F5F3FF' },
+}
+
+function timeAgo(ts) {
+  const diff  = Date.now() - new Date(ts).getTime()
+  const days  = Math.floor(diff / 86400000)
+  const hours = Math.floor(diff / 3600000)
+  if (days  > 0) return `${days}d ago`
+  if (hours > 0) return `${hours}h ago`
+  return 'just now'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CardShell — common card wrapper
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CardShell({ title, count, onRemove, children }) {
+  return (
+    <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100">
+        <span className="text-xs font-semibold text-gray-700 flex-1 truncate">{title}</span>
+        {count !== undefined && (
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 tabular-nums flex-shrink-0">
+            {count}
+          </span>
+        )}
+        <button
+          onClick={onRemove}
+          className="text-gray-200 hover:text-red-400 transition-colors p-0.5 flex-shrink-0"
+          title="Remove card"
+        >
+          <X size={13} />
+        </button>
+      </div>
+      {/* Body */}
+      <div className="p-3">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InlineAddForm — lightweight comment entry inside a card
+// ─────────────────────────────────────────────────────────────────────────────
+
+function InlineAddForm({ commentType, onSave, onCancel }) {
+  const [author, setAuthor] = useState('')
+  const [text,   setText]   = useState('')
+
+  function handleSave() {
+    if (!text.trim() || !author.trim()) return
+    onSave({ author, avatar: author.charAt(0).toUpperCase(), type: commentType, text })
+    setAuthor(''); setText('')
+  }
+
+  return (
+    <div className="mt-2 p-2.5 bg-gray-50 rounded-xl border border-gray-100">
+      <input
+        value={author}
+        onChange={e => setAuthor(e.target.value)}
+        placeholder="Your name"
+        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 mb-1.5 focus:outline-none focus:border-teal-400 bg-white"
+      />
+      <textarea
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Add a note..."
+        rows={2}
+        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:border-teal-400 bg-white"
+      />
+      <div className="flex gap-1.5 mt-1.5 justify-end">
+        <button
+          onClick={onCancel}
+          className="text-[11px] px-2.5 py-1 text-gray-500 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={!text.trim() || !author.trim()}
+          className="text-[11px] px-2.5 py-1 text-white rounded-lg disabled:opacity-40 transition-colors"
+          style={{ backgroundColor: 'var(--color-accent)' }}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CommentEntry — single comment inside a card
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CommentEntry({ comment }) {
+  const cfg = COMMENT_TYPE_CONFIG[comment.type] || COMMENT_TYPE_CONFIG.comment
+  return (
+    <div className="py-2 border-b border-gray-50 last:border-0">
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <div
+          className="w-5 h-5 rounded-full text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: cfg.color }}
+        >
+          {comment.avatar}
+        </div>
+        <span className="text-[11px] font-semibold text-gray-700">{comment.author}</span>
+        <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">{timeAgo(comment.timestamp)}</span>
+      </div>
+      <p className="text-xs text-gray-600 leading-relaxed pl-6">{comment.text}</p>
+      {comment.category && (
+        <span className="ml-6 inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+          {comment.category}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FullCommentCard — Financial Highlights, Budget Requests, Variance Explanations
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FullCommentCard({ card, commentType, title, onRemove }) {
+  const { comments, addComment } = useApp()
+  const [showForm, setShowForm]  = useState(false)
+
+  const relevant = comments.filter(c => c.type === commentType && !c.resolved)
+
+  return (
+    <CardShell title={title} count={relevant.length} onRemove={onRemove}>
+      {relevant.length === 0 && !showForm && (
+        <p className="text-xs text-gray-400 text-center py-2">
+          No {title.toLowerCase()} yet
+        </p>
+      )}
+      {relevant.map(c => <CommentEntry key={c.id} comment={c} />)}
+
+      {showForm ? (
+        <InlineAddForm
+          commentType={commentType}
+          onSave={data => {
+            addComment({ ...data, page: 'breakdown', category: null, transactionRef: null })
+            setShowForm(false)
+          }}
+          onCancel={() => setShowForm(false)}
+        />
+      ) : (
+        <button
+          onClick={() => setShowForm(true)}
+          className="w-full mt-2 flex items-center justify-center gap-1 text-[11px] text-teal-600 hover:text-teal-700 font-medium py-1 rounded-lg hover:bg-teal-50 transition-colors"
+        >
+          <Plus size={11} /> Add note
+        </button>
+      )}
+    </CardShell>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MiniCommentCard — Open Questions, Reclassifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MiniCommentCard({ card, commentType, title, onRemove }) {
+  const { comments } = useApp()
+  const relevant     = comments.filter(c => c.type === commentType && !c.resolved)
+  const preview      = relevant[0]
+
+  return (
+    <CardShell title={title} count={relevant.length} onRemove={onRemove}>
+      {relevant.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-1">None open</p>
+      ) : (
+        <div>
+          {preview && (
+            <p className="text-xs text-gray-600 leading-relaxed line-clamp-2 mb-1">
+              {preview.text}
+            </p>
+          )}
+          {relevant.length > 1 && (
+            <p className="text-[10px] text-gray-400">+{relevant.length - 1} more</p>
+          )}
+          <a
+            href="#/comments"
+            className="inline-flex items-center gap-0.5 text-[11px] text-teal-600 font-medium mt-1.5 hover:underline"
+          >
+            Open in Comments <ChevronRight size={10} />
+          </a>
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BudgetRequestsTotalCard
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BudgetRequestsTotalCard({ card, onRemove }) {
+  const { comments } = useApp()
+  const requests     = comments.filter(c => c.type === 'budget-request' && !c.resolved)
+
+  // Try to extract dollar amounts from comment text
+  const total = requests.reduce((sum, c) => {
+    const matches = c.text.match(/\$[\d,]+(?:\.\d+)?(?:\s*[KkMm])?/g) || []
+    return matches.reduce((s, m) => {
+      let n = parseFloat(m.replace(/[$,]/g, ''))
+      if (/[Kk]/.test(m)) n *= 1000
+      if (/[Mm]/.test(m)) n *= 1000000
+      return s + (isNaN(n) ? 0 : n)
+    }, sum)
+  }, 0)
+
+  return (
+    <CardShell title="Budget Requests · $ Total" onRemove={onRemove}>
+      <div className="text-center py-2">
+        <div className="text-2xl font-bold text-gray-800 tabular-nums">
+          {requests.length}
+        </div>
+        <div className="text-[10px] text-gray-400 mb-0.5">open request{requests.length !== 1 ? 's' : ''}</div>
+        {total > 0 && (
+          <div className="text-sm font-semibold text-gray-600 tabular-nums mb-1">
+            {formatCurrency(total, { compact: true })} requested
+          </div>
+        )}
+        <a
+          href="#/comments"
+          className="inline-flex items-center gap-0.5 text-[11px] text-teal-600 font-medium hover:underline"
+        >
+          Review & approve <ChevronRight size={10} />
+        </a>
+      </div>
+    </CardShell>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TopListCard — ranked list with 5/10 toggle and teal progress bars
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TopListCard({ card, actuals, title, field, onRemove }) {
+  const [n, setN] = useState(card.n || 5)
+
+  // Aggregate by field, skip null/empty values (e.g. null grants)
+  const byField = actuals.reduce((acc, t) => {
+    const key = t[field]
+    if (key === null || key === undefined || key === '') return acc
+    acc[key] = (acc[key] || 0) + (t.amount || 0)
+    return acc
+  }, {})
+
+  const allEntries = Object.entries(byField).sort(([, a], [, b]) => b - a)
+  const topN       = allEntries.slice(0, n)
+  const max        = topN[0]?.[1] || 1
+
+  return (
+    <CardShell title={title} count={allEntries.length} onRemove={onRemove}>
+      {/* N toggle */}
+      <div className="flex items-center gap-1 mb-2.5">
+        {[5, 10].map(num => (
+          <button
+            key={num}
+            onClick={() => setN(num)}
+            className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all ${
+              n === num
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'border-gray-200 text-gray-500 hover:border-gray-400'
+            }`}
+          >
+            {num}
+          </button>
+        ))}
+        <span className="text-[10px] text-gray-400 ml-1">of {allEntries.length}</span>
+      </div>
+
+      {topN.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-2">No data</p>
+      ) : (
+        <div className="space-y-2">
+          {topN.map(([key, amount], i) => (
+            <div key={key}>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-[10px] font-bold text-gray-300 w-3.5 text-right flex-shrink-0">
+                  {i + 1}
+                </span>
+                <span className="text-xs text-gray-700 font-medium flex-1 truncate">{key}</span>
+                <span className="text-[11px] font-semibold text-gray-800 tabular-nums flex-shrink-0">
+                  {formatCurrency(amount)}
+                </span>
+              </div>
+              <div className="ml-5 h-1 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width:           `${(amount / max) * 100}%`,
+                    backgroundColor: 'var(--color-accent)',
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddCardPanel — slide-in overlay for picking new cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AddCardPanel({ activeTypes, onAdd, onClose }) {
+  // Group registry by group name
+  const byGroup = CARD_REGISTRY.reduce((acc, card) => {
+    if (!acc[card.group]) acc[card.group] = []
+    acc[card.group].push(card)
+    return acc
+  }, {})
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white h-full w-72 shadow-2xl flex flex-col overflow-hidden">
+        {/* Panel header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900">Add Card</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-4 space-y-5">
+          {/* Active card groups */}
+          {Object.entries(byGroup).map(([group, cards]) => (
+            <div key={group}>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                {group}
+              </div>
+              <div className="space-y-1.5">
+                {cards.map(card => {
+                  const isActive = activeTypes.includes(card.type)
+                  const Icon     = card.icon
+                  return (
+                    <button
+                      key={card.type}
+                      onClick={() => !isActive && onAdd(card.type)}
+                      disabled={isActive}
+                      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${
+                        isActive
+                          ? 'bg-gray-50 border-gray-100 opacity-50 cursor-not-allowed'
+                          : 'bg-white border-gray-200 hover:border-teal-400 hover:bg-teal-50 cursor-pointer'
+                      }`}
+                    >
+                      <div
+                        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{
+                          backgroundColor: isActive ? '#F3F4F6' : 'var(--color-primary-light)',
+                        }}
+                      >
+                        <Icon
+                          size={13}
+                          style={{ color: isActive ? '#9CA3AF' : 'var(--color-primary)' }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700 flex-1">
+                        {card.label}
+                      </span>
+                      {isActive && (
+                        <span className="text-[10px] text-gray-400 font-medium flex-shrink-0">
+                          Added
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Coming-soon placeholders */}
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-gray-300 mb-2">
+              Coming Soon
+            </div>
+            <div className="space-y-1.5">
+              {FUTURE_GROUPS.map(g => (
+                <div
+                  key={g.label}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-dashed border-gray-200 opacity-50"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                    <BarChart2 size={13} className="text-gray-300" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-gray-400">{g.label}</div>
+                    <div className="text-[10px] text-gray-300 leading-tight mt-0.5 truncate">
+                      {g.description}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SpendSummaryCard — always-present dark card at top of panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SpendSummaryCard({ actual, budget, transactions, selectedScenario }) {
+  const delta   = actual - budget
+  const pctUsed = budget > 0 ? (actual / budget) * 100 : 0
+
+  return (
+    <div className="bg-gray-900 text-white rounded-2xl p-5">
+      <div className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold mb-1">
+        Spend · Whole Team
+      </div>
+      <div className="text-3xl font-bold mb-0.5">{formatCurrency(actual)}</div>
+      <div className="text-xs text-gray-400">{transactions} transactions</div>
+
+      <div className="mt-3 pt-3 border-t border-gray-700">
+        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
+          vs {selectedScenario}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-sm font-bold" style={{ color: delta >= 0 ? '#F87171' : '#34D399' }}>
+            {formatOverUnder(delta)}
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all"
+            style={{
+              width:           `${Math.min(pctUsed, 100)}%`,
+              backgroundColor: delta >= 0 ? '#F87171' : '#34D399',
+            }}
+          />
+        </div>
+        <div className="text-[10px] text-gray-400 mt-1">
+          {formatCurrency(budget)} {selectedScenario} · {Math.round(pctUsed)}% used
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KPIPanel — main export
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function KPIPanel({ actual, budget, transactions, selectedScenario, actuals }) {
+  const [cards,        setCards]        = useState(DEFAULT_CARDS)
+  const [showAddPanel, setShowAddPanel] = useState(false)
+
+  function removeCard(id) {
+    setCards(prev => prev.filter(c => c.id !== id))
+  }
+
+  function addCard(type) {
+    const reg = CARD_REGISTRY.find(r => r.type === type)
+    if (!reg) return
+    setCards(prev => [
+      ...prev,
+      { id: 'card-' + Date.now(), type, n: reg.defaultN },
+    ])
+    setShowAddPanel(false)
+  }
+
+  const activeTypes = cards.map(c => c.type)
+
+  function renderCard(card) {
+    const reg      = CARD_REGISTRY.find(r => r.type === card.type)
+    if (!reg) return null
+    const onRemove = () => removeCard(card.id)
+
+    if (reg.variant === 'full') {
+      return (
+        <FullCommentCard
+          key={card.id} card={card}
+          commentType={reg.commentType} title={reg.label}
+          onRemove={onRemove}
+        />
+      )
+    }
+    if (reg.variant === 'mini') {
+      return (
+        <MiniCommentCard
+          key={card.id} card={card}
+          commentType={reg.commentType} title={reg.label}
+          onRemove={onRemove}
+        />
+      )
+    }
+    if (reg.variant === 'total') {
+      return (
+        <BudgetRequestsTotalCard
+          key={card.id} card={card}
+          onRemove={onRemove}
+        />
+      )
+    }
+    if (reg.group === 'Top Lists') {
+      return (
+        <TopListCard
+          key={card.id} card={card}
+          actuals={actuals} title={reg.label} field={reg.field}
+          onRemove={onRemove}
+        />
+      )
+    }
+    return null
+  }
+
+  return (
+    <>
+      <div className="flex flex-col gap-3">
+        {/* Spend summary — always at top */}
+        <SpendSummaryCard
+          actual={actual}
+          budget={budget}
+          transactions={transactions}
+          selectedScenario={selectedScenario}
+        />
+
+        {/* Dynamic cards */}
+        {cards.map(renderCard)}
+
+        {/* Add Card button */}
+        <button
+          onClick={() => setShowAddPanel(true)}
+          className="bg-white rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-teal-300 hover:bg-teal-50 transition-colors py-6"
+        >
+          <Plus size={20} className="text-gray-300 mb-1" />
+          <span className="text-xs text-gray-400 font-medium">Add card</span>
+        </button>
+      </div>
+
+      {showAddPanel && (
+        <AddCardPanel
+          activeTypes={activeTypes}
+          onAdd={addCard}
+          onClose={() => setShowAddPanel(false)}
+        />
+      )}
+    </>
+  )
+}

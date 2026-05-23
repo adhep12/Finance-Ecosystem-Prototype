@@ -12,6 +12,7 @@ import {
   getUniqueValues,
 } from '../utils/dataProcessing'
 import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
+import KPIPanel from '../components/KPIPanel'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -347,22 +348,17 @@ function GroupRow({ row, onToggle, onHide }) {
         {FIELD_LABELS[row.field]}
       </span>
 
-      {/* Value name */}
-      <div className="flex-1 min-w-0">
+      {/* Value name + always-visible ban button */}
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
         <span className="text-sm font-semibold text-gray-800 truncate">{row.value}</span>
-        <span className="text-xs text-gray-400 ml-2">
-          {row.items?.length ?? 0} tx
-        </span>
+        <button
+          className="flex-shrink-0 p-0.5 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
+          onClick={e => { e.stopPropagation(); onHide(row.field, row.value) }}
+          title={`Hide ${row.value}`}
+        >
+          <Ban size={11} />
+        </button>
       </div>
-
-      {/* Ban icon (appears on hover) */}
-      <button
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-red-50 hover:text-red-500 text-gray-300 flex-shrink-0 mr-1"
-        onClick={e => { e.stopPropagation(); onHide(row.field, row.value) }}
-        title={`Hide ${row.value}`}
-      >
-        <Ban size={13} />
-      </button>
 
       {/* Spend */}
       <div className="text-right flex-shrink-0 font-semibold text-gray-800 text-sm" style={{ width: 96 }}>
@@ -541,59 +537,6 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
             </button>
           </div>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// KPI placeholder panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-function KPIPanel({ actual, budget, transactions, selectedScenario }) {
-  const delta   = actual - budget
-  const pctUsed = budget > 0 ? (actual / budget) * 100 : 0
-
-  return (
-    <div className="flex flex-col gap-3">
-      {/* Spend card */}
-      <div className="bg-gray-900 text-white rounded-2xl p-5">
-        <div className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold mb-1">
-          Spend · Whole Team
-        </div>
-        <div className="text-3xl font-bold mb-0.5">{formatCurrency(actual)}</div>
-        <div className="text-xs text-gray-400">{transactions} transactions</div>
-        <div className="mt-3 pt-3 border-t border-gray-700">
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
-            VS {selectedScenario}
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-sm font-bold" style={{ color: delta >= 0 ? '#F87171' : '#34D399' }}>
-              {formatOverUnder(delta)}
-            </span>
-          </div>
-          <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${Math.min(pctUsed, 100)}%`,
-                backgroundColor: delta >= 0 ? '#F87171' : '#34D399',
-              }}
-            />
-          </div>
-          <div className="text-[10px] text-gray-400 mt-1">
-            {formatCurrency(budget)} {selectedScenario} · {Math.round(pctUsed)}% used
-          </div>
-        </div>
-      </div>
-
-      {/* Add card placeholder */}
-      <div
-        className="bg-white rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-teal-300 hover:bg-teal-50 transition-colors"
-        style={{ minHeight: 120 }}
-      >
-        <Plus size={20} className="text-gray-300 mb-1" />
-        <span className="text-xs text-gray-400 font-medium">Add card</span>
       </div>
     </div>
   )
@@ -795,6 +738,7 @@ export default function BreakdownPage() {
           budget={totalBudget}
           transactions={unhidden.length}
           selectedScenario={selectedScenario}
+          actuals={unhidden}
         />
       </div>
 

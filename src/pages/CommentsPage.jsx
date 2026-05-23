@@ -1,11 +1,18 @@
 import React, { useState } from 'react'
-import { MessageSquare, CheckCircle2, HelpCircle, ClipboardList, Plus, X, Check } from 'lucide-react'
+import {
+  MessageSquare, CheckCircle2, HelpCircle, ClipboardList,
+  Plus, X, Check, Star, DollarSign, TrendingUp, RefreshCw,
+} from 'lucide-react'
 import { useApp } from '../context/AppContext'
 
 const TYPE_CONFIG = {
-  comment:  { label: 'Comment',  icon: MessageSquare,  color: '#6B7280',  bg: '#F3F4F6' },
-  question: { label: 'Question', icon: HelpCircle,     color: '#F59E0B',  bg: '#FFFBEB' },
-  request:  { label: 'Request',  icon: ClipboardList,  color: '#8B5CF6',  bg: '#F5F3FF' },
+  comment:               { label: 'Comment',     icon: MessageSquare,  color: '#6B7280',  bg: '#F3F4F6' },
+  question:              { label: 'Question',    icon: HelpCircle,     color: '#F59E0B',  bg: '#FFFBEB' },
+  request:               { label: 'Request',     icon: ClipboardList,  color: '#8B5CF6',  bg: '#F5F3FF' },
+  'financial-highlight': { label: 'Highlight',   icon: Star,           color: '#10B981',  bg: '#ECFDF5' },
+  'budget-request':      { label: 'Budget Ask',  icon: DollarSign,     color: '#8B5CF6',  bg: '#F5F3FF' },
+  'variance-explanation':{ label: 'Variance',    icon: TrendingUp,     color: '#F97316',  bg: '#FFF7ED' },
+  reclassification:      { label: 'Reclass',     icon: RefreshCw,      color: '#EC4899',  bg: '#FDF2F8' },
 }
 
 const PAGE_CONFIG = {
@@ -229,11 +236,9 @@ export default function CommentsPage() {
     return true
   })
 
-  const counts = {
-    comment:  comments.filter(c => c.type === 'comment'  && !c.resolved).length,
-    question: comments.filter(c => c.type === 'question' && !c.resolved).length,
-    request:  comments.filter(c => c.type === 'request'  && !c.resolved).length,
-  }
+  const counts = Object.fromEntries(
+    Object.keys(TYPE_CONFIG).map(t => [t, comments.filter(c => c.type === t && !c.resolved).length])
+  )
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-5">
