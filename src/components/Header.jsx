@@ -163,8 +163,8 @@ export default function Header() {
   const tabs = [
     { to: '/briefing',      label: 'Briefing' },
     { to: '/breakdown',     label: 'Breakdown' },
-    { to: '/comments',      label: 'Comments & Requests' },
     { to: '/transactions',  label: 'Transactions' },
+    { to: '/comments',      label: 'Comments & Requests' },
     { to: '/import',        label: 'Import' },
   ]
 
