@@ -1,8 +1,7 @@
-import React, { useState, useRef, useMemo } from 'react'
+import React, { useState, useRef } from 'react'
 import {
-  Upload, CheckCircle2, X, Info, Download, FileDown,
-  ChevronRight, AlertTriangle, Calendar,
-  ArrowUp, ArrowDown, ChevronsUpDown, Search, XCircle,
+  Upload, CheckCircle2, X, Download, FileDown,
+  AlertTriangle, Calendar,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { parseAmount, parseDateStr } from '../utils/formatters'
@@ -643,263 +642,6 @@ function BudgetSection({ onSuccess }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Transactions spreadsheet tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-const TX_COLS = [
-  { key: 'date',        label: 'Date',       numeric: false },
-  { key: 'department',  label: 'Department', numeric: false },
-  { key: 'category',    label: 'Category',   numeric: false },
-  { key: 'account',     label: 'Account',    numeric: false },
-  { key: 'grant',       label: 'Grant',      numeric: false },
-  { key: 'vendor',      label: 'Vendor',     numeric: false },
-  { key: 'amount',      label: 'Amount',     numeric: true  },
-]
-
-function SortIcon({ col, sortCol, sortDir }) {
-  if (sortCol !== col) return <ChevronsUpDown size={11} className="text-gray-400 flex-shrink-0" />
-  return sortDir === 'asc'
-    ? <ArrowUp   size={11} className="text-teal-400 flex-shrink-0" />
-    : <ArrowDown size={11} className="text-teal-400 flex-shrink-0" />
-}
-
-const PAGE_SIZE = 100
-
-function TransactionsSection() {
-  const { actuals } = useApp()
-  const [sortCol,  setSortCol]  = useState('date')
-  const [sortDir,  setSortDir]  = useState('asc')
-  const [filters,  setFilters]  = useState({ date: '', department: '', category: '', account: '', grant: '', vendor: '', amount: '' })
-  const [page,     setPage]     = useState(1)
-
-  function handleSort(col) {
-    if (sortCol === col) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortCol(col)
-      setSortDir(col === 'amount' ? 'desc' : 'asc')
-    }
-    setPage(1)
-  }
-
-  function setFilter(col, val) {
-    setFilters(prev => ({ ...prev, [col]: val }))
-    setPage(1)
-  }
-
-  function clearFilters() {
-    setFilters({ date: '', department: '', category: '', account: '', grant: '', vendor: '', amount: '' })
-    setPage(1)
-  }
-
-  const anyFilter = Object.values(filters).some(v => v !== '')
-
-  const filtered = useMemo(() => {
-    let rows = [...actuals]
-    TX_COLS.forEach(({ key }) => {
-      const f = filters[key]
-      if (!f) return
-      const fl = f.toLowerCase()
-      rows = rows.filter(r => {
-        const val = r[key] ?? ''
-        return String(val).toLowerCase().includes(fl)
-      })
-    })
-    rows.sort((a, b) => {
-      let av = a[sortCol] ?? ''
-      let bv = b[sortCol] ?? ''
-      if (sortCol === 'amount') { av = Number(av); bv = Number(bv) }
-      else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase() }
-      if (av < bv) return sortDir === 'asc' ? -1 :  1
-      if (av > bv) return sortDir === 'asc' ?  1 : -1
-      return 0
-    })
-    return rows
-  }, [actuals, filters, sortCol, sortDir])
-
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageRows    = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalAmount = filtered.reduce((s, r) => s + (r.amount || 0), 0)
-
-  function fmtAmt(n) {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(n)
-  }
-
-  return (
-    <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100">
-        <div className="text-sm font-semibold text-gray-700 flex-1">
-          {filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}
-          {anyFilter && (
-            <span className="text-gray-400 font-normal ml-1">
-              of {actuals.length.toLocaleString()} total
-            </span>
-          )}
-        </div>
-        <span className="text-xs text-gray-500 tabular-nums">
-          Total: <span className="font-semibold text-gray-800">{fmtAmt(totalAmount)}</span>
-        </span>
-        {anyFilter && (
-          <button
-            onClick={clearFilters}
-            className="flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
-          >
-            <XCircle size={12} /> Clear filters
-          </button>
-        )}
-        <button
-          onClick={() => {
-            const headers = TX_COLS.map(c => c.key)
-            downloadCSV('transactions-filtered.csv', [
-              headers,
-              ...filtered.map(r => headers.map(h => r[h] ?? '')),
-            ])
-          }}
-          className="flex items-center gap-1.5 text-xs font-medium text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          <FileDown size={12} /> Export view
-        </button>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
-          {/* Column headers */}
-          <thead>
-            <tr className="bg-gray-900 text-white select-none">
-              {TX_COLS.map(col => (
-                <th
-                  key={col.key}
-                  onClick={() => handleSort(col.key)}
-                  className={`px-3 py-2.5 font-semibold uppercase tracking-wider text-[10px] cursor-pointer hover:bg-gray-800 transition-colors whitespace-nowrap ${
-                    col.numeric ? 'text-right' : 'text-left'
-                  }`}
-                >
-                  <span className={`inline-flex items-center gap-1 ${col.numeric ? 'flex-row-reverse' : ''}`}>
-                    {col.label}
-                    <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
-                  </span>
-                </th>
-              ))}
-            </tr>
-            {/* Filter row */}
-            <tr className="bg-gray-50 border-b border-gray-200">
-              {TX_COLS.map(col => (
-                <th key={col.key} className="px-2 py-1.5">
-                  <div className="relative">
-                    <Search size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
-                    <input
-                      value={filters[col.key]}
-                      onChange={e => setFilter(col.key, e.target.value)}
-                      placeholder="Filter…"
-                      className={`w-full text-[11px] border border-gray-200 rounded-md pl-5 pr-2 py-1 focus:outline-none focus:border-teal-400 bg-white placeholder:text-gray-300 ${
-                        col.numeric ? 'text-right' : 'text-left'
-                      } ${filters[col.key] ? 'border-teal-400 bg-teal-50/30' : ''}`}
-                    />
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          {/* Rows */}
-          <tbody>
-            {pageRows.length === 0 ? (
-              <tr>
-                <td colSpan={TX_COLS.length} className="px-5 py-10 text-center text-gray-400 text-sm">
-                  {anyFilter ? 'No transactions match your filters.' : 'No transactions loaded yet — import actuals above.'}
-                </td>
-              </tr>
-            ) : (
-              pageRows.map((row, i) => (
-                <tr
-                  key={i}
-                  className={`border-b border-gray-50 hover:bg-teal-50/30 transition-colors ${
-                    i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-                  }`}
-                >
-                  <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
-                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.department || '—'}</td>
-                  <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[140px] truncate">{row.category || '—'}</td>
-                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
-                  <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.grant || '—'}</td>
-                  <td className="px-3 py-2 text-gray-800 max-w-[200px] truncate">{row.vendor || '—'}</td>
-                  <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
-                    {fmtAmt(row.amount)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-
-          {/* Totals footer */}
-          {pageRows.length > 0 && (
-            <tfoot>
-              <tr className="bg-gray-50 border-t-2 border-gray-200">
-                <td colSpan={TX_COLS.length - 1} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  {anyFilter ? `Filtered total (${filtered.length} rows)` : `Total (${filtered.length} rows)`}
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-bold text-gray-900 tabular-nums">
-                  {fmtAmt(totalAmount)}
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50">
-          <span className="text-xs text-gray-500">
-            Page {page} of {totalPages} · rows {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}
-          </span>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setPage(1)}
-              disabled={page === 1}
-              className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors"
-            >«</button>
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors"
-            >‹</button>
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const p = Math.min(Math.max(page - 2 + i, 1), totalPages - Math.min(5, totalPages) + i + 1)
-              return (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`px-2.5 py-1 text-xs border rounded-lg transition-colors ${
-                    p === page
-                      ? 'bg-gray-900 text-white border-gray-900'
-                      : 'border-gray-200 hover:bg-gray-100'
-                  }`}
-                >
-                  {p}
-                </button>
-              )
-            })}
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors"
-            >›</button>
-            <button
-              onClick={() => setPage(totalPages)}
-              disabled={page === totalPages}
-              className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors"
-            >»</button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Main ImportPage
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -929,7 +671,7 @@ export default function ImportPage() {
 
       {/* Tab toggle */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {[['actuals', '• Actuals'], ['budget', '◦ Budget'], ['transactions', '≡ Transactions']].map(([v, l]) => (
+        {[['actuals', '• Actuals'], ['budget', '◦ Budget']].map(([v, l]) => (
           <button
             key={v}
             onClick={() => setTab(v)}
@@ -942,9 +684,8 @@ export default function ImportPage() {
         ))}
       </div>
 
-      {tab === 'actuals'       && <ActualsSection      onSuccess={msg => setSuccessMsg(msg)} />}
-      {tab === 'budget'        && <BudgetSection       onSuccess={msg => setSuccessMsg(msg)} />}
-      {tab === 'transactions'  && <TransactionsSection />}
+      {tab === 'actuals' && <ActualsSection onSuccess={msg => setSuccessMsg(msg)} />}
+      {tab === 'budget'  && <BudgetSection  onSuccess={msg => setSuccessMsg(msg)} />}
     </div>
   )
 }
