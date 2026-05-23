@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   ChevronRight, Ban, Plus, X, Search, GripVertical,
   RotateCcw, MessageSquare, Calendar, Tag, Building2,
@@ -16,6 +16,7 @@ import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatt
 import KPIPanel from '../components/KPIPanel'
 import CommentPinFAB from '../components/CommentPinFAB'
 import { useLocalStorage } from '../hooks/useLocalStorage'
+import { useLocation } from 'react-router-dom'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
