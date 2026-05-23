@@ -1,338 +1,813 @@
-import React, { useState, useMemo } from 'react'
-import { ChevronRight, X, TrendingUp, TrendingDown, DollarSign, Receipt, BarChart2, Tag } from 'lucide-react'
+import React, { useState, useMemo, useCallback, useRef } from 'react'
+import {
+  ChevronRight, Ban, Plus, X, Search, GripVertical,
+  RotateCcw, MessageSquare, Calendar, Tag, Building2
+} from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { DEPT_NAMES } from '../data/mockData'
 import {
   filterActualsByRange,
   calcBudgetByCategory,
-  aggregateBy,
-  countBy,
+  buildVisibleRows,
+  getUniqueValues,
 } from '../utils/dataProcessing'
-import {
-  formatCurrency,
-  formatOverUnder,
-  formatPercent,
-  calcOverUnderPct,
-} from '../utils/formatters'
+import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Drill path item (breadcrumb chip)
+// Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-function DrillChip({ label, onRemove }) {
+const ALL_FIELDS = ['category', 'account', 'grant', 'vendor', 'department']
+
+const FIELD_LABELS = {
+  category:   'Category',
+  account:    'Account',
+  grant:      'Grant',
+  vendor:     'Vendor',
+  department: 'Department',
+}
+
+const FIELD_COLORS = {
+  category:   '#0EA5A0',
+  account:    '#8B5CF6',
+  grant:      '#F59E0B',
+  vendor:     '#6B7280',
+  department: '#EC4899',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function VarianceBadge({ actual, budget }) {
+  if (budget === null || budget === undefined) {
+    return (
+      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700">
+        No Budget
+      </span>
+    )
+  }
+  if (budget === 0) {
+    return (
+      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700">
+        No Budget
+      </span>
+    )
+  }
+  const pct = ((actual - budget) / budget) * 100
+  const isOver  = pct > 0.5
+  const isUnder = pct < -0.5
+  if (isOver)  return <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">{'+' + pct.toFixed(1)}% OVER</span>
+  if (isUnder) return <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">{pct.toFixed(1)}% UNDER</span>
+  return <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600">EVEN</span>
+}
+
+function fieldColor(field) { return FIELD_COLORS[field] || '#6B7280' }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Department Filter Bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DeptFilterBar({ allDepts, activeDepts, onToggle, onSelectAll }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-900 text-white text-xs rounded-full font-medium">
-      {label}
-      <button onClick={onRemove} className="hover:opacity-70 ml-0.5">
-        <X size={10} />
-      </button>
-    </span>
+    <div className="flex items-center gap-2 flex-wrap px-5 py-3 border-b border-gray-100">
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-1">Departments</span>
+      {allDepts.map(code => {
+        const isActive = !activeDepts || activeDepts.has(code)
+        return (
+          <button
+            key={code}
+            onClick={() => onToggle(code)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+              isActive
+                ? 'bg-gray-900 text-white'
+                : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+            }`}
+          >
+            <span className="opacity-60">{code}</span>
+            {DEPT_NAMES[code] || `Dept ${code}`}
+          </button>
+        )
+      })}
+      {activeDepts && (
+        <button
+          onClick={onSelectAll}
+          className="ml-1 text-xs text-teal-600 font-medium hover:underline"
+        >
+          All
+        </button>
+      )}
+      {activeDepts && (
+        <span className="text-xs text-gray-400">
+          {activeDepts.size} of {allDepts.length} selected
+        </span>
+      )}
+    </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// KPI card
+// Drill Order Bar (drag-and-drop pills + search)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function KPICard({ label, value, sub, color, icon: Icon }) {
+function AddFieldMenu({ inactive, onAdd }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  React.useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  if (inactive.length === 0) return null
   return (
-    <div className="bg-white rounded-xl p-4 flex items-start gap-3">
-      {Icon && (
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ backgroundColor: color ? color + '20' : '#F3F4F6' }}>
-          <Icon size={16} style={{ color: color || '#6B7280' }} />
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors"
+      >
+        <Plus size={11} /> Add
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 py-1 z-30 w-36">
+          {inactive.map(f => (
+            <button
+              key={f}
+              onClick={() => { onAdd(f); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+            >
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: FIELD_COLORS[f] }} />
+              {FIELD_LABELS[f]}
+            </button>
+          ))}
         </div>
       )}
-      <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{label}</div>
-        <div className="text-xl font-bold mt-0.5" style={{ color: color || 'inherit' }}>{value}</div>
-        {sub && <div className="text-xs text-gray-500 mt-0.5">{sub}</div>}
+    </div>
+  )
+}
+
+function DrillOrderBar({
+  drillOrder, setDrillOrder, openPath, setOpenPath,
+  searchQuery, setSearchQuery,
+}) {
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dropIdx, setDropIdx] = useState(null)
+
+  const inactive = ALL_FIELDS.filter(f => !drillOrder.includes(f))
+
+  function handleDragStart(e, idx) {
+    setDragIdx(idx)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  function handleDragOver(e, idx) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropIdx(idx)
+  }
+  function handleDrop(e, idx) {
+    e.preventDefault()
+    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDropIdx(null); return }
+    const next = [...drillOrder]
+    const [moved] = next.splice(dragIdx, 1)
+    next.splice(idx, 0, moved)
+    setDrillOrder(next)
+    setOpenPath([])
+    setDragIdx(null)
+    setDropIdx(null)
+  }
+  function handleDragEnd() { setDragIdx(null); setDropIdx(null) }
+
+  function removeField(field) {
+    setDrillOrder(drillOrder.filter(f => f !== field))
+    setOpenPath([])
+  }
+
+  function addField(field) {
+    setDrillOrder([...drillOrder, field])
+    setOpenPath([])
+  }
+
+  function reset() {
+    setDrillOrder(['category', 'account', 'grant', 'vendor'])
+    setOpenPath([])
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100 bg-white">
+      {/* Search */}
+      <div className="flex items-center gap-2 flex-shrink-0 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-56">
+        <Search size={13} className="text-gray-400 flex-shrink-0" />
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search vendor, category..."
+          className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"
+        />
+        {searchQuery && (
+          <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600">
+            <X size={11} />
+          </button>
+        )}
+      </div>
+
+      <div className="w-px h-5 bg-gray-200" />
+
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 flex-shrink-0">
+        Drill Order
+      </span>
+
+      {/* Draggable pills */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {drillOrder.map((field, idx) => (
+          <div
+            key={field}
+            draggable
+            onDragStart={e => handleDragStart(e, idx)}
+            onDragOver={e => handleDragOver(e, idx)}
+            onDrop={e => handleDrop(e, idx)}
+            onDragEnd={handleDragEnd}
+            className="relative"
+          >
+            {/* Drop indicator */}
+            {dropIdx === idx && dragIdx !== null && dragIdx !== idx && (
+              <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full" />
+            )}
+            <div
+              className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border transition-all cursor-grab active:cursor-grabbing ${
+                dragIdx === idx ? 'opacity-40' : 'opacity-100'
+              }`}
+              style={{
+                backgroundColor: FIELD_COLORS[field] + '20',
+                borderColor: FIELD_COLORS[field] + '60',
+                color: FIELD_COLORS[field],
+              }}
+            >
+              <GripVertical size={10} className="opacity-50" />
+              {FIELD_LABELS[field]}
+              <button
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => { e.stopPropagation(); removeField(field) }}
+                className="ml-0.5 hover:opacity-70"
+              >
+                <X size={9} />
+              </button>
+            </div>
+          </div>
+        ))}
+
+        <AddFieldMenu inactive={inactive} onAdd={addField} />
+      </div>
+
+      {/* Reset */}
+      <button
+        onClick={reset}
+        className="ml-auto flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 font-medium"
+      >
+        <RotateCcw size={11} />
+        Reset
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hidden items bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HiddenBar({ hidden, onRestore, onShowAll }) {
+  if (hidden.length === 0) return null
+  return (
+    <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 flex-wrap">
+      <div className="flex items-center gap-1.5 text-amber-700">
+        <Ban size={12} />
+        <span className="text-xs font-semibold">{hidden.length} hidden — excluded from totals</span>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {hidden.map(h => (
+          <span key={h.field + h.value} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
+            <span className="opacity-60 uppercase text-[9px] tracking-wide">{FIELD_LABELS[h.field]}</span>
+            {h.value}
+            <button onClick={() => onRestore(h.field, h.value)} className="hover:opacity-70">
+              <X size={9} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <button onClick={onShowAll} className="ml-auto text-xs text-amber-700 font-medium hover:underline">
+        Show all
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Table header
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TableHeader({ drillOrder, selectedScenario }) {
+  const pathLabel = drillOrder.map(f => FIELD_LABELS[f]).join(' → ')
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+      <div className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+        {pathLabel}
+      </div>
+      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 96 }}>Spend</div>
+      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 96 }}>{selectedScenario}</div>
+      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 110 }}>Over/(Under)</div>
+      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 100 }}>Variance %</div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group row
+// ─────────────────────────────────────────────────────────────────────────────
+
+function GroupRow({ row, onToggle, onHide }) {
+  const delta  = row.budget !== null ? row.actual - row.budget : null
+  const isOver = delta !== null && delta >= 0
+  const pctUsed = row.budget ? Math.round((row.actual / row.budget) * 100) : null
+  const indent = 16 + row.depth * 24
+
+  return (
+    <div
+      className="flex items-center gap-2 border-b border-gray-100 group cursor-pointer hover:bg-gray-50 transition-all"
+      style={{ paddingLeft: indent, paddingRight: 16, paddingTop: 10, paddingBottom: 10, opacity: row.isDimmed ? 0.35 : 1 }}
+      onClick={() => onToggle(row.depth, row.value)}
+    >
+      {/* Expand chevron */}
+      <div className={`flex-shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-150 ${row.isExpanded ? 'rotate-90' : ''}`}>
+        <ChevronRight size={13} className="text-gray-400" />
+      </div>
+
+      {/* Field type label */}
+      <span
+        className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
+        style={{ backgroundColor: fieldColor(row.field) + '20', color: fieldColor(row.field) }}
+      >
+        {FIELD_LABELS[row.field]}
+      </span>
+
+      {/* Value name */}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-semibold text-gray-800 truncate">{row.value}</span>
+        <span className="text-xs text-gray-400 ml-2">
+          {row.items?.length ?? 0} tx
+        </span>
+      </div>
+
+      {/* Ban icon (appears on hover) */}
+      <button
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-red-50 hover:text-red-500 text-gray-300 flex-shrink-0 mr-1"
+        onClick={e => { e.stopPropagation(); onHide(row.field, row.value) }}
+        title={`Hide ${row.value}`}
+      >
+        <Ban size={13} />
+      </button>
+
+      {/* Spend */}
+      <div className="text-right flex-shrink-0 font-semibold text-gray-800 text-sm" style={{ width: 96 }}>
+        {formatCurrency(row.actual)}
+      </div>
+
+      {/* Budget */}
+      <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
+        {row.budget !== null && row.budget > 0 ? formatCurrency(row.budget) : '—'}
+      </div>
+
+      {/* Over/Under */}
+      <div className="text-right flex-shrink-0" style={{ width: 110 }}>
+        {delta !== null ? (
+          <>
+            <div className="text-sm font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
+              {formatOverUnder(delta)}
+            </div>
+            {pctUsed !== null && (
+              <div className="text-[10px] text-gray-400">{pctUsed}% used</div>
+            )}
+          </>
+        ) : <span className="text-gray-300">—</span>}
+      </div>
+
+      {/* Variance badge */}
+      <div className="text-right flex-shrink-0 flex justify-end" style={{ width: 100 }}>
+        <VarianceBadge actual={row.actual} budget={row.budget || null} />
       </div>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Budget vs Actuals table row
+// Transaction row (leaf)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TableRow({ label, actual, budget, transactions, onClick, depth = 0 }) {
-  const delta = actual - budget
-  const pct = calcOverUnderPct(actual, budget)
-  const isOver = delta >= 0
-
+function TransactionRow({ row, onSelect }) {
+  const t = row.item
+  const indent = 16 + row.depth * 24
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50 border-b border-gray-100 transition-colors group"
-      style={{ paddingLeft: `${16 + depth * 20}px` }}
+    <div
+      className="flex items-center gap-3 border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors"
+      style={{ paddingLeft: indent, paddingRight: 16, paddingTop: 8, paddingBottom: 8 }}
+      onClick={() => onSelect(t)}
     >
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm font-medium text-gray-800">{label}</span>
-          {onClick && <ChevronRight size={13} className="text-gray-300 group-hover:text-gray-500 transition-colors" />}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-800 truncate">{t.vendor}</span>
+          {t.grant && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold flex-shrink-0">
+              {t.grant}
+            </span>
+          )}
         </div>
-        {transactions !== undefined && (
-          <div className="text-xs text-gray-400 mt-0.5">{transactions} transactions</div>
-        )}
-      </div>
-      <div className="text-right" style={{ width: '110px' }}>
-        <div className="text-sm font-semibold text-gray-800">{formatCurrency(actual)}</div>
-        <div className="text-xs text-gray-400">actual</div>
-      </div>
-      <div className="text-right" style={{ width: '110px' }}>
-        <div className="text-sm text-gray-600">{formatCurrency(budget)}</div>
-        <div className="text-xs text-gray-400">budget</div>
-      </div>
-      <div className="text-right" style={{ width: '100px' }}>
-        <div
-          className="text-sm font-bold"
-          style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}
-        >
-          {formatOverUnder(delta)}
-        </div>
-        <div className="text-xs text-gray-400">{pct !== null ? formatPercent(pct, { showSign: true }) : '—'}</div>
-      </div>
-      {/* Bar */}
-      <div className="w-24 flex-shrink-0">
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${Math.min((actual / Math.max(actual, budget)) * 100, 100)}%`,
-              backgroundColor: isOver ? 'var(--color-over)' : 'var(--color-under)',
-            }}
-          />
-        </div>
-        <div className="text-[10px] text-gray-400 mt-0.5 text-right">
-          {budget > 0 ? Math.round((actual / budget) * 100) + '%' : '—'}
+        <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2 truncate">
+          <span>{t.date}</span>
+          {t.description && <span className="truncate">{t.description}</span>}
         </div>
       </div>
-    </button>
+      <div className="text-sm font-semibold text-gray-700 flex-shrink-0" style={{ width: 96, textAlign: 'right' }}>
+        {formatCurrency(t.amount)}
+      </div>
+      {/* Empty placeholders for Budget, Over/Under, Variance columns */}
+      <div style={{ width: 96 }} />
+      <div style={{ width: 110 }} />
+      <div style={{ width: 100 }} />
+    </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Breakdown Page
+// Transaction detail modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DRILL_FIELDS = ['department', 'category', 'account', 'vendor', 'grant']
-const DRILL_LABELS = { department: 'Department', category: 'Category', account: 'Account', vendor: 'Vendor', grant: 'Grant' }
+const COMMENT_TYPES = ['comment', 'question', 'request']
 
-export default function BreakdownPage() {
-  const { actuals, budgetFlat, selectedScenario, dateRange } = useApp()
+function TransactionModal({ transaction: t, onClose, onAddComment }) {
+  const [text, setText]   = useState('')
+  const [type, setType]   = useState('comment')
+  const [author, setAuthor] = useState('')
+  const [saved, setSaved] = useState(false)
 
-  // Active drill filters: [{ field, value }]
-  const [drillPath, setDrillPath] = useState([])
-
-  // Which field is the current grouping dimension
-  const [groupBy, setGroupBy] = useState('category')
-
-  // Filter actuals to date range + current drill path
-  const filtered = useMemo(() => {
-    let rows = filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate)
-    for (const { field, value } of drillPath) {
-      rows = rows.filter(t => (t[field] || 'N/A') === value)
-    }
-    return rows
-  }, [actuals, dateRange, drillPath])
-
-  // Budget for range
-  const budgetByCat = useMemo(() =>
-    calcBudgetByCategory(budgetFlat, selectedScenario, dateRange.startDate, dateRange.endDate),
-    [budgetFlat, selectedScenario, dateRange]
-  )
-
-  // Group filtered actuals by current dimension
-  const groups = useMemo(() => {
-    const byGroup = aggregateBy(filtered, groupBy)
-    const txCount = countBy(filtered, groupBy)
-    const total   = filtered.reduce((s, t) => s + t.amount, 0)
-
-    return Object.entries(byGroup)
-      .map(([key, actual]) => {
-        const budget = groupBy === 'category' ? (budgetByCat[key] || 0) : 0
-        const delta  = actual - budget
-        return { key, actual, budget, delta, transactions: txCount[key] || 0 }
-      })
-      .sort((a, b) => b.actual - a.actual)
-  }, [filtered, groupBy, budgetByCat])
-
-  // Summary KPIs
-  const totalActual  = filtered.reduce((s, t) => s + t.amount, 0)
-  const totalBudget  = groupBy === 'category'
-    ? Object.entries(budgetByCat)
-        .filter(([cat]) => !drillPath.some(d => d.field === 'category' && d.value !== cat))
-        .reduce((s, [, v]) => s + v, 0)
-    : 0
-  const overUnder    = totalActual - totalBudget
-  const avgTx        = filtered.length > 0 ? totalActual / filtered.length : 0
-  const uniqueVendors= [...new Set(filtered.map(t => t.vendor))].length
-
-  function drill(field, value) {
-    // Can only drill deeper than current group by
-    setDrillPath(prev => [...prev.filter(d => d.field !== field), { field, value }])
-    // Move to next useful groupBy
-    const idx = DRILL_FIELDS.indexOf(field)
-    const next = DRILL_FIELDS[idx + 1]
-    if (next) setGroupBy(next)
-  }
-
-  function removeDrill(field) {
-    const idx = drillPath.findIndex(d => d.field === field)
-    const newPath = drillPath.slice(0, idx)
-    setDrillPath(newPath)
-    // Reset groupBy to the field we removed at
-    setGroupBy(field)
+  function handleSave() {
+    if (!text.trim() || !author.trim()) return
+    onAddComment({
+      author,
+      avatar: author.charAt(0).toUpperCase(),
+      type,
+      page: 'breakdown',
+      text,
+      category: t.category,
+      transactionRef: { date: t.date, vendor: t.vendor, amount: t.amount },
+    })
+    setText('')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
-      {/* Page header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Breakdown</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Drill down by any combination of dimension</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <h3 className="font-semibold text-gray-900">{t.vendor}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">{t.date} · {t.category} · {t.account}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-bold text-gray-900">{formatCurrency(t.amount)}</span>
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
+              <X size={16} />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-4 gap-3">
-        <KPICard
-          label="Total Spend"
-          value={formatCurrency(totalActual)}
-          sub={`${filtered.length} transactions`}
-          icon={DollarSign}
-          color="#1A1A2E"
-        />
-        <KPICard
-          label="Vs Budget"
-          value={formatOverUnder(overUnder)}
-          sub={totalBudget > 0 ? `${Math.round((totalActual / totalBudget) * 100)}% of budget` : 'No budget data'}
-          icon={overUnder >= 0 ? TrendingUp : TrendingDown}
-          color={overUnder >= 0 ? 'var(--color-over)' : 'var(--color-under)'}
-        />
-        <KPICard
-          label="Avg Transaction"
-          value={formatCurrency(avgTx)}
-          sub={`${filtered.length} transactions`}
-          icon={Receipt}
-          color="#8B5CF6"
-        />
-        <KPICard
-          label="Unique Vendors"
-          value={uniqueVendors.toString()}
-          sub="in this selection"
-          icon={Tag}
-          color="#0EA5A0"
-        />
-      </div>
-
-      {/* Controls: drill path + group by */}
-      <div className="bg-white rounded-2xl p-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filters:</span>
-          {drillPath.length === 0 && (
-            <span className="text-xs text-gray-400 italic">None — showing all data</span>
-          )}
-          {drillPath.map(({ field, value }) => (
-            <DrillChip
-              key={field}
-              label={`${DRILL_LABELS[field]}: ${value}`}
-              onRemove={() => removeDrill(field)}
-            />
+        {/* Transaction fields */}
+        <div className="px-5 py-4 grid grid-cols-2 gap-3">
+          {[
+            { label: 'Date',        value: t.date,        icon: Calendar },
+            { label: 'Amount',      value: formatCurrency(t.amount), icon: null },
+            { label: 'Department',  value: DEPT_NAMES[t.department] || t.department, icon: Building2 },
+            { label: 'Category',    value: t.category,    icon: Tag },
+            { label: 'Account',     value: t.account,     icon: null },
+            { label: 'Grant',       value: t.grant || '—', icon: null },
+            { label: 'Description', value: t.description || '—', icon: null, full: true },
+          ].map(f => (
+            <div key={f.label} className={f.full ? 'col-span-2' : ''}>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{f.label}</div>
+              <div className="text-sm text-gray-800 mt-0.5 font-medium">{f.value}</div>
+            </div>
           ))}
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Group by:</span>
-            <div className="flex items-center gap-1 bg-gray-100 rounded-full px-1 py-1">
-              {DRILL_FIELDS.map(f => (
-                <button
-                  key={f}
-                  onClick={() => setGroupBy(f)}
-                  className={`px-3 py-0.5 rounded-full text-xs font-medium capitalize transition-all ${
-                    groupBy === f
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  {DRILL_LABELS[f]}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-2xl overflow-hidden">
-        {/* Table header */}
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3 bg-gray-50">
-          <div className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-            {DRILL_LABELS[groupBy]}
-          </div>
-          <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500" style={{ width: '110px' }}>Actual</div>
-          <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500" style={{ width: '110px' }}>Budget</div>
-          <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500" style={{ width: '100px' }}>Over/(Under)</div>
-          <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500 w-24">% Used</div>
         </div>
 
-        {groups.length === 0 && (
-          <div className="text-center py-12 text-gray-400">No data for this selection</div>
-        )}
-
-        {groups.map(g => (
-          <TableRow
-            key={g.key}
-            label={g.key}
-            actual={g.actual}
-            budget={g.budget}
-            transactions={g.transactions}
-            onClick={() => drill(groupBy, g.key)}
+        {/* Comment form */}
+        <div className="px-5 pb-5 border-t border-gray-100 pt-4">
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            <MessageSquare size={11} className="inline mr-1" /> Leave a comment on this transaction
+          </div>
+          <input
+            value={author}
+            onChange={e => setAuthor(e.target.value)}
+            placeholder="Your name"
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mb-2 focus:outline-none focus:border-teal-500"
           />
-        ))}
-
-        {/* Total row */}
-        {groups.length > 0 && (
-          <div className="px-4 py-3 flex items-center gap-3 bg-gray-50 border-t-2 border-gray-200">
-            <div className="flex-1 text-xs font-bold text-gray-700 uppercase tracking-wider">Total</div>
-            <div className="text-right font-bold text-gray-800" style={{ width: '110px' }}>{formatCurrency(totalActual)}</div>
-            <div className="text-right text-gray-600 font-semibold" style={{ width: '110px' }}>{totalBudget > 0 ? formatCurrency(totalBudget) : '—'}</div>
-            <div
-              className="text-right font-bold"
-              style={{ width: '100px', color: overUnder >= 0 ? 'var(--color-over)' : 'var(--color-under)' }}
-            >
-              {totalBudget > 0 ? formatOverUnder(overUnder) : '—'}
-            </div>
-            <div className="w-24" />
-          </div>
-        )}
-      </div>
-
-      {/* Transaction list (when drilled in) */}
-      {drillPath.length > 0 && (
-        <div className="bg-white rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-900">Transactions</h3>
-            <p className="text-xs text-gray-500 mt-0.5">{filtered.length} transactions in current selection</p>
-          </div>
-          <div className="max-h-80 overflow-y-auto">
-            {filtered.slice(0, 100).map((t, i) => (
-              <div key={i} className="flex items-center gap-4 px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50">
-                <div className="text-xs text-gray-400 w-20 flex-shrink-0">{t.date}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-gray-800 truncate">{t.vendor}</div>
-                  <div className="text-xs text-gray-400 truncate">{t.description}</div>
-                </div>
-                <div className="text-xs text-gray-500 w-20 text-right">{t.category}</div>
-                <div className="text-sm font-semibold text-gray-800 w-24 text-right">{formatCurrency(t.amount)}</div>
-              </div>
+          <div className="flex gap-1 mb-2">
+            {COMMENT_TYPES.map(ct => (
+              <button
+                key={ct}
+                onClick={() => setType(ct)}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium capitalize border transition-all ${
+                  type === ct ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'
+                }`}
+              >
+                {ct}
+              </button>
             ))}
-            {filtered.length > 100 && (
-              <div className="text-center py-3 text-xs text-gray-400">
-                Showing first 100 of {filtered.length} transactions
-              </div>
-            )}
+          </div>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Add your comment, question, or request..."
+            rows={2}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none mb-2 focus:outline-none focus:border-teal-500"
+          />
+          <div className="flex justify-end gap-2">
+            {saved && <span className="text-xs text-green-600 font-medium self-center">Saved to Comments!</span>}
+            <button
+              onClick={handleSave}
+              disabled={!text.trim() || !author.trim()}
+              className="px-4 py-1.5 text-sm font-medium text-white rounded-lg disabled:opacity-40 transition-colors"
+              style={{ backgroundColor: 'var(--color-accent)' }}
+            >
+              Save comment
+            </button>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KPI placeholder panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function KPIPanel({ actual, budget, transactions, selectedScenario }) {
+  const delta   = actual - budget
+  const pctUsed = budget > 0 ? (actual / budget) * 100 : 0
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Spend card */}
+      <div className="bg-gray-900 text-white rounded-2xl p-5">
+        <div className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold mb-1">
+          Spend · Whole Team
+        </div>
+        <div className="text-3xl font-bold mb-0.5">{formatCurrency(actual)}</div>
+        <div className="text-xs text-gray-400">{transactions} transactions</div>
+        <div className="mt-3 pt-3 border-t border-gray-700">
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">
+            VS {selectedScenario}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-sm font-bold" style={{ color: delta >= 0 ? '#F87171' : '#34D399' }}>
+              {formatOverUnder(delta)}
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(pctUsed, 100)}%`,
+                backgroundColor: delta >= 0 ? '#F87171' : '#34D399',
+              }}
+            />
+          </div>
+          <div className="text-[10px] text-gray-400 mt-1">
+            {formatCurrency(budget)} {selectedScenario} · {Math.round(pctUsed)}% used
+          </div>
+        </div>
+      </div>
+
+      {/* Add card placeholder */}
+      <div
+        className="bg-white rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center cursor-pointer hover:border-teal-300 hover:bg-teal-50 transition-colors"
+        style={{ minHeight: 120 }}
+      >
+        <Plus size={20} className="text-gray-300 mb-1" />
+        <span className="text-xs text-gray-400 font-medium">Add card</span>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Breakdown Page
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function BreakdownPage() {
+  const { actuals, budgetFlat, selectedScenario, dateRange, addComment } = useApp()
+
+  // ── State ────────────────────────────────────────────────────────────────
+  const [drillOrder,    setDrillOrder]    = useState(['category', 'account', 'grant', 'vendor'])
+  const [activeDepts,   setActiveDepts]   = useState(null)  // null = all active
+  const [searchQuery,   setSearchQuery]   = useState('')
+  const [openPath,      setOpenPath]      = useState([])
+  const [breakdownHidden, setBreakdownHidden] = useState([])
+  const [selectedTx,    setSelectedTx]    = useState(null)
+
+  // ── Derived data ─────────────────────────────────────────────────────────
+
+  const allDepts = useMemo(() => getUniqueValues(actuals, 'department'), [actuals])
+
+  // 1. Date range filter
+  const dateFiltered = useMemo(() =>
+    filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate),
+    [actuals, dateRange]
+  )
+
+  // 2. Dept filter
+  const deptFiltered = useMemo(() => {
+    if (!activeDepts) return dateFiltered
+    return dateFiltered.filter(t => activeDepts.has(t.department))
+  }, [dateFiltered, activeDepts])
+
+  // 3. Hidden items removed
+  const unhidden = useMemo(() =>
+    deptFiltered.filter(t =>
+      !breakdownHidden.some(h => (t[h.field] ?? 'N/A') === h.value)
+    ),
+    [deptFiltered, breakdownHidden]
+  )
+
+  // 4. Search filter
+  const searchFiltered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return unhidden
+    return unhidden.filter(t =>
+      [t.vendor, t.description, t.category, t.account, t.grant]
+        .some(v => v?.toLowerCase().includes(q))
+    )
+  }, [unhidden, searchQuery])
+
+  // 5. Budget (filtered by active depts)
+  const budgetByCat = useMemo(() => {
+    const depts = activeDepts ? [...activeDepts] : null
+    return calcBudgetByCategory(budgetFlat, selectedScenario, dateRange.startDate, dateRange.endDate, depts)
+  }, [budgetFlat, selectedScenario, dateRange, activeDepts])
+
+  // 6. Visible rows
+  const visibleRows = useMemo(() =>
+    buildVisibleRows(searchFiltered, drillOrder, openPath, budgetByCat),
+    [searchFiltered, drillOrder, openPath, budgetByCat]
+  )
+
+  // ── Summary stats for KPI panel ──────────────────────────────────────────
+  const totalActual  = unhidden.reduce((s, t) => s + t.amount, 0)
+  const totalBudget  = Object.values(budgetByCat).reduce((s, v) => s + v, 0)
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const toggleRow = useCallback((depth, value) => {
+    setOpenPath(prev => {
+      if (prev[depth] === value) return prev.slice(0, depth)
+      const next = prev.slice(0, depth)
+      next[depth] = value
+      return next
+    })
+  }, [])
+
+  function hideRow(field, value) {
+    setBreakdownHidden(prev => {
+      if (prev.some(h => h.field === field && h.value === value)) return prev
+      return [...prev, { field, value }]
+    })
+    const depth = drillOrder.indexOf(field)
+    if (depth !== -1 && openPath[depth] === value) {
+      setOpenPath(prev => prev.slice(0, depth))
+    }
+  }
+
+  function restoreHidden(field, value) {
+    setBreakdownHidden(prev => prev.filter(h => !(h.field === field && h.value === value)))
+  }
+
+  function toggleDept(code) {
+    setActiveDepts(prev => {
+      const all = new Set(allDepts)
+      const current = prev || all
+      const next = new Set(current)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      if (next.size === all.size) return null  // all active = null
+      return next
+    })
+  }
+
+  // Open path breadcrumb label
+  const openPathLabel = openPath.map((v, i) => {
+    const f = drillOrder[i]
+    return f ? `${FIELD_LABELS[f]}: ${v}` : v
+  }).join(' › ')
+
+  return (
+    <div className="flex h-[calc(100vh-48px)] overflow-hidden">
+      {/* ── Left panel: controls + table ────────────────────────────────── */}
+      <div className="flex flex-col flex-1 overflow-hidden">
+
+        {/* Department chips */}
+        <DeptFilterBar
+          allDepts={allDepts}
+          activeDepts={activeDepts}
+          onToggle={toggleDept}
+          onSelectAll={() => setActiveDepts(null)}
+        />
+
+        {/* Drill order + search */}
+        <DrillOrderBar
+          drillOrder={drillOrder}
+          setDrillOrder={setDrillOrder}
+          openPath={openPath}
+          setOpenPath={setOpenPath}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+        />
+
+        {/* Hidden bar */}
+        <HiddenBar
+          hidden={breakdownHidden}
+          onRestore={restoreHidden}
+          onShowAll={() => setBreakdownHidden([])}
+        />
+
+        {/* Open path breadcrumb */}
+        {openPath.length > 0 && (
+          <div className="flex items-center gap-2 px-5 py-2 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+            <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Drilled into</span>
+            <ChevronRight size={11} className="text-gray-300" />
+            <span>{openPathLabel}</span>
+            <button
+              onClick={() => setOpenPath([])}
+              className="ml-auto text-teal-600 font-medium hover:underline"
+            >
+              Collapse all
+            </button>
+          </div>
+        )}
+
+        {/* Table */}
+        <div className="flex-1 overflow-y-auto">
+          <TableHeader drillOrder={drillOrder} selectedScenario={selectedScenario} />
+
+          {visibleRows.length === 0 && (
+            <div className="text-center py-16 text-gray-400 text-sm">
+              {searchQuery ? `No results for "${searchQuery}"` : 'No data in this date range'}
+            </div>
+          )}
+
+          {visibleRows.map((row, i) => {
+            if (row.type === 'transaction') {
+              return (
+                <TransactionRow
+                  key={`tx-${i}-${row.item.date}-${row.item.vendor}-${row.item.amount}`}
+                  row={row}
+                  onSelect={setSelectedTx}
+                />
+              )
+            }
+            return (
+              <GroupRow
+                key={`grp-${i}-${row.field}-${row.value}`}
+                row={row}
+                onToggle={toggleRow}
+                onHide={hideRow}
+              />
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Right panel: KPI ─────────────────────────────────────────────── */}
+      <div
+        className="w-72 flex-shrink-0 border-l border-gray-200 overflow-y-auto p-4"
+        style={{ backgroundColor: 'var(--color-primary-bg)' }}
+      >
+        <KPIPanel
+          actual={totalActual}
+          budget={totalBudget}
+          transactions={unhidden.length}
+          selectedScenario={selectedScenario}
+        />
+      </div>
+
+      {/* Transaction modal */}
+      {selectedTx && (
+        <TransactionModal
+          transaction={selectedTx}
+          onClose={() => setSelectedTx(null)}
+          onAddComment={data => {
+            addComment(data)
+            // leave modal open so user can see "Saved!" message
+          }}
+        />
       )}
     </div>
   )

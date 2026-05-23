@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo } from 'react'
-import { mockActuals, mockBudgetFlat, mockComments } from '../data/mockData'
+import { mockActuals, mockBudgetFlat, mockComments, DEPT_NAMES, DEPT_TEAM_GROUPS } from '../data/mockData'
 import { getScenarios } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,6 +134,8 @@ export function AppProvider({ children }) {
 
   const value = {
     orgConfig, setOrgConfig,
+    deptNames: DEPT_NAMES,
+    deptTeamGroups: DEPT_TEAM_GROUPS,
     actuals, importActuals,
     budgetFlat, importBudget,
     availableScenarios,
