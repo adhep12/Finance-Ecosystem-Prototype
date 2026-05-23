@@ -629,8 +629,8 @@ function NewPatronChartCard({ data, editMode, onRemove }) {
           <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
           <Tooltip contentStyle={{backgroundColor:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px'}}/>
           <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
-          <Line type="monotone" dataKey="newCY" name="This Year" stroke="var(--color-accent)" strokeWidth={2} dot={false}/>
-          <Line type="monotone" dataKey="newPY" name="Prior Year" stroke="#d1d5db" strokeWidth={2} dot={false} strokeDasharray="4 2"/>
+          <Line type="monotone" dataKey="newCY" name="This Year" stroke="var(--color-accent)" strokeWidth={2.5} dot={false} activeDot={{r:4, fill:'var(--color-accent)'}}/>
+          <Line type="monotone" dataKey="newPY" name="Prior Year" stroke="var(--color-primary)" strokeWidth={2} dot={false} strokeDasharray="5 3" opacity={0.7}/>
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -649,7 +649,7 @@ function PatronBaseChartCard({ data, editMode, onRemove }) {
           <XAxis dataKey="month" tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
           <YAxis tick={{fontSize:10,fill:'#9ca3af'}} axisLine={false} tickLine={false} domain={[20000,'auto']} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}K`:v}/>
           <Tooltip contentStyle={{backgroundColor:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px'}} formatter={v=>v.toLocaleString()}/>
-          <Bar dataKey="total" name="Total Patrons" fill="var(--color-accent)" radius={[3,3,0,0]}/>
+          <Bar dataKey="total" name="Total Patrons" fill="var(--color-accent)" radius={[4,4,0,0]} opacity={0.85}/>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -804,47 +804,70 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
   return (
     <div className="min-h-screen" style={{backgroundColor:'var(--color-primary-bg)'}}>
-      {/* Month selector bar */}
-      <div className="sticky top-12 z-30 bg-white border-b border-gray-100 px-6 py-2 flex items-center gap-3">
-        <select value={currentMonth} onChange={e=>setCurrentMonth(e.target.value)}
-          className="text-sm font-semibold text-gray-800 bg-transparent border-none focus:outline-none cursor-pointer appearance-none pr-5 bg-[url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%236b7280%27 d=%27M7 10l5 5 5-5z%27/%3E%3C/svg%3E')] bg-no-repeat bg-right"
-          style={{backgroundSize:'16px'}}>
-          {existingMonths.map(m=><option key={m} value={m}>{m}</option>)}
-        </select>
-        <span className="text-gray-300">·</span>
-        {summary && <span className="text-xs text-gray-400">Prepared {summary.prepared}</span>}
-        <div className="flex-1"/>
-        <button onClick={()=>setShowAddMonth(true)} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}>
-          <Plus size={11}/> New Month
-        </button>
-        <button onClick={()=>setEditMode(v=>!v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${editMode?'bg-gray-900 text-white':'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}>
-          {editMode?<><Check size={12}/> Done</>:<><Pencil size={12}/> Edit</>}
-        </button>
-      </div>
+      <div className="max-w-2xl mx-auto px-6 py-8 pb-16">
 
-      {/* No summary state */}
-      {noData ? (
-        <div className="max-w-2xl mx-auto px-6 py-20 text-center">
-          <FileText size={40} className="text-gray-200 mx-auto mb-4"/>
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">No summary for {currentMonth}</h3>
-          <p className="text-sm text-gray-400 mb-6">Create a monthly narrative summary for this period.</p>
-          <button onClick={()=>{onAddSummary(currentMonth);setEditMode(true)}} className="px-5 py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
-            Create Summary
-          </button>
-        </div>
-      ) : (
-        <div className="max-w-2xl mx-auto px-6 py-8 pb-16">
-
-          {/* Document header */}
-          <div className="flex items-start gap-4 mb-8">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-1" style={{backgroundColor:'var(--color-accent-light)'}}>
+        {/* ── Document header: icon + title + inline month selector + action buttons ── */}
+        <div className="flex items-start justify-between gap-4 mb-8">
+          {/* Left: icon + label + month dropdown + prepared date */}
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+                 style={{backgroundColor:'var(--color-accent-light)'}}>
               <FileText size={18} style={{color:'var(--color-accent)'}}/>
             </div>
             <div>
-              <h1 className="text-base font-semibold text-gray-800">Monthly Financial Summary</h1>
-              <p className="text-xs text-gray-400 mt-0.5">{currentMonth} · Prepared {summary.prepared}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5"
+                 style={{color:'var(--color-accent)'}}>
+                Financial Summary
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {existingMonths.length > 0 ? (
+                  <select
+                    value={currentMonth}
+                    onChange={e => setCurrentMonth(e.target.value)}
+                    className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer py-0 pl-0 pr-6"
+                    style={{backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`, backgroundRepeat:'no-repeat', backgroundPosition:'right 2px center', appearance:'none', WebkitAppearance:'none'}}>
+                    {existingMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <span className="text-xl font-bold text-gray-900">{currentMonth}</span>
+                )}
+                {summary && (
+                  <>
+                    <span className="text-gray-300 text-sm">·</span>
+                    <span className="text-xs text-gray-400">Prepared {summary.prepared}</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+            <button onClick={() => setShowAddMonth(true)}
+              className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap"
+              style={{backgroundColor:'var(--color-accent)'}}>
+              <Plus size={11}/> New Month
+            </button>
+            <button onClick={() => setEditMode(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${editMode ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}>
+              {editMode ? <><Check size={12}/> Done</> : <><Pencil size={12}/> Edit</>}
+            </button>
+          </div>
+        </div>
+
+        {noData ? (
+          /* ── No summary state ── */
+          <div className="text-center py-16">
+            <FileText size={40} className="text-gray-200 mx-auto mb-4"/>
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">No summary for {currentMonth}</h3>
+            <p className="text-sm text-gray-400 mb-6">Create a monthly narrative summary for this period.</p>
+            <button onClick={() => { onAddSummary(currentMonth); setEditMode(true) }}
+              className="px-5 py-2 rounded-lg text-sm font-medium text-white"
+              style={{backgroundColor:'var(--color-accent)'}}>
+              Create Summary
+            </button>
+          </div>
+        ) : (
+          <>
 
           {/* ── OVERALL SUMMARY ── */}
           <SectionLabel>Overall Summary</SectionLabel>
@@ -977,8 +1000,10 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
             <span>Prepared by the Finance Team · {summary.prepared}</span>
             {existingMonths[1] && <span>Next summary · {existingMonths[0]}</span>}
           </div>
-        </div>
-      )}
+          </>
+        )}
+
+      </div>{/* end max-w-2xl */}
 
       {/* Add Month Modal */}
       {showAddMonth && (
@@ -1017,7 +1042,12 @@ const DEFAULT_KPI_CARDS    = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_CARDS = ['total-patrons','new-patrons','avg-gift','new-patron-chart','patron-base-chart']
 const manualCardStore = {}
 
-function DashboardTab({ dateRange }) {
+function DashboardTab({ dateRange, orgConfig }) {
+  const now = new Date()
+  // Most recent completed month (last month)
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+  const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+
   const [editKPI,       setEditKPI]       = useState(false)
   const [editPatron,    setEditPatron]    = useState(false)
   const [kpiCards,      setKpiCards]      = useState(DEFAULT_KPI_CARDS)
@@ -1116,9 +1146,31 @@ function DashboardTab({ dateRange }) {
   return (
     <div className="p-6 space-y-8 max-w-screen-xl mx-auto">
 
+      {/* ── Page header: org logo + "Financial Summary" + month | period ── */}
+      <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
+        {/* Logo slot — swap orgConfig.logoUrl for a real image when ready */}
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm"
+             style={{backgroundColor: orgConfig?.accentColor || 'var(--color-accent)'}}>
+          {orgConfig?.logoUrl
+            ? <img src={orgConfig.logoUrl} alt={orgConfig?.name} className="w-8 h-8 object-contain rounded"/>
+            : <BarChart2 size={22} className="text-white"/>}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1"
+             style={{color:'var(--color-accent)'}}>
+            Financial Summary
+          </p>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span className="text-2xl font-bold tracking-tight text-gray-900">{currentMonthDisplay}</span>
+            <span className="text-xl font-extralight text-gray-300 leading-none">|</span>
+            <span className="text-xl font-semibold text-gray-500">{presetLabel(dateRange.preset)}</span>
+          </div>
+        </div>
+      </div>
+
       {/* KPI Section */}
       <section>
-        <SectionHeader title="Key Performance Indicators" editMode={editKPI} onToggleEdit={()=>setEditKPI(v=>!v)} onAdd={()=>setShowAddKPI(true)}/>
+        <SectionHeader title="Key Metrics" editMode={editKPI} onToggleEdit={()=>setEditKPI(v=>!v)} onAdd={()=>setShowAddKPI(true)}/>
         <div className="flex gap-4 flex-wrap">
           {kpiCards.map(id=>renderKPICard(id))}
           {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
@@ -1368,7 +1420,7 @@ export default function ELTDashboard() {
       <ELTNav orgConfig={orgConfig} activeTab={activeTab} setActiveTab={setActiveTab}
         dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}/>
       <main className="flex-1 overflow-auto">
-        {activeTab==='dashboard' && <DashboardTab dateRange={dateRange}/>}
+        {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab/>}
         {activeTab==='documents' && <DocumentsTab/>}

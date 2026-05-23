@@ -1,46 +1,190 @@
+/* Google Fonts — Inter as primary typeface (swap to licensed Graphik in production) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   DESIGN SYSTEM TOKENS
+   All variable names are generic — no vendor or org branding.
+   ───────────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --color-primary: #D4896A;
-  --color-primary-light: #F2D5C8;
-  --color-primary-bg: #F7F0EA;
-  --color-accent: #0EA5A0;
-  --color-accent-light: #E0F5F4;
-  --color-over: #D94F3D;
-  --color-under: #2E9E6B;
-  --color-text: #1A1A2E;
-  --color-text-muted: #6B7280;
-  --color-border: #E5E7EB;
-  --color-card: #FFFFFF;
+  /* ── App palette (existing tokens, kept for full compatibility) ── */
+  --color-primary:        #D4896A;
+  --color-primary-light:  #F2D5C8;
+  --color-primary-bg:     #F7F0EA;
+  --color-accent:         #0EA5A0;
+  --color-accent-light:   #E0F5F4;
+  --color-over:           #D94F3D;
+  --color-under:          #2E9E6B;
+  --color-text:           #1A1A2E;
+  --color-text-muted:     #6B7280;
+  --color-border:         #E5E7EB;
+  --color-card:           #FFFFFF;
+
+  /* ── Brand anchors ── */
+  --ds-blue:  #00B3E5;
+  --ds-white: #F8F8F8;
+  --ds-black: #191A1B;
+
+  /* ── Neutral scale ── */
+  --neutral-00: #FFFFFF;
+  --neutral-05: #F9FAFC;
+  --neutral-06: #F6F8FA;
+  --neutral-07: #F3F5F8;
+  --neutral-08: #F0F2F5;
+  --neutral-09: #ECEFF3;
+  --neutral-10: #E4E8ED;
+  --neutral-20: #C1C9D0;
+  --neutral-30: #A4ABB7;
+  --neutral-40: #89929E;
+  --neutral-50: #6B7384;
+  --neutral-60: #4F5669;
+  --neutral-70: #3E4054;
+  --neutral-80: #2A2F44;
+  --neutral-90: #181D36;
+
+  /* ── Warm background tones (cream → ink) ── */
+  --cream-50:  #FBF7EF;
+  --cream-100: #F6EFE1;
+  --cream-200: #EFE3CC;
+  --cream-300: #E4D2AE;
+  --sand-400:  #C9A877;
+  --clay-500:  #A8754B;
+  --clay-600:  #7A4F32;
+  --ink-800:   #2B241C;
+  --ink-900:   #1A140E;
+
+  /* ── Accent / illustration palette ── */
+  --accent-ochre:      #E8A838;
+  --accent-mustard:    #D98F1C;
+  --accent-rust:       #C05A2F;
+  --accent-terracotta: #B44A2A;
+  --accent-wine:       #7A2E2A;
+  --accent-olive:      #7A8A3E;
+  --accent-moss:       #4E6B3A;
+  --accent-teal:       #2A7B8C;
+  --accent-sky:        #6FBFD6;
+  --accent-plum:       #4A2E5A;
+
+  /* ── Semantic ── */
+  --ds-success: #3E8E41;
+  --ds-warning: #D98F1C;
+  --ds-danger:  #C0392B;
+  --ds-info:    var(--ds-blue);
+
+  /* ── Surface tokens ── */
+  --bg-app:     var(--ds-white);
+  --bg-elevated:#FFFFFF;
+  --bg-warm:    var(--cream-50);
+  --bg-warm-2:  var(--cream-100);
+  --bg-inverse: var(--ds-black);
+
+  /* ── Foreground tokens ── */
+  --fg-1:           var(--ds-black);
+  --fg-2:           var(--neutral-60);
+  --fg-3:           var(--neutral-50);
+  --fg-muted:       var(--neutral-40);
+  --fg-on-dark:     var(--ds-white);
+  --fg-link:        var(--ds-blue);
+  --fg-link-hover:  #0093BD;
+
+  /* ── Shadows ── */
+  --shadow-xs:    0 1px 2px rgba(24, 29, 54, 0.05);
+  --shadow-sm:    0 2px 6px rgba(24, 29, 54, 0.06), 0 1px 2px rgba(24, 29, 54, 0.04);
+  --shadow-md:    0 6px 18px rgba(24, 29, 54, 0.08), 0 2px 4px rgba(24, 29, 54, 0.04);
+  --shadow-lg:    0 18px 40px rgba(24, 29, 54, 0.12), 0 4px 8px rgba(24, 29, 54, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(0, 179, 229, 0.35);
+
+  /* ── Radii ── */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
+  --radius-pill: 999px;
+
+  /* ── Spacing ── */
+  --sp-1:  4px;  --sp-2:  8px;  --sp-3:  12px; --sp-4:  16px;
+  --sp-5:  20px; --sp-6:  24px; --sp-7:  32px; --sp-8:  40px;
+  --sp-9:  56px; --sp-10: 72px; --sp-11: 96px; --sp-12: 128px;
+
+  /* ── Typography families ── */
+  --ff-sans:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --ff-display: var(--ff-sans);
+  --ff-mono:    'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ── Type scale ── */
+  --fs-display-xl: clamp(56px, 6.2vw, 96px);
+  --fs-display:    clamp(44px, 4.8vw, 80px);
+  --fs-h1:         clamp(36px, 3.6vw, 56px);
+  --fs-h2:         clamp(28px, 2.6vw, 40px);
+  --fs-h3:         clamp(22px, 1.8vw, 28px);
+  --fs-h4:         20px;
+  --fs-large:      18px;
+  --fs-body:       16px;
+  --fs-small:      14px;
+  --fs-micro:      12px;
+  --fs-eyebrow:    12px;
+
+  --lh-tight:   1.08;
+  --lh-snug:    1.2;
+  --lh-normal:  1.4;
+  --lh-relaxed: 1.55;
+  --lh-loose:   1.7;
+
+  --tracking-tight:   -0.02em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.02em;
+  --tracking-eyebrow: 0.14em;
+
+  /* ── Motion ── */
+  --ease-out:    cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-gentle: cubic-bezier(0.33, 1, 0.68, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --dur-4: 520ms;
+  --dur-5: 840ms;
+}
+
+/* ── Base styles ── */
+html {
+  font-family: var(--ff-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   background-color: var(--color-primary-bg);
   color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--ff-sans);
   font-size: 14px;
   margin: 0;
+  line-height: var(--lh-relaxed);
 }
 
-/* Scrollbar */
+/* ── Focus ring ── */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: inherit;
+}
+
+/* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 
-/* Date input */
-input[type="date"] {
-  color-scheme: light;
-}
+/* ── Date input ── */
+input[type="date"] { color-scheme: light; }
 
-/* Recharts */
+/* ── Recharts ── */
 .recharts-cartesian-grid-horizontal line,
-.recharts-cartesian-grid-vertical line {
-  stroke: #F3F4F6;
-}
-
-.recharts-tooltip-wrapper {
-  outline: none;
-}
+.recharts-cartesian-grid-vertical line { stroke: #F3F4F6; }
+.recharts-tooltip-wrapper { outline: none; }
