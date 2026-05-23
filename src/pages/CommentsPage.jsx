@@ -557,7 +557,7 @@ export default function CommentsPage() {
           style={{ backgroundColor: '#111827' }}
         >
           <Plus size={14} />
-          + Add Comment
+          Add Comment
         </button>
       </div>
 

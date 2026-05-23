@@ -138,6 +138,54 @@ const ELT_MOCK = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// P&L Account-level drill-down data
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PL_ACCOUNTS = {
+  'contributions': [
+    { label: 'Recurring Giving',          actual: 1_980_000, budget: 1_950_000 },
+    { label: 'One-Time / Spontaneous',    actual: 380_000,   budget: 340_000 },
+    { label: 'Corporate & Grants',        actual: 90_000,    budget: 90_000 },
+  ],
+  'merch': [
+    { label: 'Online Store',              actual: 112_500,   budget: 105_000 },
+    { label: 'Event Sales',               actual: 42_930,    budget: 40_000 },
+    { label: 'Wholesale / Reseller',      actual: 30_000,    budget: 30_000 },
+  ],
+  'other-inc': [
+    { label: 'Licensing & Royalties',     actual: 24_600,    budget: 22_000 },
+    { label: 'Speaking & Events',         actual: 10_500,    budget: 10_000 },
+    { label: 'Miscellaneous',             actual: 7_000,     budget: 6_000 },
+  ],
+  'staff': [
+    { label: 'Salaries & Wages',          actual: 1_012_400, budget: 1_040_000 },
+    { label: 'Benefits & Payroll Tax',    actual: 180_800,   budget: 185_000 },
+    { label: 'Contractors (Staff Aug)',   actual: 52_600,    budget: 55_000 },
+  ],
+  'contract': [
+    { label: 'Creative & Production',     actual: 42_800,    budget: 45_000 },
+    { label: 'Legal & Professional',      actual: 28_450,    budget: 30_000 },
+    { label: 'Consulting',                actual: 16_000,    budget: 20_000 },
+  ],
+  'technology': [
+    { label: 'Software Subscriptions',    actual: 68_200,    budget: 70_000 },
+    { label: 'Infrastructure & Hosting',  actual: 52_400,    budget: 58_000 },
+    { label: 'Hardware & Equipment',      actual: 33_720,    budget: 30_000 },
+  ],
+  'travel': [
+    { label: 'Domestic Travel',           actual: 21_300,    budget: 22_000 },
+    { label: 'International Travel',      actual: 8_570,     budget: 10_000 },
+    { label: 'Lodging & Meals',           actual: 4_000,     budget: 6_000 },
+  ],
+  'other-exp': [
+    { label: 'Office Supplies',           actual: 12_400,    budget: 14_000 },
+    { label: 'Facility Costs',            actual: 28_600,    budget: 28_000 },
+    { label: 'Insurance',                 actual: 14_940,    budget: 15_000 },
+    { label: 'Miscellaneous',             actual: 10_000,    budget: 15_000 },
+  ],
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Teams Mock Data + Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -446,6 +494,82 @@ function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2L
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Manual KPI Card — editable after creation
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ManualKPICard({ card, editMode, onRemove, onEdit }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft]     = useState(card)
+  useEffect(() => { setDraft(card) }, [card])
+
+  function cancel() { setEditing(false); setDraft(card) }
+  function save()   { onEdit({ ...card, ...draft }); setEditing(false) }
+
+  const fields = [
+    ['Card Label',              'label'],
+    ['Primary Value',           'value'],
+    ['Comparison 1 Label',      'cmp1Label'],
+    ['Comparison 1 Value',      'cmp1Value'],
+    ['Comparison 2 Label',      'cmp2Label'],
+    ['Comparison 2 Value',      'cmp2Value'],
+  ]
+
+  if (editing) {
+    return (
+      <div className="relative bg-white rounded-2xl border-2 shadow-sm p-5 flex-1 min-w-[240px] space-y-2.5" style={{borderColor:'var(--color-accent)'}}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{color:'var(--color-accent)'}}>Editing Card</span>
+          <button onClick={cancel} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+        </div>
+        {fields.map(([lbl, key]) => (
+          <div key={key}>
+            <label className="text-[9px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">{lbl}</label>
+            <input value={draft[key]||''} onChange={e=>setDraft(p=>({...p,[key]:e.target.value}))}
+              placeholder={lbl} className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"/>
+          </div>
+        ))}
+        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white mt-1" style={{backgroundColor:'var(--color-accent)'}}>
+          Save Changes
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+      {editMode && (
+        <div className="absolute top-2 right-2 flex gap-1">
+          <button onClick={()=>setEditing(true)} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-blue-100 text-gray-400 hover:text-blue-500 flex items-center justify-center transition-colors" title="Edit">
+            <Pencil size={9}/>
+          </button>
+          <button onClick={onRemove} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors" title="Remove">
+            <X size={9}/>
+          </button>
+        </div>
+      )}
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{card.label || 'Custom KPI'}</div>
+      <div className="text-3xl font-bold text-gray-900 mb-3">{card.value || '—'}</div>
+      {(card.cmp1Label || card.cmp2Label) && (
+        <div className="space-y-2">
+          {card.cmp1Label && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">{card.cmp1Label}</div>
+              <div className="text-sm font-semibold text-gray-700">{card.cmp1Value || '—'}</div>
+            </div>
+          )}
+          {card.cmp2Label && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">{card.cmp2Label}</div>
+              <div className="text-sm font-semibold text-gray-700">{card.cmp2Value || '—'}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Net Position Card
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -596,6 +720,16 @@ const CHART_CATALOG = [
     { id:'net-income-trend',   label:'Net Income Trend',           description:'Monthly net operating income over time' },
     { id:'cash-position',      label:'Cash Position Trend',        description:'Cash balance over time' },
     { id:'giving-vs-budget',   label:'Giving vs Budget',           description:'Actual giving vs budget line — monthly' },
+  ]},
+]
+
+const PATRON_KPI_CATALOG = [
+  { group: 'Supporter Metrics', items: [
+    { id:'total-patrons',   label:'Total Active Supporters',  description:'Active supporter count vs prior month & year' },
+    { id:'new-patrons',     label:'New Supporters (Period)',  description:'New supporters this period vs prior period' },
+    { id:'avg-gift',        label:'Avg Gift Size',            description:'Average supporter contribution vs prior year' },
+    { id:'retention',       label:'Supporter Retention Rate', description:'YoY active supporter retention %' },
+    { id:'recurring-ratio', label:'Recurring Mix %',          description:'Recurring supporters as % of total base' },
   ]},
 ]
 
@@ -798,48 +932,128 @@ function ChartTypeToggle({ type, onChange }) {
 // P&L Table
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PLTable({ data }) {
+function PLTable({ data, accounts = PL_ACCOUNTS }) {
+  const [expanded, setExpanded] = useState(new Set())
+  function toggle(id) { setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n }) }
+
+  const totalIncome = data.find(r=>r.id==='total-income')?.actual || 1
+
+  function VarCell({ actual, budget, isExpense, isTotal, dark }) {
+    const variance = (actual??0)-(budget??0)
+    const pos = isExpense ? variance<=0 : variance>=0
+    const col = isTotal ? (pos?'text-emerald-400':'text-red-400') : (pos?'text-emerald-600':'text-red-600')
+    return <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${col}`}>
+      {actual!==undefined ? (variance>=0?'+':'')+formatCurrency(variance,{compact:false}) : '—'}
+    </td>
+  }
+
+  const rows = []
+  data.forEach((row, i) => {
+    const isSection  = row.type==='section'
+    const isSubtotal = row.type==='subtotal'
+    const isTotal    = row.type==='total'
+    const isSpacer   = row.type==='spacer'
+    const isExpense  = row.group==='expense'
+    const hasAccts   = !!(accounts[row.id]?.length)
+    const isExpanded = expanded.has(row.id)
+
+    if (isSpacer) { rows.push(<tr key={`sp${i}`}><td colSpan={5} className="py-1.5"/></tr>); return }
+
+    rows.push(
+      <tr key={row.id||i}
+        className={`border-b border-gray-50 transition-colors
+          ${isSection  ? 'bg-gray-50' : ''}
+          ${isTotal    ? 'bg-gray-900' : ''}
+          ${isSubtotal ? 'bg-gray-50' : ''}
+          ${!isSection&&!isSubtotal&&!isTotal&&!hasAccts ? 'hover:bg-gray-50' : ''}
+          ${hasAccts ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+        onClick={hasAccts ? ()=>toggle(row.id) : undefined}>
+        <td className={`px-6 py-2.5
+          ${isSection  ? 'text-[10px] font-bold uppercase tracking-widest' : ''}
+          ${isSubtotal ? 'font-semibold text-gray-700 pl-6' : ''}
+          ${isTotal    ? 'font-bold text-white' : ''}
+          ${!isSection&&!isSubtotal&&!isTotal ? 'text-gray-700 pl-10' : ''}`}
+          style={isSection ? {color:'var(--color-accent)'} : {}}>
+          <div className="flex items-center gap-1.5">
+            {hasAccts && (
+              <span className={`transition-transform duration-150 text-gray-400 ${isExpanded?'rotate-90':''}`}>
+                <ChevronRight size={12}/>
+              </span>
+            )}
+            <span>{row.label}</span>
+            {hasAccts && !isExpanded && (
+              <span className="text-[9px] font-medium text-gray-400 ml-1">{accounts[row.id].length} accounts</span>
+            )}
+          </div>
+        </td>
+        {isSection ? <td colSpan={4}/> : (
+          <>
+            <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${isTotal?'text-white':isSubtotal?'text-gray-800':'text-gray-700'}`}>
+              {row.actual!==undefined ? formatCurrency(row.actual,{compact:false}) : '—'}
+            </td>
+            <td className={`px-4 py-2.5 text-right tabular-nums ${isTotal?'text-gray-300':'text-gray-500'}`}>
+              {row.budget!==undefined ? formatCurrency(row.budget,{compact:false}) : '—'}
+            </td>
+            <VarCell actual={row.actual} budget={row.budget} isExpense={isExpense} isTotal={isTotal}/>
+            <td className={`px-6 py-2.5 text-right tabular-nums text-xs ${isTotal?'text-gray-300':'text-gray-400'}`}>
+              {row.actual!==undefined && !isSection ? formatPercent(row.actual/totalIncome*100,{decimals:1}) : ''}
+            </td>
+          </>
+        )}
+      </tr>
+    )
+
+    // Account sub-rows (only when expanded)
+    if (hasAccts && isExpanded) {
+      accounts[row.id].forEach((acct, ai) => {
+        const av = acct.actual - acct.budget
+        const pos = isExpense ? av<=0 : av>=0
+        rows.push(
+          <tr key={`${row.id}-acct-${ai}`} className="border-b border-gray-50 bg-gray-50/40 hover:bg-gray-50 transition-colors">
+            <td className="pl-14 pr-6 py-2 text-xs text-gray-500 font-medium">
+              <div className="flex items-center gap-1.5">
+                <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0"/>
+                {acct.label}
+              </div>
+            </td>
+            <td className="px-4 py-2 text-right tabular-nums text-xs text-gray-600">{formatCurrency(acct.actual,{compact:false})}</td>
+            <td className="px-4 py-2 text-right tabular-nums text-xs text-gray-400">{formatCurrency(acct.budget,{compact:false})}</td>
+            <td className={`px-4 py-2 text-right tabular-nums text-xs font-medium ${pos?'text-emerald-600':'text-red-600'}`}>
+              {av>=0?'+':''}{formatCurrency(av,{compact:false})}
+            </td>
+            <td className="px-6 py-2 text-right tabular-nums text-xs text-gray-300">
+              {formatPercent(acct.actual/totalIncome*100,{decimals:1})}
+            </td>
+          </tr>
+        )
+      })
+    }
+  })
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
-        <p className="text-xs text-gray-400 mt-0.5">Year-to-date actual vs. budget</p>
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Year-to-date actual vs. budget · Click a category row to expand accounts</p>
+        </div>
+        <button onClick={()=>setExpanded(prev=>prev.size>0?new Set():new Set(Object.keys(accounts)))}
+          className="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+          {expanded.size>0?<><ChevronUp size={12}/> Collapse all</>:<><ChevronDown size={12}/> Expand all</>}
+        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="text-left px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400 w-64">Line Item</th>
+              <th className="text-left px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400 w-72">Line Item</th>
               <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Actual</th>
               <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Budget</th>
               <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Variance</th>
               <th className="text-right px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">% of Income</th>
             </tr>
           </thead>
-          <tbody>
-            {data.map((row,i) => {
-              const variance = (row.actual??0)-(row.budget??0)
-              const totalIncome = data.find(r=>r.id==='total-income')?.actual||1
-              const isSection=row.type==='section', isSubtotal=row.type==='subtotal', isTotal=row.type==='total', isSpacer=row.type==='spacer', isExpense=row.group==='expense'
-              if(isSpacer) return <tr key={i}><td colSpan={5} className="py-2"/></tr>
-              return (
-                <tr key={i} className={`border-b border-gray-50 transition-colors ${isSection?'bg-gray-50':''} ${isTotal?'bg-gray-900':''} ${isSubtotal?'bg-gray-50':''} ${!isSection&&!isSubtotal&&!isTotal?'hover:bg-gray-50':''}`}>
-                  <td className={`px-6 py-2.5 ${isSection?'text-[10px] font-bold uppercase tracking-widest':''} ${isSubtotal?'font-semibold text-gray-700 pl-6':''} ${isTotal?'font-bold text-white':''} ${!isSection&&!isSubtotal&&!isTotal?'text-gray-700 pl-10':''}`}
-                    style={isSection?{color:'var(--color-accent)'}:{}}>
-                    {row.label}
-                  </td>
-                  {isSection?<td colSpan={4}/>:(
-                    <>
-                      <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${isTotal?'text-white':isSubtotal?'text-gray-800':'text-gray-700'}`}>{row.actual!==undefined?formatCurrency(row.actual,{compact:false}):'—'}</td>
-                      <td className={`px-4 py-2.5 text-right tabular-nums ${isTotal?'text-gray-300':'text-gray-500'}`}>{row.budget!==undefined?formatCurrency(row.budget,{compact:false}):'—'}</td>
-                      <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${isTotal?(variance>=0?'text-emerald-400':'text-red-400'):isExpense?(variance<=0?'text-emerald-600':'text-red-600'):(variance>=0?'text-emerald-600':'text-red-600')}`}>{row.actual!==undefined?(variance>=0?'+':'')+formatCurrency(variance,{compact:false}):'—'}</td>
-                      <td className={`px-6 py-2.5 text-right tabular-nums text-xs ${isTotal?'text-gray-300':'text-gray-400'}`}>{row.actual!==undefined&&!isSection?formatPercent(row.actual/totalIncome*100,{decimals:1}):''}</td>
-                    </>
-                  )}
-                </tr>
-              )
-            })}
-          </tbody>
+          <tbody>{rows}</tbody>
         </table>
       </div>
     </div>
@@ -1336,22 +1550,25 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 // Dashboard Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_KPI_CARDS    = ['giving','expenses','net-position','cash']
-const DEFAULT_PATRON_CARDS = ['total-patrons','new-patrons','avg-gift','new-patron-chart','patron-base-chart']
-const manualCardStore = {}
+const DEFAULT_KPI_CARDS     = ['giving','expenses','net-position','cash']
+const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
+const DEFAULT_PATRON_CHARTS  = ['new-patron-chart','patron-base-chart']
 
 function DashboardTab({ dateRange, orgConfig }) {
   const now = new Date()
-  // Most recent completed month (last month)
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
 
-  const [editKPI,       setEditKPI]       = useState(false)
-  const [editPatron,    setEditPatron]    = useState(false)
-  const [kpiCards,      setKpiCards]      = useState(DEFAULT_KPI_CARDS)
-  const [patronCards,   setPatronCards]   = useState(DEFAULT_PATRON_CARDS)
-  const [showAddKPI,    setShowAddKPI]    = useState(false)
-  const [showAddPatron, setShowAddPatron] = useState(false)
+  const [editKPI,            setEditKPI]            = useState(false)
+  const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
+  const [editPatronCharts,   setEditPatronCharts]   = useState(false)
+  const [kpiCards,           setKpiCards]           = useState(DEFAULT_KPI_CARDS)
+  const [patronMetricCards,  setPatronMetricCards]  = useState(DEFAULT_PATRON_METRICS)
+  const [patronChartCards,   setPatronChartCards]   = useState(DEFAULT_PATRON_CHARTS)
+  const [showAddKPI,         setShowAddKPI]         = useState(false)
+  const [showAddPatronMetric,setShowAddPatronMetric]= useState(false)
+  const [showAddPatronChart, setShowAddPatronChart] = useState(false)
+  const [manualCards,        setManualCards]        = useState({})
 
   const d = ELT_MOCK
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
@@ -1418,28 +1635,68 @@ function DashboardTab({ dateRange, orgConfig }) {
         cmp2Label="vs Prior Year" cmp2Value={d.cash.priorYear} cmp2Delta={d2} cmp2Pct={formatPercent(d2/d.cash.priorYear*100,{showSign:true})}
         editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
     }
-    const stored = manualCardStore[cardId] || {label:cardId,value:'—'}
-    return (
-      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
-        {editKPI&&<button onClick={()=>setKpiCards(p=>p.filter(c=>c!==cardId))} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
-        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{stored.label}</div>
-        <div className="text-3xl font-bold text-gray-900">{stored.value||'—'}</div>
-      </div>
-    )
+    // Manual card — fully editable
+    const stored = manualCards[cardId] || { id: cardId, label: cardId, value: '—' }
+    return <ManualKPICard key={cardId} card={stored} editMode={editKPI}
+      onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}
+      onEdit={updated=>setManualCards(prev=>({...prev,[cardId]:updated}))}/>
   }
 
-  function renderPatronCard(cardId) {
+  // ── Supporter Metric cards (KPI style)
+  function renderPatronMetricCard(cardId) {
     const p = d.patrons
-    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Patrons" mainValue={p.total.toLocaleString()} sub1Label="vs Prior Month" sub1Delta={p.total-p.priorMonth} sub1Format="count" sub2Label="vs Prior Year" sub2Delta={p.total-p.priorYear} sub2Format="count" editMode={editPatron} onRemove={()=>setPatronCards(c=>c.filter(x=>x!==cardId))}/>
-    if(cardId==='new-patrons') return <PatronMetricCard key={cardId} label="New Patrons (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={(p.newThisPeriod/p.newPriorPeriod-1)*100} sub2Format="percent" editMode={editPatron} onRemove={()=>setPatronCards(c=>c.filter(x=>x!==cardId))}/>
-    if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Format="plain" editMode={editPatron} onRemove={()=>setPatronCards(c=>c.filter(x=>x!==cardId))}/>
-    if(cardId==='new-patron-chart') return <NewPatronChartCard key={cardId} data={p.monthly} editMode={editPatron} onRemove={()=>setPatronCards(c=>c.filter(x=>x!==cardId))}/>
-    if(cardId==='patron-base-chart') return <PatronBaseChartCard key={cardId} data={p.base} editMode={editPatron} onRemove={()=>setPatronCards(c=>c.filter(x=>x!==cardId))}/>
+    const removeMetric = () => setPatronMetricCards(c=>c.filter(x=>x!==cardId))
+    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label="vs Prior Month" sub1Delta={p.total-p.priorMonth} sub1Format="count" sub2Label="vs Prior Year" sub2Delta={p.total-p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='new-patrons') return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={(p.newThisPeriod/p.newPriorPeriod-1)*100} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='retention') return (
+      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
+        {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>Retention Rate</div>
+        <div className="text-3xl font-bold text-gray-900 mb-2">94.2%</div>
+        <div className="text-xs text-gray-500">vs 93.1% prior year <span className="text-emerald-600 font-medium">+1.1 pts</span></div>
+      </div>
+    )
+    if(cardId==='recurring-ratio') return (
+      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
+        {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>Recurring Mix</div>
+        <div className="text-3xl font-bold text-gray-900 mb-2">82.4%</div>
+        <div className="text-xs text-gray-500">of total supporters are recurring givers</div>
+      </div>
+    )
+    if(cardId.startsWith('manual-')) {
+      const stored = manualCards[cardId] || { id:cardId, label:cardId, value:'—' }
+      return <ManualKPICard key={cardId} card={stored} editMode={editPatronMetrics}
+        onRemove={removeMetric}
+        onEdit={updated=>setManualCards(prev=>({...prev,[cardId]:updated}))}/>
+    }
     return null
   }
 
-  const patronMetricIds = patronCards.filter(id=>['total-patrons','new-patrons','avg-gift','avg-gift-p'].includes(id)||id.startsWith('manual-'))
-  const patronChartIds  = patronCards.filter(id=>['new-patron-chart','patron-base-chart'].includes(id))
+  // ── Trend Chart cards
+  function renderPatronChartCard(cardId) {
+    const p = d.patrons
+    const removeChart = () => setPatronChartCards(c=>c.filter(x=>x!==cardId))
+    if(cardId==='new-patron-chart') return <NewPatronChartCard key={cardId} data={p.monthly} editMode={editPatronCharts} onRemove={removeChart}/>
+    if(cardId==='patron-base-chart') return <PatronBaseChartCard key={cardId} data={p.base} editMode={editPatronCharts} onRemove={removeChart}/>
+    // Catalog chart not yet implemented — show placeholder
+    const chartDef = CHART_CATALOG.flatMap(g=>g.items).find(c=>c.id===cardId)
+    return (
+      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        {editPatronCharts&&<button onClick={removeChart} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center z-10"><X size={11}/></button>}
+        <div className="text-xs font-semibold text-gray-700 mb-0.5">{chartDef?.label||cardId}</div>
+        <div className="text-[10px] text-gray-400 mb-4">{chartDef?.description||''}</div>
+        <div className="flex items-center justify-center h-44 rounded-xl bg-gray-50">
+          <div className="text-center">
+            <Activity size={28} className="mx-auto mb-2 text-gray-300"/>
+            <div className="text-xs text-gray-400 font-medium">Chart coming soon</div>
+            <div className="text-[10px] text-gray-300 mt-0.5">Wire to data source to enable</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 space-y-8 max-w-screen-xl mx-auto">
@@ -1475,27 +1732,44 @@ function DashboardTab({ dateRange, orgConfig }) {
         </div>
       </section>
 
-      {/* Patron Composition */}
+      {/* Supporter Metrics — KPI cards */}
       <section>
-        <SectionHeader title="Patron Composition" editMode={editPatron} onToggleEdit={()=>setEditPatron(v=>!v)} onAdd={()=>setShowAddPatron(true)}/>
-        {patronMetricIds.length>0&&(
-          <div className="flex gap-4 flex-wrap mb-5">
-            {patronMetricIds.map(id=>renderPatronCard(id))}
-            {editPatron&&<button onClick={()=>setShowAddPatron(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
-          </div>
-        )}
-        {patronChartIds.length>0&&(
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {patronChartIds.map(id=>renderPatronCard(id))}
-          </div>
-        )}
+        <SectionHeader title="Supporter Metrics" editMode={editPatronMetrics} onToggleEdit={()=>setEditPatronMetrics(v=>!v)} onAdd={()=>setShowAddPatronMetric(true)}/>
+        <div className="flex gap-4 flex-wrap">
+          {patronMetricCards.map(id=>renderPatronMetricCard(id))}
+          {editPatronMetrics&&(
+            <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500">
+              <Plus size={20}/><span className="text-xs font-medium">Add metric</span>
+            </button>
+          )}
+        </div>
+      </section>
+
+      {/* Trend Charts — 2 per row */}
+      <section>
+        <SectionHeader title="Trend Charts" editMode={editPatronCharts} onToggleEdit={()=>setEditPatronCharts(v=>!v)} onAdd={()=>setShowAddPatronChart(true)}/>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {patronChartCards.map(id=>renderPatronChartCard(id))}
+          {editPatronCharts&&(
+            <button onClick={()=>setShowAddPatronChart(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 text-gray-300 hover:text-gray-500">
+              <Plus size={20}/><span className="text-xs font-medium">Add chart</span>
+            </button>
+          )}
+        </div>
       </section>
 
       {/* P&L */}
       <section><PLTable data={plData}/></section>
 
-      {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards} onAdd={card=>{if(card.manual)manualCardStore[card.id]=card;setKpiCards(p=>[...p,card.id])}} onClose={()=>setShowAddKPI(false)}/>}
-      {showAddPatron&&<AddCardPanel title="Add Chart / Patron Card" catalog={CHART_CATALOG} existingIds={patronCards} onAdd={card=>{if(card.manual)manualCardStore[card.id]=card;setPatronCards(p=>[...p,card.id])}} onClose={()=>setShowAddPatron(false)} isChart/>}
+      {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
+        onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
+        onClose={()=>setShowAddKPI(false)}/>}
+      {showAddPatronMetric&&<AddCardPanel title="Add Supporter Metric" catalog={PATRON_KPI_CATALOG} existingIds={patronMetricCards}
+        onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setPatronMetricCards(p=>[...p,card.id])}}
+        onClose={()=>setShowAddPatronMetric(false)}/>}
+      {showAddPatronChart&&<AddCardPanel title="Add Trend Chart" catalog={CHART_CATALOG} existingIds={patronChartCards}
+        onAdd={card=>setPatronChartCards(p=>[...p,card.id])}
+        onClose={()=>setShowAddPatronChart(false)} isChart/>}
     </div>
   )
 }
