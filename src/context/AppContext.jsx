@@ -123,10 +123,20 @@ export function AppProvider({ children }) {
 
   // Comments
   function addComment(comment) {
-    setComments(prev => [...prev, { ...comment, id: 'c' + Date.now(), timestamp: new Date().toISOString() }])
+    setComments(prev => [...prev, {
+      status: 'open',
+      anchor: null,
+      teamId: 1,
+      ...comment,
+      id: 'c' + Date.now(),
+      timestamp: new Date().toISOString(),
+    }])
   }
-  function resolveComment(id) {
-    setComments(prev => prev.map(c => c.id === id ? { ...c, resolved: true } : c))
+  function updateCommentStatus(id, status) {
+    setComments(prev => prev.map(c => c.id === id ? { ...c, status, resolved: status === 'resolved' } : c))
+  }
+  function updateComment(id, changes) {
+    setComments(prev => prev.map(c => c.id === id ? { ...c, ...changes } : c))
   }
   function deleteComment(id) {
     setComments(prev => prev.filter(c => c.id !== id))
@@ -142,7 +152,7 @@ export function AppProvider({ children }) {
     selectedScenario, setSelectedScenario,
     dateRange, applyPreset, applyCustomRange,
     briefingExclusions, setBriefingExclusions,
-    comments, addComment, resolveComment, deleteComment,
+    comments, addComment, updateCommentStatus, updateComment, deleteComment,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { X, Plus, ChevronDown, Info } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import CommentPinFAB from '../components/CommentPinFAB'
 import {
   filterActualsByRange,
   calcBudgetByCategory,
@@ -654,41 +655,44 @@ export default function BriefingPage() {
   const vendorTotal = useMemo(() => topVendors.reduce((s, v) => s + v.amount, 0), [topVendors])
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-5">
-      {/* Hero */}
-      <BriefingHero
-        summary={summary}
-        excluded={briefingExclusions}
-        allCategories={allCategories}
-        onExcludeChange={setBriefingExclusions}
-      />
-
-      {/* Categories + Vendors row */}
-      <div className="flex gap-5">
-        <TopCategories
-          categories={topCategories}
-          sortMode={sortMode}
-          onSortMode={handleSortMode}
-          onSelectCategory={setSelectedCategory}
-          selectedCategory={selectedCategory}
+    <>
+      <div className="p-6 max-w-6xl mx-auto space-y-5">
+        {/* Hero */}
+        <BriefingHero
+          summary={summary}
           excluded={briefingExclusions}
+          allCategories={allCategories}
+          onExcludeChange={setBriefingExclusions}
         />
-        <TopVendors
-          vendors={topVendors}
-          total={vendorTotal}
+
+        {/* Categories + Vendors row */}
+        <div className="flex gap-5">
+          <TopCategories
+            categories={topCategories}
+            sortMode={sortMode}
+            onSortMode={handleSortMode}
+            onSelectCategory={setSelectedCategory}
+            selectedCategory={selectedCategory}
+            excluded={briefingExclusions}
+          />
+          <TopVendors
+            vendors={topVendors}
+            total={vendorTotal}
+            selectedCategory={selectedCategory}
+          />
+        </div>
+
+        {/* Trend chart */}
+        <TrendChart
+          actuals={actuals}
+          budgetFlat={budgetFlat}
+          scenario={selectedScenario}
+          dateRange={dateRange}
+          excluded={briefingExclusions}
           selectedCategory={selectedCategory}
         />
       </div>
-
-      {/* Trend chart */}
-      <TrendChart
-        actuals={actuals}
-        budgetFlat={budgetFlat}
-        scenario={selectedScenario}
-        dateRange={dateRange}
-        excluded={briefingExclusions}
-        selectedCategory={selectedCategory}
-      />
-    </div>
+      <CommentPinFAB page="briefing" rightClassName="right-6" />
+    </>
   )
 }

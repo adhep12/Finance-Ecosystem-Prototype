@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react'
 import {
   Plus, X, ChevronRight,
-  Star, DollarSign, TrendingUp, HelpCircle, RefreshCw,
+  Star, DollarSign, TrendingUp, TrendingDown, HelpCircle, RefreshCw,
   BarChart2, Users, Tag, Award,
   AlertTriangle, Flag, Activity as ActivityIcon, Clock,
 } from 'lucide-react'
@@ -36,12 +36,22 @@ const CARD_REGISTRY = [
   { type: 'top-vendors',    group: 'Top Lists', label: 'Top vendors',    field: 'vendor',   defaultN: 10, icon: Users          },
   { type: 'top-accounts',   group: 'Top Lists', label: 'Top accounts',   field: 'account',  defaultN: 5,  icon: Tag            },
   { type: 'top-grants',     group: 'Top Lists', label: 'Top grants',     field: 'grant',    defaultN: 5,  icon: Award          },
-  // ── Analytics ─────────────────────────────────────────────────────────────
-  { type: 'variance',  group: 'Variance',  label: 'Biggest Over/Under', icon: TrendingUp   },
-  { type: 'pacing',    group: 'Pacing',    label: 'Annual Pacing',      icon: Clock        },
-  { type: 'outliers',  group: 'Outliers',  label: 'Outliers',           icon: AlertTriangle},
-  { type: 'review',    group: 'Review',    label: 'Review Items',       icon: Flag         },
-  { type: 'activity',  group: 'Activity',  label: 'Activity',           icon: ActivityIcon },
+  // ── Variance ──────────────────────────────────────────────────────────────
+  { type: 'variance-over',    group: 'Variance',  label: 'Biggest Overrun',      icon: TrendingUp   },
+  { type: 'variance-under',   group: 'Variance',  label: 'Biggest Underrun',     icon: TrendingDown },
+  // ── Pacing ────────────────────────────────────────────────────────────────
+  { type: 'pacing',           group: 'Pacing',    label: 'Annual Pacing',        icon: Clock        },
+  // ── Outliers ──────────────────────────────────────────────────────────────
+  { type: 'outliers-tx',      group: 'Outliers',  label: 'Largest Transaction',  icon: DollarSign   },
+  { type: 'outliers-month',   group: 'Outliers',  label: 'Highest-Spend Month',  icon: BarChart2    },
+  { type: 'outliers-vendor',  group: 'Outliers',  label: 'Most Frequent Vendor', icon: Users        },
+  // ── Review ────────────────────────────────────────────────────────────────
+  { type: 'review-open',      group: 'Review',    label: 'Open Items',           icon: Flag         },
+  { type: 'review-flagged',   group: 'Review',    label: 'Flagged Spend',        icon: AlertTriangle},
+  // ── Activity ──────────────────────────────────────────────────────────────
+  { type: 'activity-txns',    group: 'Activity',  label: 'Transactions',         icon: ActivityIcon },
+  { type: 'activity-avg',     group: 'Activity',  label: 'Avg Transaction',      icon: BarChart2    },
+  { type: 'activity-dept',    group: 'Activity',  label: 'Spend by Department',  icon: Tag          },
 ]
 
 const DEFAULT_CARDS = [
@@ -348,65 +358,57 @@ function TopListCard({ card, actuals, title, field, onRemove }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VarianceCard — biggest over and biggest under by category
+// Variance: two separate cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function VarianceCard({ card, actuals, budgetByCat, onRemove }) {
-  const byCat = aggregateBy(actuals, 'category')
-  const all = [...new Set([...Object.keys(byCat), ...Object.keys(budgetByCat)])]
-    .filter(cat => budgetByCat[cat] > 0)
-    .map(cat => ({
-      cat,
-      actual: byCat[cat] || 0,
-      budget: budgetByCat[cat] || 0,
-      delta:  (byCat[cat] || 0) - (budgetByCat[cat] || 0),
-    }))
-
-  const biggestOver  = [...all].filter(c => c.delta > 0).sort((a, b) => b.delta - a.delta)[0]
-  const biggestUnder = [...all].filter(c => c.delta < 0).sort((a, b) => a.delta - b.delta)[0]
-
-  function VarRow({ label, item, isOver }) {
-    if (!item) return (
-      <div>
-        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-300 mb-1">{label}</div>
-        <p className="text-xs text-gray-400">None</p>
-      </div>
-    )
-    const pct = Math.min((item.actual / item.budget) * 100, 200)
-    return (
-      <div>
-        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">{label}</div>
-        <div className="flex items-baseline gap-2 mb-0.5">
-          <span className="text-sm font-bold text-gray-800">{item.cat}</span>
-        </div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-base font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
-            {formatOverUnder(item.delta)}
-          </span>
-          <span className="text-[10px] text-gray-400 tabular-nums">
-            {formatCurrency(item.actual)} of {formatCurrency(item.budget)}
-          </span>
-        </div>
-        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${Math.min(pct, 100)}%`,
-              backgroundColor: isOver ? 'var(--color-over)' : 'var(--color-under)',
-            }}
-          />
-        </div>
-      </div>
-    )
-  }
+function BiggestOverrunCard({ card, actuals, budgetByCat, onRemove }) {
+  const item = useMemo(() => {
+    const byCat = aggregateBy(actuals, 'category')
+    return [...new Set([...Object.keys(byCat), ...Object.keys(budgetByCat)])]
+      .filter(cat => (budgetByCat[cat] || 0) > 0)
+      .map(cat => ({ cat, actual: byCat[cat]||0, budget: budgetByCat[cat]||0, delta: (byCat[cat]||0)-(budgetByCat[cat]||0) }))
+      .filter(c => c.delta > 0)
+      .sort((a,b) => b.delta - a.delta)[0] || null
+  }, [actuals, budgetByCat])
 
   return (
-    <CardShell title="Biggest Over/Under" onRemove={onRemove}>
-      <div className="space-y-3">
-        <VarRow label="Biggest Overrun"  item={biggestOver}  isOver={true}  />
-        <div className="border-t border-gray-100" />
-        <VarRow label="Biggest Underrun" item={biggestUnder} isOver={false} />
-      </div>
+    <CardShell title="Biggest Overrun" onRemove={onRemove}>
+      {!item ? <p className="text-xs text-gray-400 text-center py-2">No overruns</p> : (
+        <div>
+          <div className="text-sm font-bold text-gray-800 mb-0.5">{item.cat}</div>
+          <div className="text-xl font-bold" style={{ color: 'var(--color-over)' }}>{formatOverUnder(item.delta)}</div>
+          <div className="text-[10px] text-gray-400 tabular-nums mt-0.5">{formatCurrency(item.actual)} of {formatCurrency(item.budget)}</div>
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
+            <div className="h-full rounded-full" style={{ width: '100%', backgroundColor: 'var(--color-over)' }} />
+          </div>
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+function BiggestUnderrunCard({ card, actuals, budgetByCat, onRemove }) {
+  const item = useMemo(() => {
+    const byCat = aggregateBy(actuals, 'category')
+    return [...new Set([...Object.keys(byCat), ...Object.keys(budgetByCat)])]
+      .filter(cat => (budgetByCat[cat] || 0) > 0)
+      .map(cat => ({ cat, actual: byCat[cat]||0, budget: budgetByCat[cat]||0, delta: (byCat[cat]||0)-(budgetByCat[cat]||0) }))
+      .filter(c => c.delta < 0)
+      .sort((a,b) => a.delta - b.delta)[0] || null
+  }, [actuals, budgetByCat])
+
+  return (
+    <CardShell title="Biggest Underrun" onRemove={onRemove}>
+      {!item ? <p className="text-xs text-gray-400 text-center py-2">No underruns</p> : (
+        <div>
+          <div className="text-sm font-bold text-gray-800 mb-0.5">{item.cat}</div>
+          <div className="text-xl font-bold" style={{ color: 'var(--color-under)' }}>{formatOverUnder(item.delta)}</div>
+          <div className="text-[10px] text-gray-400 tabular-nums mt-0.5">{formatCurrency(item.actual)} of {formatCurrency(item.budget)}</div>
+          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mt-2">
+            <div className="h-full rounded-full" style={{ width: `${Math.min((item.actual/item.budget)*100,100)}%`, backgroundColor: 'var(--color-under)' }} />
+          </div>
+        </div>
+      )}
     </CardShell>
   )
 }
@@ -512,80 +514,69 @@ function PacingCard({ card, onRemove }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OutliersCard
+// Outliers: three separate cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function OutliersCard({ card, actuals, onRemove }) {
-  // Largest single transaction
-  const largestTx = actuals.reduce((max, t) => (!max || t.amount > max.amount ? t : max), null)
+function LargestTxCard({ card, actuals, onRemove }) {
+  const tx = useMemo(() => actuals.reduce((max, t) => (!max || t.amount > max.amount ? t : max), null), [actuals])
+  return (
+    <CardShell title="Largest Transaction" onRemove={onRemove}>
+      {!tx ? <p className="text-xs text-gray-400 text-center py-2">No data</p> : (
+        <div>
+          <div className="text-xl font-bold text-gray-800 tabular-nums">{formatCurrency(tx.amount, { compact: false })}</div>
+          <div className="text-xs font-medium text-gray-700 truncate mt-0.5">{tx.vendor}</div>
+          <div className="text-[10px] text-gray-400">{tx.date} · {tx.department} · {tx.category}</div>
+        </div>
+      )}
+    </CardShell>
+  )
+}
 
-  // Highest-spend month
-  const byMonth    = aggregateByMonth(actuals)
-  const sortedMths = [...byMonth].sort((a, b) => b.actual - a.actual)
-  const topMonth   = sortedMths[0]
-  const monthAvg   = byMonth.length > 0 ? byMonth.reduce((s, m) => s + m.actual, 0) / byMonth.length : 0
-  const topMonthTx = topMonth ? actuals.filter(t => t.date.startsWith(topMonth.month)).length : 0
-  const mthVsAvg   = monthAvg > 0 && topMonth ? ((topMonth.actual - monthAvg) / monthAvg) * 100 : 0
-  const mthLabel   = topMonth ? `${MONTH_SHORT[parseInt(topMonth.month.split('-')[1]) - 1]} '${topMonth.month.slice(2, 4)}` : '—'
-
-  // Most frequent vendor
-  const vendorCounts = countBy(actuals, 'vendor')
-  const [topVendor, topCount = 0] = Object.entries(vendorCounts).sort(([,a],[,b]) => b - a)[0] || []
-  const topVendorTotal = topVendor ? actuals.filter(t => t.vendor === topVendor).reduce((s, t) => s + t.amount, 0) : 0
-  const topVendorAvg   = topCount > 0 ? topVendorTotal / topCount : 0
-
-  function Section({ label, children }) {
-    return (
-      <div className="mb-3 last:mb-0">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">{label}</div>
-        {children}
-      </div>
-    )
-  }
+function TopMonthCard({ card, actuals, onRemove }) {
+  const { month, amount, txCount, pctAboveAvg } = useMemo(() => {
+    const byMonth = aggregateByMonth(actuals)
+    if (!byMonth.length) return {}
+    const avg = byMonth.reduce((s,m) => s + m.actual, 0) / byMonth.length
+    const top = [...byMonth].sort((a,b) => b.actual - a.actual)[0]
+    const [y, m] = top.month.split('-')
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return {
+      month: `${MONTHS[parseInt(m)-1]} '${y.slice(2)}`,
+      amount: top.actual,
+      txCount: actuals.filter(t => t.date.startsWith(top.month)).length,
+      pctAboveAvg: avg > 0 ? ((top.actual - avg) / avg * 100) : 0,
+    }
+  }, [actuals])
 
   return (
-    <CardShell title="Outliers" onRemove={onRemove}>
-      {actuals.length === 0 ? (
-        <p className="text-xs text-gray-400 text-center py-2">No data</p>
-      ) : (
+    <CardShell title="Highest-Spend Month" onRemove={onRemove}>
+      {!month ? <p className="text-xs text-gray-400 text-center py-2">No data</p> : (
         <div>
-          <Section label="Largest Transaction">
-            {largestTx ? (
-              <>
-                <div className="text-lg font-bold text-gray-800 tabular-nums">{formatCurrency(largestTx.amount, { compact: false })}</div>
-                <div className="text-xs font-medium text-gray-700 truncate">{largestTx.vendor}</div>
-                <div className="text-[10px] text-gray-400">{fmtDate(largestTx.date)} · {largestTx.department} · {largestTx.category}</div>
-              </>
-            ) : <p className="text-xs text-gray-400">—</p>}
-          </Section>
+          <div className="text-xl font-bold text-gray-800 tabular-nums">{formatCurrency(amount)}</div>
+          <div className="text-xs font-medium text-gray-700 mt-0.5">{month}</div>
+          <div className="text-[10px] text-gray-400">{txCount} txn · {pctAboveAvg >= 0 ? '+' : ''}{Math.round(pctAboveAvg)}% vs monthly avg</div>
+        </div>
+      )}
+    </CardShell>
+  )
+}
 
-          <div className="border-t border-gray-100 my-2" />
+function TopVendorCard({ card, actuals, onRemove }) {
+  const { vendor, count, total, avg } = useMemo(() => {
+    const counts = countBy(actuals, 'vendor')
+    const [topVendor, topCount] = Object.entries(counts).sort(([,a],[,b]) => b-a)[0] || []
+    if (!topVendor) return {}
+    const total = actuals.filter(t => t.vendor === topVendor).reduce((s,t) => s+t.amount, 0)
+    return { vendor: topVendor, count: topCount, total, avg: topCount > 0 ? total/topCount : 0 }
+  }, [actuals])
 
-          <Section label="Highest-Spend Month">
-            {topMonth ? (
-              <>
-                <div className="text-lg font-bold text-gray-800 tabular-nums">{formatCurrency(topMonth.actual)}</div>
-                <div className="text-xs font-medium text-gray-700">{mthLabel}</div>
-                <div className="text-[10px] text-gray-400">
-                  {topMonthTx} txn · {mthVsAvg >= 0 ? '+' : ''}{Math.round(mthVsAvg)}% vs monthly avg
-                </div>
-              </>
-            ) : <p className="text-xs text-gray-400">—</p>}
-          </Section>
-
-          <div className="border-t border-gray-100 my-2" />
-
-          <Section label="Most-Frequent Vendor">
-            {topVendor ? (
-              <>
-                <div className="text-sm font-bold text-gray-800 truncate">{topVendor}</div>
-                <div className="text-xs text-gray-600">{topCount} transactions</div>
-                <div className="text-[10px] text-gray-400 tabular-nums">
-                  {formatCurrency(topVendorTotal)} total · {formatCurrency(topVendorAvg)} avg
-                </div>
-              </>
-            ) : <p className="text-xs text-gray-400">—</p>}
-          </Section>
+  return (
+    <CardShell title="Most Frequent Vendor" onRemove={onRemove}>
+      {!vendor ? <p className="text-xs text-gray-400 text-center py-2">No data</p> : (
+        <div>
+          <div className="text-sm font-bold text-gray-800 truncate">{vendor}</div>
+          <div className="text-xs text-gray-600 mt-0.5">{count} transactions</div>
+          <div className="text-[10px] text-gray-400 tabular-nums">{formatCurrency(total)} total · {formatCurrency(avg)} avg</div>
         </div>
       )}
     </CardShell>
@@ -593,123 +584,94 @@ function OutliersCard({ card, actuals, onRemove }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ReviewCard — open requests / flagged transactions
+// Review: two separate cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ReviewCard({ card, onRemove }) {
+function OpenItemsCard({ card, onRemove }) {
   const { comments } = useApp()
-  const openRequests  = comments.filter(c => !c.resolved && (c.type === 'request' || c.type === 'budget-request'))
-  const withTxRef     = comments.filter(c => !c.resolved && c.transactionRef)
-  const flaggedTotal  = withTxRef.reduce((s, c) => s + (c.transactionRef?.amount || 0), 0)
-
-  function ReviewSection({ label, children }) {
-    return (
-      <div className="mb-3 last:mb-0">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">{label}</div>
-        {children}
-        <a href="#/comments" className="inline-flex items-center gap-0.5 text-[11px] text-teal-600 font-medium mt-1 hover:underline">
-          Open in Comments <ChevronRight size={10} />
-        </a>
-      </div>
-    )
-  }
-
+  const open = comments.filter(c => !['resolved','rejected'].includes(c.status || (c.resolved ? 'resolved':'open')) && (c.type === 'request' || c.type === 'budget-request' || c.type === 'question'))
+  const withTx = comments.filter(c => c.transactionRef || c.anchor?.txRef)
   return (
-    <CardShell title="Review Items" onRemove={onRemove}>
-      <ReviewSection label="Open Items">
-        <div className="text-2xl font-bold text-gray-800 tabular-nums">{openRequests.length}</div>
-        <div className="text-[10px] text-gray-400">
-          {openRequests.length} open flags · {withTxRef.length} commented
-        </div>
-      </ReviewSection>
+    <CardShell title="Open Items" onRemove={onRemove}>
+      <div className="text-2xl font-bold text-gray-800 tabular-nums">{open.length}</div>
+      <div className="text-[10px] text-gray-400">{open.length} open flags · {withTx.length} commented</div>
+      <a href="/comments" className="inline-flex items-center gap-0.5 text-[11px] text-teal-600 font-medium mt-1.5 hover:underline">
+        Open in Comments <ChevronRight size={10} />
+      </a>
+    </CardShell>
+  )
+}
 
-      <div className="border-t border-gray-100 my-2" />
-
-      <ReviewSection label="Flagged Spend">
-        <div className="text-xl font-bold text-gray-800 tabular-nums">{formatCurrency(flaggedTotal)}</div>
-        <div className="text-[10px] text-gray-400">{withTxRef.length} flagged txn</div>
-      </ReviewSection>
+function FlaggedSpendCard({ card, onRemove }) {
+  const { comments } = useApp()
+  const flagged = comments.filter(c => (c.transactionRef || c.anchor?.txRef) && !['resolved'].includes(c.status || (c.resolved?'resolved':'open')))
+  const total = flagged.reduce((s,c) => s + ((c.transactionRef||c.anchor?.txRef)?.amount||0), 0)
+  return (
+    <CardShell title="Flagged Spend" onRemove={onRemove}>
+      <div className="text-xl font-bold text-gray-800 tabular-nums">{formatCurrency(total)}</div>
+      <div className="text-[10px] text-gray-400">{flagged.length} flagged txn</div>
+      <a href="/comments" className="inline-flex items-center gap-0.5 text-[11px] text-teal-600 font-medium mt-1.5 hover:underline">
+        Open in Comments <ChevronRight size={10} />
+      </a>
     </CardShell>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ActivityCard — transaction stats + spend by department
+// Activity: three separate cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ActivityCard({ card, actuals, onRemove }) {
+function TxCountCard({ card, actuals, onRemove }) {
   const { deptNames } = useApp()
-  const [showAvgDetail, setShowAvgDetail] = useState(true)
-
-  const totalTxns    = actuals.length
-  const totalSpend   = actuals.reduce((s, t) => s + t.amount, 0)
-  const avgTx        = totalTxns > 0 ? totalSpend / totalTxns : 0
-  const medianTx     = median(actuals.map(t => t.amount))
-  const uniqueDepts  = new Set(actuals.map(t => t.department)).size
-  const totalDepts   = Object.keys(deptNames).length
-
-  // Spend by department
-  const byDept = aggregateBy(actuals, 'department')
-  const deptEntries = Object.entries(byDept).sort(([,a],[,b]) => b - a)
-  const deptMax     = deptEntries[0]?.[1] || 1
-
+  const total = actuals.length
+  const spend = actuals.reduce((s,t) => s+t.amount, 0)
+  const avg = total > 0 ? spend/total : 0
+  const uniqueDepts = new Set(actuals.map(t=>t.department)).size
   return (
-    <CardShell title="Activity" onRemove={onRemove}>
-      {/* Transactions summary */}
-      <div className="mb-3">
-        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Transactions</div>
-        <div className="text-2xl font-bold text-gray-800 tabular-nums">{totalTxns.toLocaleString()}</div>
-        <div className="text-xs text-gray-500 tabular-nums">{formatCurrency(avgTx)} average</div>
-        <div className="text-[10px] text-gray-400">{uniqueDepts} of {totalDepts} depts in scope</div>
-      </div>
+    <CardShell title="Transactions" onRemove={onRemove}>
+      <div className="text-2xl font-bold text-gray-800 tabular-nums">{total.toLocaleString()}</div>
+      <div className="text-xs text-gray-500 tabular-nums">{formatCurrency(avg)} average</div>
+      <div className="text-[10px] text-gray-400">{uniqueDepts} of {Object.keys(deptNames).length} depts in scope</div>
+    </CardShell>
+  )
+}
 
-      <div className="border-t border-gray-100 my-2" />
+function AvgTxCard({ card, actuals, onRemove }) {
+  const total = actuals.length
+  const spend = actuals.reduce((s,t) => s+t.amount, 0)
+  const avg = total > 0 ? spend/total : 0
+  const med = median(actuals.map(t=>t.amount))
+  return (
+    <CardShell title="Avg Transaction" onRemove={onRemove}>
+      <div className="text-2xl font-bold text-gray-800 tabular-nums">{formatCurrency(avg)}</div>
+      <div className="text-[10px] text-gray-400">median {formatCurrency(med)}</div>
+      <div className="text-[10px] text-gray-400">{total.toLocaleString()} txn in scope</div>
+    </CardShell>
+  )
+}
 
-      {/* Average transaction (collapsible) */}
-      <div className="mb-3">
-        <div className="flex items-center gap-1 mb-1">
-          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 flex-1">Avg Transaction</div>
-          <button
-            onClick={() => setShowAvgDetail(v => !v)}
-            className="text-gray-300 hover:text-gray-500 transition-colors"
-            title={showAvgDetail ? 'Collapse' : 'Expand'}
-          >
-            <ChevronRight size={11} className={`transition-transform ${showAvgDetail ? 'rotate-90' : ''}`} />
-          </button>
-        </div>
-        <div className="text-xl font-bold text-gray-800 tabular-nums">{formatCurrency(avgTx)}</div>
-        {showAvgDetail && (
-          <div className="mt-0.5">
-            <div className="text-[10px] text-gray-400 tabular-nums">median {formatCurrency(medianTx)}</div>
-            <div className="text-[10px] text-gray-400">{totalTxns.toLocaleString()} txn in scope</div>
-          </div>
-        )}
-      </div>
-
-      {deptEntries.length > 0 && (
-        <>
-          <div className="border-t border-gray-100 my-2" />
-          <div>
-            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Spend by Department</div>
-            <div className="space-y-2">
-              {deptEntries.map(([deptCode, amount]) => (
-                <div key={deptCode}>
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-[10px] font-bold text-gray-300 w-6 text-right flex-shrink-0">{deptCode}</span>
-                    <span className="text-xs text-gray-700 flex-1 truncate">{deptNames[deptCode] || `Dept ${deptCode}`}</span>
-                    <span className="text-[11px] font-semibold text-gray-800 tabular-nums flex-shrink-0">{formatCurrency(amount)}</span>
-                  </div>
-                  <div className="ml-8 h-1 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${(amount / deptMax) * 100}%`, backgroundColor: 'var(--color-accent)' }}
-                    />
-                  </div>
-                </div>
-              ))}
+function DeptSpendCard({ card, actuals, onRemove }) {
+  const { deptNames } = useApp()
+  const byDept = aggregateBy(actuals, 'department')
+  const entries = Object.entries(byDept).sort(([,a],[,b]) => b-a)
+  const max = entries[0]?.[1] || 1
+  return (
+    <CardShell title="Spend by Department" onRemove={onRemove}>
+      {entries.length === 0 ? <p className="text-xs text-gray-400 text-center py-2">No data</p> : (
+        <div className="space-y-2">
+          {entries.map(([code, amount]) => (
+            <div key={code}>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-[10px] font-bold text-gray-300 w-6 text-right flex-shrink-0">{code}</span>
+                <span className="text-xs text-gray-700 flex-1 truncate">{deptNames[code] || `Dept ${code}`}</span>
+                <span className="text-[11px] font-semibold text-gray-800 tabular-nums flex-shrink-0">{formatCurrency(amount)}</span>
+              </div>
+              <div className="ml-8 h-1 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${(amount/max)*100}%`, backgroundColor: 'var(--color-accent)' }} />
+              </div>
             </div>
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </CardShell>
   )
@@ -842,12 +804,18 @@ export default function KPIPanel({ actual, budget, transactions, selectedScenari
     if (reg.variant === 'total') return <BudgetRequestsTotalCard key={card.id} card={card} onRemove={onRemove} />
     // Top Lists
     if (reg.group === 'Top Lists') return <TopListCard key={card.id} card={card} actuals={actuals} title={reg.label} field={reg.field} onRemove={onRemove} />
-    // Analytics
-    if (card.type === 'variance') return <VarianceCard key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat || {}} onRemove={onRemove} />
-    if (card.type === 'pacing')   return <PacingCard   key={card.id} card={card} onRemove={onRemove} />
-    if (card.type === 'outliers') return <OutliersCard  key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
-    if (card.type === 'review')   return <ReviewCard    key={card.id} card={card} onRemove={onRemove} />
-    if (card.type === 'activity') return <ActivityCard  key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
+    // Analytics — individual cards
+    if (card.type === 'variance-over')    return <BiggestOverrunCard  key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat||{}} onRemove={onRemove} />
+    if (card.type === 'variance-under')   return <BiggestUnderrunCard key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat||{}} onRemove={onRemove} />
+    if (card.type === 'pacing')           return <PacingCard          key={card.id} card={card} onRemove={onRemove} />
+    if (card.type === 'outliers-tx')      return <LargestTxCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
+    if (card.type === 'outliers-month')   return <TopMonthCard        key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
+    if (card.type === 'outliers-vendor')  return <TopVendorCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
+    if (card.type === 'review-open')      return <OpenItemsCard       key={card.id} card={card} onRemove={onRemove} />
+    if (card.type === 'review-flagged')   return <FlaggedSpendCard    key={card.id} card={card} onRemove={onRemove} />
+    if (card.type === 'activity-txns')    return <TxCountCard         key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
+    if (card.type === 'activity-avg')     return <AvgTxCard           key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
+    if (card.type === 'activity-dept')    return <DeptSpendCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
     return null
   }
 

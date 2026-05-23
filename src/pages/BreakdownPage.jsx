@@ -14,6 +14,7 @@ import {
 } from '../utils/dataProcessing'
 import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
 import KPIPanel from '../components/KPIPanel'
+import CommentPinFAB from '../components/CommentPinFAB'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -794,6 +795,9 @@ export default function BreakdownPage() {
           budgetByCat={budgetByCat}
         />
       </div>
+
+      {/* Comment pin FAB — offset from KPI panel */}
+      <CommentPinFAB page="breakdown" rightClassName="right-[296px]" />
 
       {/* Transaction modal */}
       {selectedTx && (
