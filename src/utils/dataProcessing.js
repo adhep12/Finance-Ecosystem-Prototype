@@ -287,13 +287,40 @@ export function groupByField(actuals, field) {
  *   - depth 0, field='category': use budgetByCategory[value]
  *   - deeper levels: proportional allocation (parentBudget * myActual / parentActual)
  *
- * @param {Array}    actuals         already filtered (dept, search, hidden)
- * @param {string[]} drillOrder      e.g. ['category','account','grant','vendor']
- * @param {string[]} openPath        e.g. ['Computers','Software'] — one value per depth
- * @param {Object}   budgetByCat     { category: totalBudgetForRange }
+ * @param {Array}       actuals      already filtered (dept, search, hidden)
+ * @param {string[]}    drillOrder   e.g. ['category','account','grant','vendor']
+ * @param {string[]}    openPath     e.g. ['Computers','Software'] — one value per depth
+ * @param {Object}      budgetByCat  { category: totalBudgetForRange }
+ * @param {Object|null} sortConfig   { col: 'actual'|'budget'|'delta'|'pct', dir: 'asc'|'desc' }
  */
-export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat) {
+export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sortConfig = null) {
   const result = []
+
+  function getBudget(g, field, parentBudget, parentActual) {
+    if (field === 'category') return budgetByCat[g.key] || 0
+    if (parentActual > 0)     return parentBudget * (g.total / parentActual)
+    return 0
+  }
+
+  function sortGroups(groups, field, parentBudget, parentActual) {
+    if (!sortConfig || !sortConfig.col) return groups
+    return [...groups].sort((a, b) => {
+      const ab = getBudget(a, field, parentBudget, parentActual)
+      const bb = getBudget(b, field, parentBudget, parentActual)
+      let av, bv
+      switch (sortConfig.col) {
+        case 'actual':  av = a.total;           bv = b.total;           break
+        case 'budget':  av = ab;                bv = bb;                break
+        case 'delta':   av = a.total - ab;      bv = b.total - bb;      break
+        case 'pct':
+          av = ab > 0 ? (a.total - ab) / ab : 0
+          bv = bb > 0 ? (b.total - bb) / bb : 0
+          break
+        default:        av = a.total;           bv = b.total
+      }
+      return sortConfig.dir === 'asc' ? av - bv : bv - av
+    })
+  }
 
   function process(items, depth, parentBudget, parentActual) {
     if (depth >= drillOrder.length) {
@@ -305,22 +332,16 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat) {
     }
 
     const field      = drillOrder[depth]
-    const groups     = groupByField(items, field)
+    let   groups     = groupByField(items, field)
     const openAtThis = openPath[depth]
     const hasOpen    = depth < openPath.length
+
+    groups = sortGroups(groups, field, parentBudget, parentActual)
 
     for (const g of groups) {
       const isExpanded = g.key === openAtThis
       const isDimmed   = hasOpen && g.key !== openAtThis
-
-      // Budget at this level
-      let budget = 0
-      if (field === 'category') {
-        budget = budgetByCat[g.key] || 0
-      } else if (parentActual > 0) {
-        // Proportional allocation from parent
-        budget = parentBudget * (g.total / parentActual)
-      }
+      const budget     = getBudget(g, field, parentBudget, parentActual)
 
       result.push({ type: 'group', field, value: g.key, actual: g.total, budget, depth, isExpanded, isDimmed, items: g.items })
 

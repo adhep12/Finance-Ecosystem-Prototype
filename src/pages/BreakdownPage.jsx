@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react'
 import {
   ChevronRight, Ban, Plus, X, Search, GripVertical,
-  RotateCcw, MessageSquare, Calendar, Tag, Building2
+  RotateCcw, MessageSquare, Calendar, Tag, Building2,
+  ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { DEPT_NAMES } from '../data/mockData'
@@ -13,6 +14,7 @@ import {
 } from '../utils/dataProcessing'
 import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
 import KPIPanel from '../components/KPIPanel'
+import { useLocalStorage } from '../hooks/useLocalStorage'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -304,17 +306,42 @@ function HiddenBar({ hidden, onRestore, onShowAll }) {
 // Table header
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TableHeader({ drillOrder, selectedScenario }) {
+function SortIcon({ active, dir }) {
+  if (!active) return <ChevronsUpDown size={10} className="text-gray-300 ml-0.5" />
+  return dir === 'desc'
+    ? <ArrowDown size={10} className="ml-0.5 text-teal-600" />
+    : <ArrowUp   size={10} className="ml-0.5 text-teal-600" />
+}
+
+function TableHeader({ drillOrder, selectedScenario, sortCol, sortDir, onSort }) {
   const pathLabel = drillOrder.map(f => FIELD_LABELS[f]).join(' → ')
+
+  const cols = [
+    { col: 'actual', label: 'Spend',       width: 96  },
+    { col: 'budget', label: selectedScenario, width: 96 },
+    { col: 'delta',  label: 'Over/(Under)', width: 110 },
+    { col: 'pct',    label: 'Variance %',   width: 100 },
+  ]
+
   return (
     <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
       <div className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
         {pathLabel}
       </div>
-      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 96 }}>Spend</div>
-      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 96 }}>{selectedScenario}</div>
-      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 110 }}>Over/(Under)</div>
-      <div className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400" style={{ width: 100 }}>Variance %</div>
+      {cols.map(({ col, label, width }) => (
+        <button
+          key={col}
+          onClick={() => onSort(col)}
+          className={`flex items-center justify-end text-[10px] font-semibold uppercase tracking-wider flex-shrink-0 transition-colors hover:text-gray-700 ${
+            sortCol === col ? 'text-teal-600' : 'text-gray-400'
+          }`}
+          style={{ width }}
+          title={`Sort by ${label}`}
+        >
+          {label}
+          <SortIcon active={sortCol === col} dir={sortDir} />
+        </button>
+      ))}
     </div>
   )
 }
@@ -549,13 +576,28 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
 export default function BreakdownPage() {
   const { actuals, budgetFlat, selectedScenario, dateRange, addComment } = useApp()
 
-  // ── State ────────────────────────────────────────────────────────────────
-  const [drillOrder,    setDrillOrder]    = useState(['category', 'account', 'grant', 'vendor'])
+  // ── Persistent state (survives navigation & reload) ───────────────────────
+  const [drillOrder,      setDrillOrder]      = useLocalStorage('bd-drill-order',   ['category', 'account', 'grant', 'vendor'])
+  const [breakdownHidden, setBreakdownHidden] = useLocalStorage('bd-hidden',        [])
+
+  // ── Transient state ───────────────────────────────────────────────────────
   const [activeDepts,   setActiveDepts]   = useState(null)  // null = all active
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
-  const [breakdownHidden, setBreakdownHidden] = useState([])
   const [selectedTx,    setSelectedTx]    = useState(null)
+
+  // ── Sort state ────────────────────────────────────────────────────────────
+  const [sortCol, setSortCol] = useState(null)   // 'actual' | 'budget' | 'delta' | 'pct' | null
+  const [sortDir, setSortDir] = useState('desc')
+
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortCol(col)
+      setSortDir('desc')
+    }
+  }
 
   // ── Derived data ─────────────────────────────────────────────────────────
 
@@ -597,10 +639,14 @@ export default function BreakdownPage() {
     return calcBudgetByCategory(budgetFlat, selectedScenario, dateRange.startDate, dateRange.endDate, depts)
   }, [budgetFlat, selectedScenario, dateRange, activeDepts])
 
-  // 6. Visible rows
+  // 6. Visible rows (with optional sort)
+  const sortConfig = useMemo(
+    () => sortCol ? { col: sortCol, dir: sortDir } : null,
+    [sortCol, sortDir]
+  )
   const visibleRows = useMemo(() =>
-    buildVisibleRows(searchFiltered, drillOrder, openPath, budgetByCat),
-    [searchFiltered, drillOrder, openPath, budgetByCat]
+    buildVisibleRows(searchFiltered, drillOrder, openPath, budgetByCat, sortConfig),
+    [searchFiltered, drillOrder, openPath, budgetByCat, sortConfig]
   )
 
   // ── Summary stats for KPI panel ──────────────────────────────────────────
@@ -698,7 +744,13 @@ export default function BreakdownPage() {
 
         {/* Table */}
         <div className="flex-1 overflow-y-auto">
-          <TableHeader drillOrder={drillOrder} selectedScenario={selectedScenario} />
+          <TableHeader
+            drillOrder={drillOrder}
+            selectedScenario={selectedScenario}
+            sortCol={sortCol}
+            sortDir={sortDir}
+            onSort={handleSort}
+          />
 
           {visibleRows.length === 0 && (
             <div className="text-center py-16 text-gray-400 text-sm">
@@ -739,6 +791,7 @@ export default function BreakdownPage() {
           transactions={unhidden.length}
           selectedScenario={selectedScenario}
           actuals={unhidden}
+          budgetByCat={budgetByCat}
         />
       </div>
 
