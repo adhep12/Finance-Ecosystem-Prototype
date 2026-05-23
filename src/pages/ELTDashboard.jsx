@@ -19,7 +19,6 @@ import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROLLING_QUOTES = [
-  { text: "One foot in the grave, one foot on a banana peel.", author: "Steve Atkinson" },
   { text: "Revenue is vanity, profit is sanity, cash is king.", author: "Traditional" },
   { text: "Not everything that counts can be counted, and not everything that can be counted counts.", author: "William Bruce Cameron" },
   { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
@@ -706,7 +705,7 @@ function MonthlyKPICard({ title, actual, budget, priorYear, inverse=false, editM
   const p2 = priorYear > 0 ? formatPercent(d2 / priorYear * 100, { showSign: true, decimals: 1 }) : '—'
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex-1 min-w-[170px] max-w-[240px]">
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
           <X size={11}/>
@@ -1359,6 +1358,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
   const [showAddMonth, setShowAddMonth] = useState(false)
   const [showAddKPI, setShowAddKPI] = useState(false)
   const [newMonthSel, setNewMonthSel] = useState(ALL_MONTHS[0])
+  const [manualCards, setManualCards] = useState({})
 
   const summary = summaries[currentMonth]
   const noData  = !summary
@@ -1447,12 +1447,19 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
         actual={summary.supporters?.actual||0} budget={summary.supporters?.budget||0} priorYear={summary.supporters?.priorYear||0}
         editMode={editMode} onEdit={(f,v)=>{const s={...(summary.supporters||{}),[f]:v};update('supporters',s)}} onRemove={remove}/>
     }
+    // Manual cards — same as dashboard manual KPI cards
+    if (cardId.startsWith('manual-')) {
+      const stored = manualCards[cardId] || { id: cardId, label: 'Custom KPI', value: '—' }
+      return <ManualKPICard key={cardId} card={stored} editMode={editMode}
+        onRemove={remove}
+        onEdit={updated => setManualCards(prev => ({ ...prev, [cardId]: updated }))}/>
+    }
     return null
   }
 
   return (
     <div className="min-h-screen" style={{backgroundColor:'var(--color-primary-bg)'}}>
-      <div className="max-w-2xl mx-auto px-6 py-8 pb-16">
+      <div className="max-w-4xl mx-auto px-6 py-8 pb-16">
 
         {/* ── Document header: icon + title + inline month selector + action buttons ── */}
         <div className="flex items-start justify-between gap-4 mb-8">
@@ -1531,10 +1538,10 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           <div className="mb-4 flex items-center justify-between">
             <SectionLabel>Financial Position</SectionLabel>
           </div>
-          <div className="flex gap-3 flex-wrap mb-4">
+          <div className="flex gap-3 flex-wrap mb-4" style={{alignItems:'stretch'}}>
             {(summary.kpiCards||[]).map(id => renderMonthlyKPICard(id))}
             {editMode && (
-              <button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-4 min-w-[140px] text-gray-300 hover:text-gray-500">
+              <button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-4 min-w-[140px] max-w-[180px] text-gray-300 hover:text-gray-500">
                 <Plus size={18}/><span className="text-xs font-medium">Add card</span>
               </button>
             )}
@@ -1675,7 +1682,10 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
         <AddCardPanel title="Add Monthly KPI Card"
           suggestedCards={MONTHLY_SUGGESTED_KPI}
           existingIds={summary?.kpiCards||[]}
-          onAdd={card=>update('kpiCards',[...(summary.kpiCards||[]),card.id])}
+          onAdd={card=>{
+            if(card.manual) setManualCards(p=>({...p,[card.id]:card}))
+            update('kpiCards',[...(summary.kpiCards||[]),card.id])
+          }}
           onClose={()=>setShowAddKPI(false)}/>
       )}
     </div>
@@ -2458,7 +2468,7 @@ function TeamsTab({ dateRange }) {
               <SortTh col="budget" right>Budget</SortTh>
               <SortTh col="variance" right>Variance</SortTh>
               <SortTh col="pct" right>Var %</SortTh>
-              <th className="text-right px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">% of Total</th>
+              <SortTh col="share" right>% of Total</SortTh>
             </tr>
           </thead>
           <tbody>
