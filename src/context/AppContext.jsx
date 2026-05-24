@@ -109,10 +109,7 @@ export function AppProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true)
   const [dbError,   setDbError]   = useState(null)
 
-  // ── Manually-imported income months (legacy CSV upload flow) ─────────────
-  // Falls back to derived when empty (see derivedIncomeMonths below).
-  const [importedIncomeMonths, setImportedIncomeMonths] = useState([])
-  const [previousIncome, setPreviousIncome] = useState(null)
+  // (Legacy manual income import removed — income is always derived from actuals)
 
   // ── On mount: load actuals + budget + org settings from Supabase ─────────
   async function loadFromDB() {
@@ -287,10 +284,8 @@ export function AppProvider({ children }) {
       })
   }, [actuals])
 
-  // Prefer manual import; fall back to derived from actuals
-  const incomeMonths = importedIncomeMonths.length > 0
-    ? importedIncomeMonths
-    : derivedIncomeMonths
+  // Income always derived from actuals (manual import removed)
+  const incomeMonths = derivedIncomeMonths
 
   // ── Scenario selector ─────────────────────────────────────────────────────
   const availableScenarios = useMemo(() => getScenarios(budgetFlat), [budgetFlat])
@@ -373,19 +368,6 @@ export function AppProvider({ children }) {
     setPreviousBudget(null)
   }
 
-  // ── Income months mutations (manual import flow) ──────────────────────────
-  function appendIncome(rows) {
-    setImportedIncomeMonths(prev => [...prev, ...rows])
-  }
-  function replaceIncome(rows) {
-    setImportedIncomeMonths(prev => { setPreviousIncome(prev); return rows })
-  }
-  function restorePreviousIncome() {
-    if (!previousIncome) return
-    setImportedIncomeMonths(previousIncome)
-    setPreviousIncome(null)
-  }
-
   // ── Comments ──────────────────────────────────────────────────────────────
   function addComment(comment) {
     setComments(prev => [...prev, {
@@ -430,9 +412,8 @@ export function AppProvider({ children }) {
     // Granular mutations
     appendActuals, replaceActuals, replaceActualsByRange,
     appendBudget, replaceBudget, replaceBudgetByRange,
-    // Income months (manual import or derived from actuals)
-    incomeMonths, appendIncome, replaceIncome,
-    previousIncome, restorePreviousIncome,
+    // Income months — derived from actuals (read-only; no manual import)
+    incomeMonths,
     // DB state
     isLoading, dbError,
     refreshFromDB: loadFromDB,

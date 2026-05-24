@@ -6,7 +6,7 @@ import {
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
   ChevronDown, ChevronRight, ChevronLeft,
-  Plus, X, Edit2, Trash2, Upload, RefreshCw,
+  Plus, X, Edit2, Trash2,
   BarChart2, Activity, Filter, Search, Check, Settings,
   Building2, Calendar, Download, GripVertical, RotateCcw,
   Ban, Eye, EyeOff, ArrowUp, ArrowDown, CheckSquare, Square,
@@ -1380,224 +1380,34 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Import Tab — actuals, budget, and income CSV upload
+// Import Tab — four Supabase-backed import flows
+// Legacy in-memory imports (Actuals, Budget legacy, Income) removed.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function DropZone({ onFile }){
-  const [drag, setDrag] = useState(false)
-  const ref = useRef(null)
-  function handleDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files[0]; if(f) onFile(f) }
-  function handleFile(e){ const f=e.target.files[0]; if(f) onFile(f) }
-  return (
-    <div onDragOver={e=>{ e.preventDefault(); setDrag(true) }} onDragLeave={()=>setDrag(false)} onDrop={handleDrop}
-      onClick={()=>ref.current?.click()}
-      className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${drag?'border-teal-400 bg-teal-50':'border-gray-200 hover:border-gray-300 bg-gray-50'}`}>
-      <input ref={ref} type="file" accept=".csv" className="hidden" onChange={handleFile}/>
-      <Upload size={24} className={`mx-auto mb-2 ${drag?'text-teal-500':'text-gray-300'}`}/>
-      <p className="text-sm font-medium text-gray-600">Drop CSV here or click to browse</p>
-      <p className="text-xs text-gray-400 mt-1">Accepts .csv files</p>
-    </div>
-  )
-}
-
-function parseCSV(text){
-  const lines = text.trim().split('\n').map(l=>l.trim()).filter(Boolean)
-  if(lines.length<2) return []
-  const headers = lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim())
-  return lines.slice(1).map(line=>{
-    const vals=[]; let cur='',inQ=false
-    for(const ch of line){
-      if(ch==='"'){ inQ=!inQ } else if(ch===','&&!inQ){ vals.push(cur.trim()); cur='' } else { cur+=ch }
-    }
-    vals.push(cur.trim())
-    return Object.fromEntries(headers.map((h,i)=>[h,vals[i]??'']))
-  })
-}
-
-function findCol(row,...names){
-  const keys=Object.keys(row)
-  for(const n of names){
-    const k=keys.find(k=>k.toLowerCase().replace(/\s+/g,'').includes(n.toLowerCase()))
-    if(k) return row[k]
-  }
-  return ''
-}
-
-function parseDate(s){ const m=String(s||'').match(/(\d{4})-(\d{1,2})-(\d{1,2})/); return m?`${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`:'' }
-function parseAmt(s){ return parseFloat(String(s||'').replace(/[$,]/g,''))||0 }
-function monthLabel(dateStr){ return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dateStr.slice(5,7),10)-1]||dateStr.slice(0,7) }
-
-function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceBudget, appendIncome, replaceIncome, previousActuals, restorePreviousActuals, previousIncome, restorePreviousIncome }){
-  const [subTab, setSubTab] = useState('actuals')
-  const [preview, setPreview] = useState(null)
-  const [mode,    setMode]    = useState('replace')
-  const [success, setSuccess] = useState(null)
-  const [error,   setError]   = useState(null)
-
-  function reset(){ setPreview(null); setSuccess(null); setError(null) }
-
-  function handleFile(type, file){
-    reset()
-    const reader = new FileReader()
-    reader.onload = e=>{
-      try{
-        const rows = parseCSV(e.target.result)
-        if(rows.length===0){ setError('No data rows found in file.'); return }
-        let mapped
-        if(type==='actuals'){
-          mapped = rows.map(r=>({
-            date:       parseDate(findCol(r,'date')),
-            amount:     parseAmt(findCol(r,'amount','amt')),
-            department: findCol(r,'department','dept','dept_code'),
-            vendor:     findCol(r,'vendor'),
-            category:   findCol(r,'category','cat'),
-            account:    findCol(r,'account','acct','gl_account'),
-            grant:      findCol(r,'grant','fund','grant_code')||null,
-            description:findCol(r,'description','memo','note','desc'),
-          })).filter(r=>r.date&&r.amount)
-        } else if(type==='budget'){
-          mapped = rows.map(r=>({
-            department:    findCol(r,'department','dept'),
-            category:      findCol(r,'category','cat'),
-            scenario:      findCol(r,'scenario','plan','budget_name')||'Planned Spend',
-            monthlyAmount: parseAmt(findCol(r,'monthly','monthly_amount','amount')),
-          })).filter(r=>r.department&&r.category)
-        } else if(type==='income'){
-          mapped = rows.map(r=>({
-            date:          parseDate(findCol(r,'date','month')),
-            label:         findCol(r,'label','month_label')||monthLabel(parseDate(findCol(r,'date','month'))),
-            contributions: parseAmt(findCol(r,'contributions','giving','contributions_total')),
-            merch:         parseAmt(findCol(r,'merch','merchandise','merch_revenue')),
-            other:         parseAmt(findCol(r,'other','other_income','other_revenue')),
-          })).filter(r=>r.date)
-        }
-        setPreview({ type, mapped, count:mapped.length, sample:mapped.slice(0,3) })
-      } catch(err){ setError('Could not parse file: '+err.message) }
-    }
-    reader.readAsText(file)
-  }
-
-  function commit(){
-    if(!preview) return
-    const { type, mapped } = preview
-    if(type==='actuals'){ if(mode==='append') appendActuals(mapped); else replaceActuals(mapped) }
-    if(type==='budget'){  if(mode==='append') appendBudget(mapped);  else replaceBudget(mapped) }
-    if(type==='income'){  if(mode==='append') appendIncome(mapped);  else replaceIncome(mapped) }
-    setSuccess(`Imported ${preview.count} rows.`)
-    setPreview(null)
-  }
-
+function MasterImportTab(){
+  const [subTab, setSubTab] = useState('transactions')
   const SUB_TABS = [
     { id:'transactions', label:'Transactions' },
-    { id:'budget',       label:'Budget' },
-    { id:'patron',       label:'Patron Data' },
-    { id:'cashflow',     label:'Cash Flow' },
-    { id:'actuals',      label:'Actuals (legacy)' },
-    { id:'budget_legacy',label:'Budget (legacy)' },
-    { id:'income',       label:'Income (legacy)' },
+    { id:'budget',       label:'Budget'       },
+    { id:'patron',       label:'Patron Data'  },
+    { id:'cashflow',     label:'Cash Flow'    },
   ]
-
-  const TEMPLATES = {
-    actuals: 'date,amount,department,vendor,category,account,grant,description\n2026-01-15,5000,101,Vendor Name,Software,Software Subscriptions,,SaaS renewal',
-    budget:  'department,category,scenario,monthly_amount\n101,Software,Planned Spend,8000',
-    income:  'date,label,contributions,merch,other\n2026-01-01,Jan,185000,13500,2800',
-  }
-
-  function downloadTemplate(type){
-    const blob = new Blob([TEMPLATES[type]],{type:'text/csv'})
-    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${type}-template.csv`; a.click()
-  }
-
   return (
-    <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto space-y-6">
-      {/* Sub-tab selector */}
-      <div className="flex gap-1 border-b border-gray-200 flex-wrap">
+    <div className="flex-1 overflow-y-auto">
+      <div className="flex gap-1 border-b border-gray-200 px-6 pt-2">
         {SUB_TABS.map(t=>(
-          <button key={t.id} onClick={()=>{ setSubTab(t.id); reset() }}
+          <button key={t.id} onClick={()=>setSubTab(t.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${subTab===t.id?'border-teal-600 text-teal-700':'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {t.label}
           </button>
         ))}
       </div>
-
-      {/* Transactions — full Supabase import flow */}
-      {subTab==='transactions' && <TransactionImportFlow/>}
-
-      {/* Budget — full Supabase import flow */}
-      {subTab==='budget' && <BudgetImportFlow/>}
-
-      {/* Patron data — aggregated monthly metrics from gift-level CSV */}
-      {subTab==='patron' && <PatronImportFlow/>}
-
-      {/* Cash flow — monthly ending-balance snapshots */}
-      {subTab==='cashflow' && <CashFlowImportFlow/>}
-
-      {/* Legacy in-memory import tabs */}
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && (
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-semibold text-sm text-gray-800">Import {SUB_TABS.find(t=>t.id===subTab)?.label}</div>
-            <div className="text-xs text-gray-400 mt-0.5">{
-              subTab==='actuals'?'date, amount, department, vendor, category, account, grant, description':
-              subTab==='budget'?'department, category, scenario, monthly_amount':
-              'date, label, contributions, merch, other'
-            }</div>
-          </div>
-          <button onClick={()=>downloadTemplate(subTab)} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
-            <Download size={12}/> Template
-          </button>
-        </div>
-      )}
-
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && (
-        <div className="flex gap-2">
-          {[['replace','Replace all'],['append','Append']].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setMode(id)}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-colors ${mode===id?'border-teal-500 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500'}`}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && !preview && !success && <DropZone onFile={f=>handleFile(subTab,f)}/>}
-
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-          {error}<button onClick={reset} className="ml-2 text-red-400 hover:text-red-600"><X size={12}/></button>
-        </div>
-      )}
-
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && preview && (
-        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-sm text-gray-800">{preview.count} rows ready to {mode}</div>
-              <div className="text-xs text-gray-400 mt-0.5">Sample: {JSON.stringify(preview.sample[0])}</div>
-            </div>
-            <button onClick={reset} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={commit} className="flex-1 bg-teal-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-teal-700">
-              Confirm import
-            </button>
-            <button onClick={reset} className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && success && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-            <Check size={14}/> {success}
-          </div>
-          <div className="flex gap-2">
-            {subTab==='actuals' && previousActuals && <button onClick={()=>{ restorePreviousActuals(); setSuccess(null) }} className="text-xs text-emerald-600 hover:underline flex items-center gap-1"><RefreshCw size={10}/>Undo</button>}
-            {subTab==='income'  && previousIncome  && <button onClick={()=>{ restorePreviousIncome();  setSuccess(null) }} className="text-xs text-emerald-600 hover:underline flex items-center gap-1"><RefreshCw size={10}/>Undo</button>}
-            <button onClick={()=>{ reset() }} className="text-xs text-gray-400 hover:text-gray-600">Import another file</button>
-          </div>
-        </div>
-      )}
+      <div className="p-6">
+        {subTab==='transactions' && <TransactionImportFlow/>}
+        {subTab==='budget'       && <BudgetImportFlow/>}
+        {subTab==='patron'       && <PatronImportFlow/>}
+        {subTab==='cashflow'     && <CashFlowImportFlow/>}
+      </div>
     </div>
   )
 }
@@ -1609,11 +1419,10 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
 export default function MasterDashboard(){
   const {
     orgConfig,
-    actuals, appendActuals, replaceActuals,
-    budgetFlat, appendBudget, replaceBudget,
-    incomeMonths, appendIncome, replaceIncome, previousIncome, restorePreviousIncome,
+    actuals,
+    budgetFlat,
+    incomeMonths,
     availableScenarios, selectedScenario, setSelectedScenario,
-    previousActuals, restorePreviousActuals,
     deptNames,
   } = useApp()
 
@@ -1662,14 +1471,7 @@ export default function MasterDashboard(){
       {activeTab==='breakdown'     && <BreakdownTab {...tabProps}/>}
       {activeTab==='transactions'  && <MasterTransactionsEditor orgSettings={orgSettings}/>}
       {activeTab==='comments'      && <div className="flex-1"><CommentsPage/></div>}
-      {activeTab==='import'        && (
-        <MasterImportTab
-          appendActuals={appendActuals} replaceActuals={replaceActuals}
-          appendBudget={appendBudget}   replaceBudget={replaceBudget}
-          appendIncome={appendIncome}   replaceIncome={replaceIncome}
-          previousActuals={previousActuals} restorePreviousActuals={restorePreviousActuals}
-          previousIncome={previousIncome}   restorePreviousIncome={restorePreviousIncome}/>
-      )}
+      {activeTab==='import'        && <MasterImportTab/>}
       {activeTab==='setup' && <SetupPage/>}
     </div>
   )

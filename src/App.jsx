@@ -4,7 +4,6 @@ import { AppProvider } from './context/AppContext'
 import BriefingPage      from './pages/BriefingPage'
 import BreakdownPage     from './pages/BreakdownPage'
 import CommentsPage      from './pages/CommentsPage'
-import ImportPage        from './pages/ImportPage'
 import TransactionsPage  from './pages/TransactionsPage'
 import ELTDashboard      from './pages/ELTDashboard'
 import MasterDashboard    from './pages/MasterDashboard'
@@ -22,7 +21,7 @@ function AppShell() {
           <Route path="/breakdown"     element={<BreakdownPage />} />
           <Route path="/comments"      element={<CommentsPage />} />
           <Route path="/transactions"  element={<TransactionsPage />} />
-          <Route path="/import"        element={<ImportPage />} />
+          {/* /import removed — legacy import page deleted */}
         </Routes>
       </main>
     </div>
