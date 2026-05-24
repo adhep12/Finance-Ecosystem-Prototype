@@ -11,13 +11,13 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
-  Settings, Users, Building2, BookOpen, Award,
+  Settings, Users, Building2, BookOpen, Award, Map,
   Plus, Pencil, Trash2, RotateCcw, Download, Upload,
   ChevronDown, ChevronUp, Clock, Check, X, AlertTriangle,
-  Save, Eye, EyeOff, Search
+  Save, Eye, EyeOff, Search, ArrowRight, FileText, Link2,
 } from 'lucide-react'
 import { useRegistry, useOrgSettings } from '../hooks/useRegistry'
-import { supabase, ORG_ID } from '../lib/supabase'
+import { supabase, ORG_ID, dbInsert, dbSoftDelete } from '../lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -36,7 +36,59 @@ const SETUP_TABS = [
   { id: 'departments',label: 'Departments',        icon: Building2  },
   { id: 'accounts',   label: 'Chart of Accounts',  icon: BookOpen   },
   { id: 'grants',     label: 'Grants',             icon: Award      },
+  { id: 'mappings',   label: 'Field Mappings',     icon: Map        },
 ]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Field Mapping constants — canonical fields per import type
+// ─────────────────────────────────────────────────────────────────────────────
+
+const IMPORT_TYPES = [
+  { value: 'transactions', label: 'Transactions' },
+  { value: 'budget',       label: 'Budget'       },
+  { value: 'patron',       label: 'Patron Data'  },
+  { value: 'cashflow',     label: 'Cash Flow'    },
+]
+
+/** Canonical fields for each import type.
+ *  required: must be mapped to save the mapping
+ *  description: shown as hint in the mapping editor
+ */
+const CANONICAL_FIELDS = {
+  transactions: [
+    { field: 'date',           label: 'Date',           required: true,  description: 'Transaction date (calendar or fiscal notation)' },
+    { field: 'amount',         label: 'Amount',         required: true,  description: 'Transaction amount — positive = expense, negative = income' },
+    { field: 'account_code',   label: 'Account Code',   required: true,  description: 'GL account code — matched to Chart of Accounts' },
+    { field: 'dept_code',      label: 'Dept Code',      required: false, description: 'Department code — matched to Departments registry' },
+    { field: 'vendor',         label: 'Vendor',         required: false, description: 'Payee / vendor name' },
+    { field: 'description',    label: 'Description',    required: false, description: 'Transaction memo or note' },
+    { field: 'transaction_id', label: 'Transaction ID', required: false, description: 'Source system ID — used for deduplication' },
+    { field: 'grant_code',     label: 'Grant Code',     required: false, description: 'Grant code — matched to Grants registry' },
+  ],
+  budget: [
+    { field: 'period',       label: 'Period',       required: true,  description: 'Budget period — YYYY-MM (monthly), YYYY-Q1 (quarterly), or YYYY (annual)' },
+    { field: 'amount',       label: 'Amount',       required: true,  description: 'Budget amount — positive = expense' },
+    { field: 'account_code', label: 'Account Code', required: true,  description: 'GL account code — matched to Chart of Accounts' },
+    { field: 'dept_code',    label: 'Dept Code',    required: false, description: 'Department code' },
+    { field: 'scenario',     label: 'Scenario',     required: false, description: 'Budget scenario name, e.g. "Planned Spend"' },
+    { field: 'period_type',  label: 'Period Type',  required: false, description: 'monthly | quarterly | annual (auto-detected if blank)' },
+  ],
+  patron: [
+    { field: 'date',         label: 'Date',         required: true,  description: 'Gift date' },
+    { field: 'amount',       label: 'Amount',        required: true,  description: 'Gift amount' },
+    { field: 'patron_id',    label: 'Patron ID',    required: false, description: 'Unique patron/donor identifier' },
+    { field: 'patron_name',  label: 'Patron Name',  required: false, description: 'Full name' },
+    { field: 'campaign',     label: 'Campaign',     required: false, description: 'Campaign or fund code' },
+    { field: 'gift_type',    label: 'Gift Type',    required: false, description: 'e.g. One-time, Recurring, Grant' },
+  ],
+  cashflow: [
+    { field: 'date',        label: 'Date',        required: true,  description: 'Date of cash movement' },
+    { field: 'amount',      label: 'Amount',      required: true,  description: 'Amount — positive = inflow, negative = outflow' },
+    { field: 'category',    label: 'Category',    required: true,  description: 'Cash flow category, e.g. Operating, Investing' },
+    { field: 'description', label: 'Description', required: false, description: 'Memo or note' },
+    { field: 'reference',   label: 'Reference',   required: false, description: 'Source reference number' },
+  ],
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utility helpers
@@ -1182,6 +1234,598 @@ function OrgSettingsForm() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Field Mappings Registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * MappingEditor — full-screen overlay wizard for creating or editing a mapping.
+ *
+ * Steps:
+ *   0. Name + import type + date format
+ *   1. Upload sample CSV to detect columns
+ *   2. Map each detected column to a canonical field (or SKIP)
+ *   3. Review + save
+ */
+function MappingEditor({ existing, onSave, onCancel }) {
+  const isEdit = !!existing
+  const [step, setStep]           = useState(isEdit ? 2 : 0)
+  const [name, setName]           = useState(existing?.mapping_name  || '')
+  const [sourceLabel, setSourceLabel] = useState(existing?.source_label || '')
+  const [importType, setImportType]   = useState(existing?.import_type  || 'transactions')
+  const [dateFormat, setDateFormat]   = useState(existing?.date_format   || 'calendar')
+  const [detectedCols, setDetectedCols] = useState([])   // column names from CSV header
+  const [mapping, setMapping]         = useState(existing ? existing.mapping_json : {}) // { sourceCol: canonicalField | '__skip__' }
+  const [saving, setSaving]           = useState(false)
+  const fileRef                        = useRef()
+
+  const canonical = CANONICAL_FIELDS[importType] || []
+
+  // Build reverse map: which canonical field is already assigned?
+  const usedFields = useMemo(() => new Set(Object.values(mapping).filter(v => v && v !== '__skip__')), [mapping])
+
+  // Auto-detect columns that look like they match a canonical field
+  function autoMap(cols) {
+    const result = {}
+    for (const col of cols) {
+      const norm = col.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+      const match = canonical.find(c =>
+        norm === c.field ||
+        norm.includes(c.field) ||
+        c.field.includes(norm) ||
+        norm === c.label.toLowerCase().replace(/\s+/g, '_')
+      )
+      result[col] = match ? match.field : '__skip__'
+    }
+    return result
+  }
+
+  function handleFile(e) {
+    const f = e.target.files[0]
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const lines = ev.target.result.trim().split('\n')
+      if (lines.length === 0) return
+      const cols = lines[0].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+      setDetectedCols(cols)
+      setMapping(prev => {
+        // Preserve existing overrides, auto-map only new cols
+        const auto = autoMap(cols)
+        return { ...auto, ...Object.fromEntries(Object.entries(prev).filter(([k]) => cols.includes(k))) }
+      })
+      setStep(2)
+    }
+    reader.readAsText(f)
+    e.target.value = ''
+  }
+
+  function setColMapping(col, val) {
+    setMapping(p => ({ ...p, [col]: val }))
+  }
+
+  function requiredsMapped() {
+    const required = canonical.filter(c => c.required).map(c => c.field)
+    const mapped   = Object.values(mapping).filter(v => v && v !== '__skip__')
+    return required.every(f => mapped.includes(f))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    // Strip __skip__ entries from saved mapping
+    const cleanMapping = Object.fromEntries(
+      Object.entries(mapping).filter(([, v]) => v && v !== '__skip__')
+    )
+    const payload = {
+      mapping_name: name,
+      source_label: sourceLabel,
+      import_type:  importType,
+      mapping_json: cleanMapping,
+      date_format:  dateFormat,
+    }
+    await onSave(payload, existing?.id)
+    setSaving(false)
+  }
+
+  const stepLabels = ['Details', 'Upload Sample', 'Map Columns', 'Review']
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/30 flex items-start justify-center overflow-y-auto py-8">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">
+              {isEdit ? 'Edit Field Mapping' : 'New Field Mapping'}
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Teach the importer how your spreadsheet columns map to the system fields
+            </p>
+          </div>
+          <button onClick={onCancel} className="p-2 hover:bg-gray-100 rounded-xl"><X size={16}/></button>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center gap-0 px-6 pt-4 pb-2">
+          {stepLabels.map((label, i) => (
+            <div key={i} className="flex items-center">
+              <div className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold
+                ${i < step ? 'bg-teal-600 text-white' : i === step ? 'bg-teal-100 text-teal-700 ring-2 ring-teal-400' : 'bg-gray-100 text-gray-400'}`}>
+                {i < step ? <Check size={12}/> : i + 1}
+              </div>
+              <span className={`ml-1.5 text-xs ${i === step ? 'text-teal-700 font-medium' : 'text-gray-400'}`}>{label}</span>
+              {i < stepLabels.length - 1 && <div className="mx-3 h-px w-8 bg-gray-200"/>}
+            </div>
+          ))}
+        </div>
+
+        <div className="px-6 py-5">
+          {/* Step 0: Name + type + date format */}
+          {step === 0 && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Mapping Name <span className="text-red-400">*</span></label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)}
+                    placeholder="e.g. QuickBooks General Ledger"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Source System <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <input type="text" value={sourceLabel} onChange={e => setSourceLabel(e.target.value)}
+                    placeholder="e.g. QuickBooks, Acumatica"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Import Type <span className="text-red-400">*</span></label>
+                  <select value={importType} onChange={e => setImportType(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white">
+                    {IMPORT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Date Format</label>
+                <div className="flex gap-3">
+                  {[
+                    { value: 'calendar',      label: 'Calendar Date',    desc: '2025-10-15 or 10/15/2025' },
+                    { value: 'fiscal_period', label: 'Fiscal Period',    desc: 'M-YYYY notation e.g. 10-2025 = fiscal month 10' },
+                  ].map(opt => (
+                    <button key={opt.value} type="button" onClick={() => setDateFormat(opt.value)}
+                      className={`flex-1 text-left p-3 border-2 rounded-xl transition-colors
+                        ${dateFormat === opt.value ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <div className="text-sm font-medium text-gray-800">{opt.label}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button disabled={!name || !importType} onClick={() => setStep(1)}
+                  className="flex items-center gap-2 px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 disabled:opacity-40 transition-colors">
+                  Next <ArrowRight size={14}/>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: Upload sample CSV */}
+          {step === 1 && (
+            <div className="space-y-5">
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-600">
+                <p className="font-medium mb-1">Upload a sample file from <strong>{sourceLabel || importType}</strong></p>
+                <p className="text-xs text-gray-400">Only the first row (headers) is read — no data is stored. You can use any real export from your source system.</p>
+              </div>
+
+              <div
+                onClick={() => fileRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-3 py-12 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-teal-400 hover:bg-teal-50 transition-colors">
+                <Upload size={28} className="text-gray-400"/>
+                <div className="text-sm font-medium text-gray-600">Click to upload a CSV file</div>
+                <div className="text-xs text-gray-400">Only the header row is used</div>
+                <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile}/>
+              </div>
+
+              {/* Or enter columns manually */}
+              <div className="text-center">
+                <button onClick={() => {
+                  // Let user enter columns manually — pre-seed with all canonical fields as source names
+                  const cols = canonical.map(c => c.label)
+                  setDetectedCols(cols)
+                  setMapping(Object.fromEntries(canonical.map(c => [c.label, c.field])))
+                  setStep(2)
+                }} className="text-xs text-teal-600 hover:text-teal-700 underline">
+                  Or enter column names manually instead
+                </button>
+              </div>
+
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep(0)}
+                  className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">Back</button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Map columns */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-gray-600">
+                  Map each column from your file to the correct system field. Required fields are marked <span className="text-red-400">*</span>.
+                </p>
+                <span className="text-xs text-gray-400">
+                  {Object.values(mapping).filter(v => v && v !== '__skip__').length} / {canonical.length} fields mapped
+                </span>
+              </div>
+
+              {/* Add / remove custom columns when editing */}
+              {isEdit && (
+                <div className="flex items-center gap-2 mb-3">
+                  <input
+                    placeholder="Add source column name…"
+                    className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-400 flex-1"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && e.target.value.trim()) {
+                        const col = e.target.value.trim()
+                        if (!detectedCols.includes(col)) {
+                          setDetectedCols(p => [...p, col])
+                          setColMapping(col, '__skip__')
+                        }
+                        e.target.value = ''
+                      }
+                    }}/>
+                  <span className="text-xs text-gray-400">Press Enter to add</span>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-2/5">Your Column</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase w-8"></th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">Maps To</th>
+                      {isEdit && <th className="w-10"/>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detectedCols.length > 0 ? detectedCols : Object.keys(mapping)).map(col => {
+                      const selected = mapping[col] || '__skip__'
+                      const isSkip   = selected === '__skip__'
+                      const cf       = canonical.find(c => c.field === selected)
+                      return (
+                        <tr key={col} className={`border-b border-gray-100 last:border-0 ${isSkip ? 'bg-gray-50/50' : ''}`}>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <FileText size={13} className="text-gray-300 shrink-0"/>
+                              <span className={`text-sm font-mono ${isSkip ? 'text-gray-400' : 'text-gray-700'}`}>{col}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2.5 text-center">
+                            <ArrowRight size={13} className={isSkip ? 'text-gray-200' : 'text-teal-400'}/>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={selected}
+                                onChange={e => setColMapping(col, e.target.value)}
+                                className={`text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500 flex-1
+                                  ${isSkip ? 'border-gray-100 text-gray-400 bg-gray-50' : 'border-teal-200 text-gray-800 bg-white'}`}>
+                                <option value="__skip__">— skip this column —</option>
+                                {canonical.map(c => (
+                                  <option key={c.field} value={c.field}
+                                    disabled={usedFields.has(c.field) && mapping[col] !== c.field}>
+                                    {c.label}{c.required ? ' *' : ''}{usedFields.has(c.field) && mapping[col] !== c.field ? ' (in use)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                              {cf && (
+                                <span className="text-xs text-gray-400 max-w-[160px] hidden xl:block" title={cf.description}>
+                                  {cf.description}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          {isEdit && (
+                            <td className="px-2 py-2.5">
+                              <button onClick={() => {
+                                setDetectedCols(p => p.filter(c => c !== col))
+                                setMapping(p => { const n = { ...p }; delete n[col]; return n })
+                              }} className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded">
+                                <X size={12}/>
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Required fields not yet mapped */}
+              {(() => {
+                const missingRequired = canonical.filter(c => c.required && !Object.values(mapping).includes(c.field))
+                if (missingRequired.length === 0) return null
+                return (
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0"/>
+                    <span>Required fields not yet mapped: <strong>{missingRequired.map(c => c.label).join(', ')}</strong></span>
+                  </div>
+                )
+              })()}
+
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep(isEdit ? 0 : 1)}
+                  className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">Back</button>
+                <button disabled={!requiredsMapped()} onClick={() => setStep(3)}
+                  className="flex items-center gap-2 px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 disabled:opacity-40 transition-colors">
+                  Review <ArrowRight size={14}/>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Review + save */}
+          {step === 3 && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                <div>
+                  <div className="text-xs text-gray-400 mb-0.5">Mapping Name</div>
+                  <div className="text-sm font-semibold text-gray-800">{name}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-0.5">Import Type</div>
+                  <div className="text-sm font-semibold text-gray-800">
+                    {IMPORT_TYPES.find(t => t.value === importType)?.label}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-0.5">Date Format</div>
+                  <div className="text-sm font-semibold text-gray-800">
+                    {dateFormat === 'fiscal_period' ? 'Fiscal Period (M-YYYY)' : 'Calendar Date'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                  Column Mappings ({Object.values(mapping).filter(v => v && v !== '__skip__').length} active)
+                </div>
+                {Object.entries(mapping)
+                  .filter(([, v]) => v && v !== '__skip__')
+                  .map(([src, dst]) => {
+                    const cf = canonical.find(c => c.field === dst)
+                    return (
+                      <div key={src} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0">
+                        <span className="text-sm font-mono text-gray-500 w-1/3">{src}</span>
+                        <ArrowRight size={13} className="text-teal-400 shrink-0"/>
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-gray-800">{cf?.label || dst}</span>
+                          {cf?.required && <span className="ml-1.5 text-xs text-red-400">required</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                {Object.entries(mapping).filter(([, v]) => v === '__skip__').length > 0 && (
+                  <div className="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">
+                    + {Object.entries(mapping).filter(([, v]) => v === '__skip__').length} columns skipped
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between pt-2">
+                <button onClick={() => setStep(2)}
+                  className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">Back</button>
+                <button onClick={handleSave} disabled={saving}
+                  className="flex items-center gap-2 px-6 py-2 bg-teal-600 text-white text-sm font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-50 shadow-sm transition-colors">
+                  <Save size={14}/> {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Mapping'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Main field mappings page — list all saved mappings, create/edit/delete */
+function FieldMappingsRegistry() {
+  const [mappings, setMappings]   = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState(null)
+  const [editing, setEditing]     = useState(null) // null | 'new' | mapping object
+  const [filterType, setFilterType] = useState('all')
+  const { toasts, add: toast, remove: removeToast } = useToast()
+
+  const fetchMappings = useCallback(async () => {
+    setLoading(true)
+    const { data, error: err } = await supabase
+      .from('field_mappings')
+      .select('*')
+      .eq('org_id', ORG_ID)
+      .eq('deleted', false)
+      .order('import_type')
+      .order('mapping_name')
+    if (err) setError(err.message)
+    else setMappings(data || [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchMappings() }, [fetchMappings])
+
+  const filtered = useMemo(() =>
+    filterType === 'all' ? mappings : mappings.filter(m => m.import_type === filterType)
+  , [mappings, filterType])
+
+  async function handleSave(payload, existingId) {
+    let err
+    if (existingId) {
+      const { error: e } = await supabase
+        .from('field_mappings')
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq('id', existingId)
+        .eq('org_id', ORG_ID)
+      err = e
+    } else {
+      const { error: e } = await dbInsert('field_mappings', payload)
+      err = e
+    }
+    if (err) { toast('Save failed: ' + (err.message || err), 'error'); return }
+    toast(existingId ? 'Mapping updated' : 'Mapping saved')
+    setEditing(null)
+    await fetchMappings()
+  }
+
+  async function handleDelete(id, name) {
+    if (!confirm(`Delete mapping "${name}"? This cannot be undone from the UI.`)) return
+    const { error: err } = await dbSoftDelete('field_mappings', id)
+    if (err) toast('Delete failed: ' + err.message, 'error')
+    else { toast(`"${name}" deleted`); await fetchMappings() }
+  }
+
+  function handleExportMapping(m) {
+    const payload = JSON.stringify({
+      mapping_name: m.mapping_name,
+      source_label: m.source_label,
+      import_type:  m.import_type,
+      date_format:  m.date_format,
+      mapping_json: m.mapping_json,
+    }, null, 2)
+    const blob = new Blob([payload], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: `${m.mapping_name.replace(/\s+/g, '_')}.mapping.json`
+    })
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  if (loading) return <div className="py-12 text-center text-sm text-gray-400">Loading mappings…</div>
+  if (error)   return <div className="py-12 text-center text-sm text-red-500">Error: {error}</div>
+
+  const typeColors = {
+    transactions: 'bg-blue-50 text-blue-700 border-blue-200',
+    budget:       'bg-purple-50 text-purple-700 border-purple-200',
+    patron:       'bg-pink-50 text-pink-700 border-pink-200',
+    cashflow:     'bg-emerald-50 text-emerald-700 border-emerald-200',
+  }
+
+  return (
+    <div>
+      <Toast toasts={toasts} remove={removeToast}/>
+
+      {/* Info banner */}
+      <div className="mb-5 p-4 bg-teal-50 border border-teal-200 rounded-xl text-sm text-teal-800 flex items-start gap-3">
+        <Link2 size={16} className="mt-0.5 shrink-0"/>
+        <div>
+          <p className="font-medium mb-1">Field mappings let the importer auto-apply your column layout</p>
+          <p className="text-xs text-teal-700">
+            When you import a file, the system matches its columns against saved mappings and applies the right one automatically.
+            Mappings are saved per import type — create one for each source system you import from.
+          </p>
+        </div>
+      </div>
+
+      <SectionHeader title="Saved Mappings" count={filtered.length}>
+        <div className="flex items-center gap-2">
+          {/* Filter by type */}
+          <select value={filterType} onChange={e => setFilterType(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white">
+            <option value="all">All types</option>
+            {IMPORT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <button onClick={() => setEditing('new')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+            <Plus size={13}/> New Mapping
+          </button>
+        </div>
+      </SectionHeader>
+
+      {filtered.length === 0 && (
+        <div className="py-16 text-center">
+          <Map size={32} className="text-gray-200 mx-auto mb-3"/>
+          <p className="text-sm text-gray-400 font-medium">No mappings yet</p>
+          <p className="text-xs text-gray-300 mt-1">Click "New Mapping" to teach the importer your column layout</p>
+        </div>
+      )}
+
+      <div className="grid gap-3">
+        {filtered.map(m => {
+          const fieldCount = Object.keys(m.mapping_json || {}).length
+          const typeColor  = typeColors[m.import_type] || 'bg-gray-50 text-gray-600 border-gray-200'
+          return (
+            <div key={m.id} className="flex items-center gap-4 p-4 border border-gray-200 rounded-xl hover:shadow-sm transition-shadow">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-gray-800 truncate">{m.mapping_name}</span>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${typeColor}`}>
+                    {IMPORT_TYPES.find(t => t.value === m.import_type)?.label}
+                  </span>
+                  {m.date_format === 'fiscal_period' && (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+                      Fiscal notation
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-gray-400">
+                  {m.source_label && <span>Source: <span className="text-gray-600">{m.source_label}</span></span>}
+                  <span>{fieldCount} field{fieldCount !== 1 ? 's' : ''} mapped</span>
+                  <span>Updated {formatDate(m.updated_at)}</span>
+                </div>
+
+                {/* Preview of mappings */}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {Object.entries(m.mapping_json || {}).slice(0, 6).map(([src, dst]) => {
+                    const canonical = (CANONICAL_FIELDS[m.import_type] || []).find(c => c.field === dst)
+                    return (
+                      <span key={src} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        <span className="font-mono">{src}</span>
+                        <ArrowRight size={10} className="text-gray-400"/>
+                        <span className="font-medium">{canonical?.label || dst}</span>
+                      </span>
+                    )
+                  })}
+                  {Object.keys(m.mapping_json || {}).length > 6 && (
+                    <span className="text-xs text-gray-400 px-1 py-0.5">+{Object.keys(m.mapping_json).length - 6} more</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => handleExportMapping(m)} title="Export as JSON"
+                  className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors">
+                  <Download size={14}/>
+                </button>
+                <button onClick={() => setEditing(m)} title="Edit mapping"
+                  className="p-2 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors">
+                  <Pencil size={14}/>
+                </button>
+                <button onClick={() => handleDelete(m.id, m.mapping_name)} title="Delete"
+                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                  <Trash2 size={14}/>
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {editing && (
+        <MappingEditor
+          existing={editing === 'new' ? null : editing}
+          onSave={handleSave}
+          onCancel={() => setEditing(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SetupPage — top-level component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1216,6 +1860,7 @@ export default function SetupPage() {
         {activeTab === 'departments' && <DepartmentsRegistry/>}
         {activeTab === 'accounts'    && <AccountsRegistry/>}
         {activeTab === 'grants'      && <GrantsRegistry/>}
+        {activeTab === 'mappings'    && <FieldMappingsRegistry/>}
       </div>
     </div>
   )
