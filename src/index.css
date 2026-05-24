@@ -1,33 +1,48 @@
-/* Google Fonts — Inter as primary typeface (swap to licensed Graphik in production) */
+/* Google Fonts — Inter as fallback */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Graphik (licensed) ── */
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/Graphik-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Graphik';
+  src: url('/fonts/Graphik-Semibold.otf') format('opentype');
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   DESIGN SYSTEM TOKENS
-   All variable names are generic — no vendor or org branding.
+   BIBLEPROJECT DESIGN SYSTEM TOKENS
    ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* ── App palette (existing tokens, kept for full compatibility) ── */
-  --color-primary:        #D4896A;
-  --color-primary-light:  #F2D5C8;
-  --color-primary-bg:     #F7F0EA;
-  --color-accent:         #0EA5A0;
-  --color-accent-light:   #E0F5F4;
-  --color-over:           #D94F3D;
-  --color-under:          #2E9E6B;
-  --color-text:           #1A1A2E;
-  --color-text-muted:     #6B7280;
-  --color-border:         #E5E7EB;
-  --color-card:           #FFFFFF;
-
   /* ── Brand anchors ── */
-  --ds-blue:  #00B3E5;
-  --ds-white: #F8F8F8;
-  --ds-black: #191A1B;
+  --bp-blue:   #00B3E5;
+  --bp-white:  #F8F8F8;
+  --bp-black:  #191A1B;
+
+  /* ── App palette (mapped to BP brand) ── */
+  --color-accent:         #00B3E5;   /* BP Blue — primary CTA, active states, main chart series */
+  --color-accent-light:   rgba(0, 179, 229, 0.12);
+  --color-primary:        #E8A838;   /* Ochre — secondary series, warm highlight */
+  --color-primary-light:  rgba(232, 168, 56, 0.14);
+  --color-primary-bg:     #FBF7EF;   /* cream-50 — overall app background */
+  --color-over:           #C05A2F;   /* rust — over budget */
+  --color-under:          #3E8E41;   /* success green — under budget */
+  --color-text:           #191A1B;   /* bp-black */
+  --color-text-muted:     #6B7384;   /* neutral-50 */
+  --color-border:         #E4E8ED;   /* neutral-10 */
+  --color-card:           #FFFFFF;
 
   /* ── Neutral scale ── */
   --neutral-00: #FFFFFF;
@@ -46,7 +61,7 @@
   --neutral-80: #2A2F44;
   --neutral-90: #181D36;
 
-  /* ── Warm background tones (cream → ink) ── */
+  /* ── Warm background tones ── */
   --cream-50:  #FBF7EF;
   --cream-100: #F6EFE1;
   --cream-200: #EFE3CC;
@@ -57,45 +72,45 @@
   --ink-800:   #2B241C;
   --ink-900:   #1A140E;
 
-  /* ── Accent / illustration palette ── */
-  --accent-ochre:      #E8A838;
-  --accent-mustard:    #D98F1C;
-  --accent-rust:       #C05A2F;
-  --accent-terracotta: #B44A2A;
-  --accent-wine:       #7A2E2A;
-  --accent-olive:      #7A8A3E;
-  --accent-moss:       #4E6B3A;
-  --accent-teal:       #2A7B8C;
-  --accent-sky:        #6FBFD6;
-  --accent-plum:       #4A2E5A;
+  /* ── Illustration palette — consistent chart series order ── */
+  --ill-1:  #00B3E5;   /* Current Year  — BP Blue */
+  --ill-2:  #6FBFD6;   /* Prior Year    — Sky (muted) */
+  --ill-3:  #E8A838;   /* Budget        — Ochre */
+  --ill-4:  #C05A2F;   /* Rust */
+  --ill-5:  #D98F1C;   /* Mustard */
+  --ill-6:  #2A7B8C;   /* Teal */
+  --ill-7:  #4E6B3A;   /* Moss */
+  --ill-8:  #7A8A3E;   /* Olive */
+  --ill-9:  #4A2E5A;   /* Plum */
+  --ill-10: #7A2E2A;   /* Wine */
 
   /* ── Semantic ── */
   --ds-success: #3E8E41;
   --ds-warning: #D98F1C;
-  --ds-danger:  #C0392B;
-  --ds-info:    var(--ds-blue);
+  --ds-danger:  #C05A2F;
+  --ds-info:    var(--bp-blue);
 
   /* ── Surface tokens ── */
-  --bg-app:     var(--ds-white);
+  --bg-app:     var(--cream-50);
   --bg-elevated:#FFFFFF;
   --bg-warm:    var(--cream-50);
   --bg-warm-2:  var(--cream-100);
-  --bg-inverse: var(--ds-black);
+  --bg-inverse: var(--ink-900);
 
   /* ── Foreground tokens ── */
-  --fg-1:           var(--ds-black);
-  --fg-2:           var(--neutral-60);
-  --fg-3:           var(--neutral-50);
-  --fg-muted:       var(--neutral-40);
-  --fg-on-dark:     var(--ds-white);
-  --fg-link:        var(--ds-blue);
-  --fg-link-hover:  #0093BD;
+  --fg-1:          var(--bp-black);
+  --fg-2:          var(--neutral-60);
+  --fg-3:          var(--neutral-50);
+  --fg-muted:      var(--neutral-40);
+  --fg-on-dark:    var(--bp-white);
+  --fg-link:       var(--bp-blue);
+  --fg-link-hover: #0093BD;
 
-  /* ── Shadows ── */
-  --shadow-xs:    0 1px 2px rgba(24, 29, 54, 0.05);
-  --shadow-sm:    0 2px 6px rgba(24, 29, 54, 0.06), 0 1px 2px rgba(24, 29, 54, 0.04);
-  --shadow-md:    0 6px 18px rgba(24, 29, 54, 0.08), 0 2px 4px rgba(24, 29, 54, 0.04);
-  --shadow-lg:    0 18px 40px rgba(24, 29, 54, 0.12), 0 4px 8px rgba(24, 29, 54, 0.06);
+  /* ── Shadows — deeper for card-on-cream contrast ── */
+  --shadow-xs:    0 1px 3px rgba(24, 20, 14, 0.07);
+  --shadow-sm:    0 2px 8px rgba(24, 20, 14, 0.09), 0 1px 2px rgba(24, 20, 14, 0.05);
+  --shadow-md:    0 6px 20px rgba(24, 20, 14, 0.11), 0 2px 6px rgba(24, 20, 14, 0.06);
+  --shadow-lg:    0 20px 48px rgba(24, 20, 14, 0.15), 0 4px 10px rgba(24, 20, 14, 0.08);
   --shadow-focus: 0 0 0 3px rgba(0, 179, 229, 0.35);
 
   /* ── Radii ── */
@@ -111,12 +126,11 @@
   --sp-5:  20px; --sp-6:  24px; --sp-7:  32px; --sp-8:  40px;
   --sp-9:  56px; --sp-10: 72px; --sp-11: 96px; --sp-12: 128px;
 
-  /* ── Typography families ── */
-  --ff-sans:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  /* ── Typography ── */
+  --ff-sans:    'Graphik', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   --ff-display: var(--ff-sans);
   --ff-mono:    'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
 
-  /* ── Type scale ── */
   --fs-display-xl: clamp(56px, 6.2vw, 96px);
   --fs-display:    clamp(44px, 4.8vw, 80px);
   --fs-h1:         clamp(36px, 3.6vw, 56px);
@@ -149,6 +163,10 @@
   --dur-3: 320ms;
   --dur-4: 520ms;
   --dur-5: 840ms;
+
+  /* ── Chart defaults ── */
+  --chart-tick:   #89929E;   /* neutral-40 */
+  --chart-grid:   #ECEFF3;   /* neutral-09 */
 }
 
 /* ── Base styles ── */
@@ -178,13 +196,13 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+::-webkit-scrollbar-thumb { background: var(--neutral-20); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--neutral-30); }
 
 /* ── Date input ── */
 input[type="date"] { color-scheme: light; }
 
-/* ── Recharts ── */
+/* ── Recharts global ── */
 .recharts-cartesian-grid-horizontal line,
-.recharts-cartesian-grid-vertical line { stroke: #F3F4F6; }
+.recharts-cartesian-grid-vertical line { stroke: var(--chart-grid); }
 .recharts-tooltip-wrapper { outline: none; }

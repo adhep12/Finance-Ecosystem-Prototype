@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useNavigate } from 'react-router-dom'
+import FloatingNav from '../components/FloatingNav'
 import { formatCurrency } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,11 +13,11 @@ import { formatCurrency } from '../utils/formatters'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const KANBAN_COLS = [
-  { type: 'question',             label: 'Question',             color: '#0EA5A0' },
-  { type: 'variance-explanation', label: 'Variance Explanation', color: '#F97316' },
-  { type: 'reclassification',     label: 'Reclassify',           color: '#F59E0B' },
-  { type: 'financial-highlight',  label: 'Financial Highlight',  color: '#10B981' },
-  { type: 'budget-request',       label: 'Budget Request',       color: '#8B5CF6' },
+  { type: 'question',             label: 'Question',             color: '#00B3E5' },
+  { type: 'variance-explanation', label: 'Variance Explanation', color: '#C05A2F' },
+  { type: 'reclassification',     label: 'Reclassify',           color: '#E8A838' },
+  { type: 'financial-highlight',  label: 'Financial Highlight',  color: '#4E6B3A' },
+  { type: 'budget-request',       label: 'Budget Request',       color: '#4A2E5A' },
 ]
 
 const STATUS_CONFIG = {
@@ -37,13 +38,13 @@ const TYPE_LABEL_MAP = {
 }
 
 const TYPE_COLOR_MAP = {
-  question:               '#0EA5A0',
-  'variance-explanation': '#F97316',
-  reclassification:       '#F59E0B',
-  'financial-highlight':  '#10B981',
-  'budget-request':       '#8B5CF6',
-  comment:                '#6B7280',
-  request:                '#8B5CF6',
+  question:               '#00B3E5',
+  'variance-explanation': '#C05A2F',
+  reclassification:       '#E8A838',
+  'financial-highlight':  '#4E6B3A',
+  'budget-request':       '#4A2E5A',
+  comment:                '#89929E',
+  request:                '#4A2E5A',
 }
 
 function getStatus(c) { return c.status || (c.resolved ? 'resolved' : 'open') }
@@ -488,6 +489,8 @@ export default function CommentsPage() {
   const totalVisible = filtered.length
 
   return (
+    <>
+      <FloatingNav currentPage="teams"/>
     <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden p-5 gap-4">
       {/* Header */}
       <div>
@@ -595,5 +598,6 @@ export default function CommentsPage() {
         />
       )}
     </div>
+    </>
   )
 }

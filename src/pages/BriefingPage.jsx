@@ -287,7 +287,7 @@ function TopCategories({ categories, sortMode, onSortMode, onSelectCategory, sel
 // Top Vendors Card
 // ─────────────────────────────────────────────────────────────────────────────
 
-const VENDOR_COLORS = ['#0EA5A0', '#F97316', '#8B5CF6', '#EC4899', '#14B8A6']
+const VENDOR_COLORS = ['#00B3E5', '#E8A838', '#C05A2F', '#2A7B8C', '#D98F1C']
 
 function TopVendors({ vendors, total, selectedCategory }) {
   const title = selectedCategory ? `In ${selectedCategory}` : 'Across all categories'
@@ -525,16 +525,16 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
       {/* Chart */}
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={series} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 11, fill: '#9CA3AF' }}
+            tick={{ fontSize: 11, fill: 'var(--chart-tick)' }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             tickFormatter={yFormatter}
-            tick={{ fontSize: 11, fill: '#9CA3AF' }}
+            tick={{ fontSize: 11, fill: 'var(--chart-tick)' }}
             axisLine={false}
             tickLine={false}
             domain={[0, yMax]}
@@ -544,16 +544,16 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
           <Line
             type="monotone"
             dataKey="actual"
-            stroke="#1A1A2E"
+            stroke="var(--ill-1)"
             strokeWidth={2.5}
-            dot={{ r: 3, fill: '#1A1A2E', strokeWidth: 0 }}
+            dot={{ r: 3, fill: 'var(--ill-1)', strokeWidth: 0 }}
             activeDot={{ r: 5 }}
             name="Spend"
           />
           <Line
             type="monotone"
             dataKey="budget"
-            stroke="#0EA5A0"
+            stroke="var(--ill-3)"
             strokeWidth={2}
             strokeDasharray="6 3"
             dot={false}
@@ -566,11 +566,11 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
       {/* Legend */}
       <div className="flex items-center gap-6 mt-2 justify-center">
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <div className="w-5 h-0.5 bg-gray-900 rounded" />
+          <div className="w-5 h-0.5 rounded" style={{ backgroundColor: 'var(--ill-1)' }} />
           Spend
         </div>
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <div className="w-5 border-t-2 border-dashed" style={{ borderColor: '#0EA5A0' }} />
+          <div className="w-5 border-t-2 border-dashed" style={{ borderColor: 'var(--ill-3)' }} />
           {scenario} {cumulative ? '(cumulative)' : ''}
         </div>
       </div>

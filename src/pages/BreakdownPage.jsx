@@ -17,6 +17,7 @@ import KPIPanel from '../components/KPIPanel'
 import CommentPinFAB from '../components/CommentPinFAB'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useLocation } from 'react-router-dom'
+import FloatingNav from '../components/FloatingNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -743,6 +744,8 @@ export default function BreakdownPage() {
   }).join(' › ')
 
   return (
+    <>
+      <FloatingNav currentPage="teams"/>
     <div className="flex h-[calc(100vh-48px)] overflow-hidden">
       {/* ── Left panel: controls + table ────────────────────────────────── */}
       <div className="flex flex-col flex-1 overflow-hidden">
@@ -855,5 +858,6 @@ export default function BreakdownPage() {
         />
       )}
     </div>
+    </>
   )
 }

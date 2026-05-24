@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { parseAmount, parseDateStr } from '../utils/formatters'
+import FloatingNav from '../components/FloatingNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSV helpers
@@ -650,6 +651,8 @@ export default function ImportPage() {
   const [successMsg, setSuccessMsg] = useState(null)
 
   return (
+    <>
+      <FloatingNav currentPage="teams"/>
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div>
@@ -687,5 +690,6 @@ export default function ImportPage() {
       {tab === 'actuals' && <ActualsSection onSuccess={msg => setSuccessMsg(msg)} />}
       {tab === 'budget'  && <BudgetSection  onSuccess={msg => setSuccessMsg(msg)} />}
     </div>
+    </>
   )
 }
