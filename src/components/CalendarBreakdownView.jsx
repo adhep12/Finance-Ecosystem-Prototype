@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { ChevronRight, ChevronDown, X, Ban } from 'lucide-react'
+import { ChevronRight, ChevronDown, Ban } from 'lucide-react'
 import { formatCurrency } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,9 +57,8 @@ function buildActualsLookup(transactions, drillOrder) {
 
 /**
  * Build budget lookup.
- * Budget data has department + category fields.
- * Maps to drill order keys for f0='category' or 'department'.
- * Other first-level fields: no budget data available (returns zeros).
+ * Budget data has department + category. Maps to drill order keys when
+ * f0 = 'category' or 'department'; zeros for other first-level fields.
  */
 function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts) {
   if (!drillOrder.length) return {}
@@ -76,7 +75,6 @@ function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts
       const cat = e.category   || 'N/A'
       const amt = e.monthlyAmount || 0
 
-      // Apply department filter
       if (activeDepts && !activeDepts.has(d)) continue
 
       if (f0 === 'department') {
@@ -86,7 +84,6 @@ function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts
         add(cat, m.key, amt)
         if (f1 === 'department') add(`${cat}|${d}`, m.key, amt)
       }
-      // Other f0 values: budget data not available at this granularity
     }
   }
   return lu
@@ -121,81 +118,35 @@ function buildRows(transactions, drillOrder, expanded) {
 }
 
 /**
- * Filter transactions matching a given key path (pipe-separated values per drillOrder).
+ * Get every expandable row key across all drill levels (for "expand all").
+ */
+function getAllExpandableKeys(transactions, drillOrder) {
+  if (drillOrder.length < 2) return new Set()
+  const keys = new Set()
+
+  function process(items, depth, keyPrefix) {
+    if (depth >= drillOrder.length - 1) return   // leaf level — nothing to expand
+    const field = drillOrder[depth]
+    const values = [...new Set(items.map(t => t[field] || 'N/A'))]
+    for (const val of values) {
+      const key = keyPrefix ? `${keyPrefix}|${val}` : val
+      keys.add(key)
+      const sub = items.filter(t => (t[field] || 'N/A') === val)
+      process(sub, depth + 1, key)
+    }
+  }
+
+  process(transactions, 0, '')
+  return keys
+}
+
+/**
+ * Filter transactions matching a key path (pipe-separated drillOrder values).
  */
 function getTransactionsForKey(transactions, key, drillOrder) {
   const parts = key.split('|')
   return transactions.filter(tx =>
     parts.every((part, i) => (tx[drillOrder[i]] || 'N/A') === part)
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Transaction side panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-function TransactionPanel({ label, field, transactions: txs, deptNames, onClose }) {
-  const sorted = [...txs].sort((a, b) => b.date.localeCompare(a.date))
-  const total  = txs.reduce((s, t) => s + t.amount, 0)
-
-  return (
-    <>
-      {/* Scrim */}
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
-
-      {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 z-50 w-96 bg-white border-l border-gray-200 shadow-2xl flex flex-col">
-
-        {/* Header */}
-        <div className="flex items-start justify-between px-4 py-3 border-b border-gray-100">
-          <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">{field}</div>
-            <div className="text-sm font-semibold text-gray-900 mt-0.5 truncate" title={label}>{label}</div>
-          </div>
-          <div className="flex items-center gap-3 flex-shrink-0 ml-3 mt-0.5">
-            <span className="text-sm font-bold text-gray-900">{formatCurrency(total)}</span>
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500">
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* Count bar */}
-        <div className="px-4 py-2 bg-gray-50/60 border-b border-gray-100">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-            {sorted.length} transaction{sorted.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto">
-          {sorted.map((t, i) => (
-            <div key={i} className="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">{t.vendor || '—'}</div>
-                  <div className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
-                    <span>{t.date}</span>
-                    {t.description && <span className="truncate opacity-70">{t.description}</span>}
-                  </div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">
-                    {deptNames?.[t.department] || t.department}
-                    {t.category ? ` · ${t.category}` : ''}
-                    {t.account  ? ` · ${t.account}`  : ''}
-                  </div>
-                </div>
-                <div className="text-sm font-semibold text-gray-700 flex-shrink-0">
-                  {formatCurrency(t.amount)}
-                </div>
-              </div>
-            </div>
-          ))}
-          {sorted.length === 0 && (
-            <div className="px-4 py-10 text-center text-gray-400 text-sm">No transactions</div>
-          )}
-        </div>
-      </div>
-    </>
   )
 }
 
@@ -216,7 +167,7 @@ export default function CalendarBreakdownView({
   const [mode,           setMode]           = useState('actuals')
   const [collapsedYears, setCollapsedYears] = useState(new Set())
   const [expanded,       setExpanded]       = useState(new Set())
-  const [panelRow,       setPanelRow]       = useState(null)   // { key, label, field }
+  const [openLeaves,     setOpenLeaves]     = useState(new Set())   // leaf rows showing inline txs
 
   const months     = useMemo(() => getCalendarMonths(dateRange), [dateRange])
   const yearGroups = useMemo(() => groupByYear(months), [months])
@@ -237,23 +188,26 @@ export default function CalendarBreakdownView({
     [transactions, drillOrder, expanded],
   )
 
-  // Transactions for the side panel
-  const panelTxs = useMemo(() => {
-    if (!panelRow) return []
-    return getTransactionsForKey(transactions, panelRow.key, drillOrder)
-  }, [panelRow, transactions, drillOrder])
-
   function toggleYear(yr) {
     setCollapsedYears(prev => { const n = new Set(prev); n.has(yr) ? n.delete(yr) : n.add(yr); return n })
   }
 
   function handleRowClick(row) {
     if (!row.hasChildren) {
-      // Leaf: toggle transaction panel
-      setPanelRow(prev => prev?.key === row.key ? null : { key: row.key, label: row.label, field: row.field })
+      // Leaf: toggle inline transaction expansion
+      setOpenLeaves(prev => { const n = new Set(prev); n.has(row.key) ? n.delete(row.key) : n.add(row.key); return n })
       return
     }
     setExpanded(prev => { const n = new Set(prev); n.has(row.key) ? n.delete(row.key) : n.add(row.key); return n })
+  }
+
+  function expandAll() {
+    setExpanded(getAllExpandableKeys(transactions, drillOrder))
+  }
+
+  function collapseAll() {
+    setExpanded(new Set())
+    setOpenLeaves(new Set())
   }
 
   const get      = (key, mk) => lu[key]?.[mk] || 0
@@ -261,8 +215,9 @@ export default function CalendarBreakdownView({
   const rowTotal = (key)     => months.reduce((s, m) => s + get(key, m.key), 0)
   const rowLabel = (row)     => row?.field === 'department' ? (deptNames[row.label] || row.label) : (row?.label ?? '')
 
-  const cc = 'px-2.5 py-2 text-right tabular-nums text-xs whitespace-nowrap'
-  const ch = 'px-2.5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 whitespace-nowrap'
+  const cc  = 'px-2.5 py-2 text-right tabular-nums text-xs whitespace-nowrap'
+  const cct = 'px-2.5 py-1.5 text-right tabular-nums text-xs whitespace-nowrap'
+  const ch  = 'px-2.5 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 whitespace-nowrap'
 
   const topFieldLabel = drillOrder[0]
     ? drillOrder[0].charAt(0).toUpperCase() + drillOrder[0].slice(1)
@@ -284,11 +239,29 @@ export default function CalendarBreakdownView({
         <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 flex-1">
           {months.length} month{months.length !== 1 ? 's' : ''} · {years.length} year{years.length !== 1 ? 's' : ''}
           {drillOrder.length > 0 && (
-            <span className="ml-2 opacity-60">
-              · {drillOrder.slice(0, 3).join(' → ')}
-            </span>
+            <span className="ml-2 opacity-60">· {drillOrder.slice(0, 3).join(' → ')}</span>
           )}
         </span>
+
+        {/* Expand / Collapse all */}
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={expandAll}
+            className="text-[10px] text-gray-500 hover:text-gray-800 font-medium hover:bg-gray-200/60 px-2 py-0.5 rounded transition-colors"
+          >
+            Expand all
+          </button>
+          <button
+            onClick={collapseAll}
+            className="text-[10px] text-gray-500 hover:text-gray-800 font-medium hover:bg-gray-200/60 px-2 py-0.5 rounded transition-colors"
+          >
+            Collapse all
+          </button>
+        </div>
+
+        <div className="w-px h-4 bg-gray-200" />
+
+        {/* Actuals / Budget toggle */}
         <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-full px-1 py-0.5">
           {['actuals', 'budget'].map(m => (
             <button key={m} onClick={() => setMode(m)}
@@ -352,20 +325,20 @@ export default function CalendarBreakdownView({
           </thead>
 
           <tbody>
-            {rows.map(row => {
-              const isExp    = expanded.has(row.key)
-              const tot      = rowTotal(row.key)
-              const isTop    = row.depth === 0
-              const isMid    = row.depth === 1
-              const isLeaf   = !row.hasChildren
-              const isActive = panelRow?.key === row.key
-              const numCls   = isTop ? 'font-semibold text-gray-700' : isMid ? 'font-medium text-gray-600' : 'text-gray-500'
-              const namCls   = isTop ? 'font-semibold text-gray-800' : isMid ? 'font-medium text-gray-700' : 'text-gray-600'
+            {rows.flatMap(row => {
+              const isExp      = expanded.has(row.key)
+              const isLeafOpen = !row.hasChildren && openLeaves.has(row.key)
+              const tot        = rowTotal(row.key)
+              const isTop      = row.depth === 0
+              const isMid      = row.depth === 1
+              const numCls     = isTop ? 'font-semibold text-gray-700' : isMid ? 'font-medium text-gray-600' : 'text-gray-500'
+              const namCls     = isTop ? 'font-semibold text-gray-800' : isMid ? 'font-medium text-gray-700' : 'text-gray-600'
 
-              return (
+              // ── Main group row ──
+              const mainRow = (
                 <tr key={row.key}
-                  className={`border-b border-gray-50 last:border-0 transition-colors ${
-                    isActive
+                  className={`border-b border-gray-50 transition-colors ${
+                    isLeafOpen
                       ? 'bg-teal-50/40'
                       : isTop ? 'bg-gray-50/70 hover:bg-gray-100/40' : 'hover:bg-gray-50/50'
                   }`}>
@@ -373,37 +346,37 @@ export default function CalendarBreakdownView({
                   {/* Sticky name cell */}
                   <td
                     className={`sticky left-0 z-10 border-r border-gray-100 px-4 py-2 ${
-                      isActive ? 'bg-teal-50/60' : isTop ? 'bg-gray-50/80' : 'bg-white'
+                      isLeafOpen ? 'bg-teal-50/60' : isTop ? 'bg-gray-50/80' : 'bg-white'
                     }`}
                     style={{ minWidth: 240 }}>
 
                     <div className="flex items-center gap-1.5 group" style={{ paddingLeft: row.depth * 16 }}>
 
-                      {/* Expand/collapse or open-panel icon */}
+                      {/* Expand/collapse or open-transactions icon */}
                       <button
                         onClick={() => handleRowClick(row)}
                         className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-colors ${
-                          isLeaf
-                            ? isActive ? 'text-teal-600' : 'text-gray-300 hover:text-teal-500'
+                          !row.hasChildren
+                            ? isLeafOpen ? 'text-teal-600' : 'text-gray-300 hover:text-teal-500'
                             : 'text-gray-400 hover:text-gray-700'
                         }`}
                       >
-                        {isLeaf
-                          ? <ChevronRight size={11}/>
-                          : isExp ? <ChevronDown size={11}/> : <ChevronRight size={11}/>
+                        {!row.hasChildren
+                          ? (isLeafOpen ? <ChevronDown size={11}/> : <ChevronRight size={11}/>)
+                          : (isExp ? <ChevronDown size={11}/> : <ChevronRight size={11}/>)
                         }
                       </button>
 
                       {/* Label */}
                       <span
-                        className={`text-xs ${namCls} flex-1 min-w-0 truncate ${isLeaf ? 'cursor-pointer hover:text-teal-700' : ''}`}
-                        onClick={() => isLeaf ? handleRowClick(row) : undefined}
+                        className={`text-xs ${namCls} flex-1 min-w-0 truncate ${!row.hasChildren ? 'cursor-pointer hover:text-teal-700' : ''}`}
+                        onClick={() => !row.hasChildren ? handleRowClick(row) : undefined}
                         title={rowLabel(row)}
                       >
                         {rowLabel(row)}
                       </span>
 
-                      {/* Hide button — visible on row hover */}
+                      {/* Hide button — appears on row hover */}
                       {onHide && (
                         <button
                           className="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all"
@@ -447,6 +420,65 @@ export default function CalendarBreakdownView({
                   </td>
                 </tr>
               )
+
+              // ── Inline transaction rows (leaf only, when expanded) ──
+              if (!isLeafOpen) return [mainRow]
+
+              const txs = getTransactionsForKey(transactions, row.key, drillOrder)
+                .sort((a, b) => b.date.localeCompare(a.date))
+
+              const txRows = txs.map((t, ti) => {
+                const txMo = t.date?.slice(0, 7)   // 'YYYY-MM'
+                const txYr = t.date?.slice(0, 4)   // 'YYYY'
+
+                return (
+                  <tr key={`${row.key}-tx-${ti}`}
+                    className="border-b border-gray-50 last:border-0 bg-white hover:bg-teal-50/20 transition-colors">
+
+                    {/* Name cell */}
+                    <td className="sticky left-0 z-10 bg-white border-r border-gray-100 px-4 py-1.5"
+                      style={{ minWidth: 240 }}>
+                      <div className="flex items-center gap-2 min-w-0"
+                        style={{ paddingLeft: (row.depth + 1) * 16 + 4 }}>
+                        <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0"/>
+                        <span className="text-xs text-gray-700 font-medium truncate flex-1 min-w-0">
+                          {t.vendor || '—'}
+                        </span>
+                        <span className="text-[10px] text-gray-400 flex-shrink-0 tabular-nums">
+                          {t.date}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Month cells — amount only in the matching month */}
+                    {years.flatMap(yr =>
+                      collapsedYears.has(yr)
+                        ? [(
+                          <td key={yr} className={`${cct} border-l border-gray-100`}>
+                            {txYr === String(yr)
+                              ? <span className="text-gray-600">{formatCurrency(t.amount, { compact: true })}</span>
+                              : <span className="text-gray-200">—</span>}
+                          </td>
+                        )]
+                        : (yearGroups[yr] || []).map((m, i) => (
+                          <td key={m.key}
+                            className={`${cct} ${i === 0 ? 'border-l border-gray-100' : ''}`}>
+                            {m.key === txMo
+                              ? <span className="text-gray-600">{formatCurrency(t.amount, { compact: true })}</span>
+                              : <span className="text-gray-200">—</span>}
+                          </td>
+                        ))
+                    )}
+
+                    {/* Total cell */}
+                    <td className={`${cct} border-l border-gray-200 text-gray-600`}>
+                      {formatCurrency(t.amount, { compact: true })}
+                    </td>
+                  </tr>
+                )
+              })
+
+              return [mainRow, ...txRows]
             })}
 
             {rows.length === 0 && (
@@ -459,17 +491,6 @@ export default function CalendarBreakdownView({
           </tbody>
         </table>
       </div>
-
-      {/* Transaction side panel */}
-      {panelRow && (
-        <TransactionPanel
-          label={rowLabel(panelRow)}
-          field={panelRow.field}
-          transactions={panelTxs}
-          deptNames={deptNames}
-          onClose={() => setPanelRow(null)}
-        />
-      )}
     </div>
   )
 }

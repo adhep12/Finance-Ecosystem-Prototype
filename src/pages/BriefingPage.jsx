@@ -6,7 +6,6 @@ import {
 import { X, Plus, ChevronDown, Info } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentPinFAB from '../components/CommentPinFAB'
-import FloatingNav from '../components/FloatingNav'
 import {
   filterActualsByRange,
   calcBudgetByCategory,
@@ -657,7 +656,6 @@ export default function BriefingPage() {
 
   return (
     <>
-      <FloatingNav currentPage="teams"/>
       <div className="p-6 max-w-6xl mx-auto space-y-5">
         {/* Hero */}
         <BriefingHero

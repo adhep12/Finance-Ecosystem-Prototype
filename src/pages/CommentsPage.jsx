@@ -5,7 +5,6 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useNavigate } from 'react-router-dom'
-import FloatingNav from '../components/FloatingNav'
 import { formatCurrency } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -490,7 +489,6 @@ export default function CommentsPage() {
 
   return (
     <>
-      <FloatingNav currentPage="teams"/>
     <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden p-5 gap-4">
       {/* Header */}
       <div>

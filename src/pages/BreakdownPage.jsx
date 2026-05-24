@@ -18,7 +18,6 @@ import CommentPinFAB from '../components/CommentPinFAB'
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useLocation } from 'react-router-dom'
-import FloatingNav from '../components/FloatingNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -769,7 +768,6 @@ export default function BreakdownPage() {
 
   return (
     <>
-      <FloatingNav currentPage="teams"/>
     <div className="flex h-[calc(100vh-48px)] overflow-hidden">
       {/* ── Left panel: controls + table ────────────────────────────────── */}
       <div className="flex flex-col flex-1 overflow-hidden">

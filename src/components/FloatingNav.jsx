@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { BarChart2, Users, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -7,12 +7,27 @@ const NAV_ITEMS = [
   { id: 'teams',     label: 'Teams',     icon: Users,     path: '/briefing' },
 ]
 
-export default function FloatingNav({ currentPage }) {
-  const [open,     setOpen]     = useState(true)
-  const [yPct,     setYPct]     = useState(50)   // 0–100 % from top of viewport
-  const [dragging, setDragging] = useState(false)
+function readLS(key, fallback) {
+  try { const v = localStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback }
+  catch { return fallback }
+}
+
+// No currentPage prop needed — detected from the URL automatically
+export default function FloatingNav() {
+  // Both pieces of state are seeded from localStorage so they survive page navigation
+  const [open,     setOpenState] = useState(() => readLS('fnav-open', true))
+  const [yPct,     setYPct]      = useState(() => readLS('fnav-y', 50))
+  const [dragging, setDragging]  = useState(false)
   const dragRef   = useRef({ startY: 0, startPct: 50 })
   const navigate  = useNavigate()
+  const location  = useLocation()
+
+  const currentPage = location.pathname.startsWith('/elt') ? 'executive' : 'teams'
+
+  function setOpen(v) {
+    setOpenState(v)
+    localStorage.setItem('fnav-open', JSON.stringify(v))
+  }
 
   // ── drag start (mouse or touch)
   function startDrag(e) {
@@ -23,7 +38,7 @@ export default function FloatingNav({ currentPage }) {
     e.stopPropagation()
   }
 
-  // ── drag move / end listeners
+  // ── drag move / end
   useEffect(() => {
     if (!dragging) return
     function onMove(e) {
@@ -31,7 +46,11 @@ export default function FloatingNav({ currentPage }) {
       const deltaPct = ((clientY - dragRef.current.startY) / window.innerHeight) * 100
       setYPct(Math.max(8, Math.min(92, dragRef.current.startPct + deltaPct)))
     }
-    function onUp() { setDragging(false) }
+    function onUp() {
+      setDragging(false)
+      // Persist final position on drag-end only (not on every mousemove)
+      setYPct(prev => { localStorage.setItem('fnav-y', JSON.stringify(prev)); return prev })
+    }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup',   onUp)
     window.addEventListener('touchmove', onMove, { passive: false })
@@ -89,7 +108,6 @@ export default function FloatingNav({ currentPage }) {
         /* ── Collapsed tab ── */
         <div className="bg-white border border-gray-200 border-l-0 rounded-r-lg flex flex-col items-center overflow-hidden"
              style={{ boxShadow: '2px 0 10px -2px rgba(0,0,0,0.08)' }}>
-          {/* Drag handle */}
           <div
             onMouseDown={startDrag} onTouchStart={startDrag}
             className="px-1.5 pt-2 pb-0.5 text-gray-300 hover:text-gray-400"
@@ -97,7 +115,6 @@ export default function FloatingNav({ currentPage }) {
             title="Drag to reposition">
             <GripVertical size={11}/>
           </div>
-          {/* Expand */}
           <button onClick={() => setOpen(true)}
             className="px-1.5 pb-2 text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors">
             <ChevronRight size={13}/>

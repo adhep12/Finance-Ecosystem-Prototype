@@ -4,7 +4,6 @@ import {
   MessageSquare, X,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import FloatingNav from '../components/FloatingNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -278,7 +277,6 @@ export default function TransactionsPage() {
 
   return (
     <>
-      <FloatingNav currentPage="teams"/>
     <div className="p-6 max-w-6xl mx-auto space-y-4">
       {/* Page header */}
       <div className="flex items-end justify-between">

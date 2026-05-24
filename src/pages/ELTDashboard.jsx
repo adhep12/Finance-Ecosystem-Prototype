@@ -14,7 +14,6 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
-import FloatingNav from '../components/FloatingNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -3806,7 +3805,6 @@ export default function ELTDashboard() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{backgroundColor:'var(--color-primary-bg)'}}>
-      <FloatingNav currentPage="executive"/>
       <ELTNav orgConfig={orgConfig} activeTab={activeTab} setActiveTab={setActiveTab}
         dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}
         activeBudget={activeBudget} onSetBudget={setActiveBudget}/>
