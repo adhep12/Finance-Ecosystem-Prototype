@@ -113,27 +113,59 @@ export function AppProvider({ children }) {
   const [importedIncomeMonths, setImportedIncomeMonths] = useState([])
   const [previousIncome, setPreviousIncome] = useState(null)
 
-  // ── On mount: load actuals + budget from Supabase views ──────────────────
+  // ── On mount: load actuals + budget + org settings from Supabase ─────────
   async function loadFromDB() {
     setIsLoading(true)
     setDbError(null)
     try {
-      // v_transactions_enriched — already filters deleted=false via the view
-      const { data: txRows, error: txErr } = await supabase
-        .from('v_transactions_enriched')
-        .select('*')
-        .eq('org_id', ORG_ID)
-      if (txErr) throw txErr
+      // Run all three fetches in parallel
+      const [
+        { data: txRows,      error: txErr   },
+        { data: budgetRows,  error: bErr    },
+        { data: settingsRow, error: settErr },
+      ] = await Promise.all([
+        supabase.from('v_transactions_enriched').select('*').eq('org_id', ORG_ID),
+        supabase.from('v_budget_enriched').select('*').eq('org_id', ORG_ID),
+        supabase.from('org_settings').select('*').eq('org_id', ORG_ID).single(),
+      ])
 
-      // v_budget_enriched — same
-      const { data: budgetRows, error: bErr } = await supabase
-        .from('v_budget_enriched')
-        .select('*')
-        .eq('org_id', ORG_ID)
-      if (bErr) throw bErr
+      if (txErr)    throw txErr
+      if (bErr)     throw bErr
+      // org_settings errors are non-fatal — fall back to DEFAULT_ORG
+      if (settErr)  console.warn('[AppContext] org_settings fetch failed:', settErr.message)
 
       setActuals(mapActuals(txRows || []))
       setBudgetFlat(mapBudget(budgetRows || []))
+
+      // Apply org settings from the database, falling back to DEFAULT_ORG values
+      if (settingsRow) {
+        const today     = new Date()
+        const thisYear  = today.getFullYear()
+        const thisMonth = today.getMonth() + 1  // 1–12
+
+        const fyM  = settingsRow.fiscal_year_start_month    || DEFAULT_ORG.fiscalYearStartMonth
+        const oyM  = settingsRow.operating_year_start_month || DEFAULT_ORG.operatingYearStartMonth
+
+        // Year is derived from today's date + start month:
+        //   if today's month >= start month → FY/OY started this calendar year
+        //   otherwise it started last calendar year
+        const fyYear = thisMonth >= fyM ? thisYear : thisYear - 1
+        const oyYear = thisMonth >= oyM ? thisYear : thisYear - 1
+
+        setOrgConfig({
+          ...DEFAULT_ORG,                                            // keep legacy fallbacks
+          name:                    settingsRow.org_name    || DEFAULT_ORG.name,
+          logoInitial:             settingsRow.logo_initial || DEFAULT_ORG.logoInitial,
+          primaryColor:            settingsRow.primary_color  || DEFAULT_ORG.primaryColor,
+          primaryLight:            settingsRow.primary_light  || DEFAULT_ORG.primaryLight,
+          accentColor:             settingsRow.accent_color   || DEFAULT_ORG.accentColor,
+          fiscalYearStartMonth:    fyM,
+          fiscalYearStartYear:     fyYear,
+          operatingYearStartMonth: oyM,
+          operatingYearStartYear:  oyYear,
+          reserveFloor:            settingsRow.reserve_floor ?? 0,
+        })
+      }
     } catch (err) {
       console.error('[AppContext] DB load error:', err)
       setDbError(err.message || 'Failed to load data')
@@ -143,6 +175,26 @@ export function AppProvider({ children }) {
   }
 
   useEffect(() => { loadFromDB() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Inject org colors into CSS variables whenever orgConfig changes ───────
+  // This keeps CSS-var-based classes (e.g. bg-[var(--color-accent)]) in sync
+  // with whatever the org has configured.
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--color-primary',       orgConfig.primaryColor)
+    root.style.setProperty('--color-primary-light',  orgConfig.primaryLight)
+    root.style.setProperty('--color-accent',         orgConfig.accentColor)
+  }, [orgConfig.primaryColor, orgConfig.primaryLight, orgConfig.accentColor])
+
+  // ── Recompute date range when org fiscal/operating year settings load ─────
+  // Only recomputes if a non-custom preset is active (don't clobber user picks).
+  useEffect(() => {
+    if (dateRange.preset && dateRange.preset !== 'custom') {
+      setDateRange({ preset: dateRange.preset, ...getPresetRange(dateRange.preset, orgConfig) })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgConfig.fiscalYearStartMonth, orgConfig.fiscalYearStartYear,
+      orgConfig.operatingYearStartMonth, orgConfig.operatingYearStartYear])
 
   // ── Field mapping — adds backward-compat aliases on each row ─────────────
   //
