@@ -15,6 +15,7 @@ import {
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'
 import SetupPage from './SetupPage'
+import TransactionImportFlow from './TransactionImportFlow'
 import { formatCurrency, formatOverUnder } from '../utils/formatters'
 import {
   filterActualsByRange, calcBudgetByCategory,
@@ -1467,9 +1468,10 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
   }
 
   const SUB_TABS = [
-    { id:'actuals', label:'Actuals' },
-    { id:'budget',  label:'Budget' },
-    { id:'income',  label:'Income' },
+    { id:'transactions', label:'Transactions' },
+    { id:'actuals', label:'Actuals (legacy)' },
+    { id:'budget',  label:'Budget (legacy)' },
+    { id:'income',  label:'Income (legacy)' },
   ]
 
   const TEMPLATES = {
@@ -1486,7 +1488,7 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
   return (
     <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto space-y-6">
       {/* Sub-tab selector */}
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-gray-200 flex-wrap">
         {SUB_TABS.map(t=>(
           <button key={t.id} onClick={()=>{ setSubTab(t.id); reset() }}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${subTab===t.id?'border-teal-600 text-teal-700':'border-transparent text-gray-500 hover:text-gray-700'}`}>
@@ -1495,39 +1497,46 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
         ))}
       </div>
 
-      {/* Template download */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="font-semibold text-sm text-gray-800">Import {SUB_TABS.find(t=>t.id===subTab)?.label}</div>
-          <div className="text-xs text-gray-400 mt-0.5">{
-            subTab==='actuals'?'date, amount, department, vendor, category, account, grant, description':
-            subTab==='budget'?'department, category, scenario, monthly_amount':
-            'date, label, contributions, merch, other'
-          }</div>
-        </div>
-        <button onClick={()=>downloadTemplate(subTab)} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
-          <Download size={12}/> Template
-        </button>
-      </div>
+      {/* Transactions — full Supabase import flow */}
+      {subTab==='transactions' && <TransactionImportFlow/>}
 
-      {/* Mode selector */}
-      <div className="flex gap-2">
-        {[['replace','Replace all'],['append','Append']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setMode(id)}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-colors ${mode===id?'border-teal-500 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500'}`}>
-            {lbl}
+      {/* Legacy in-memory import tabs */}
+      {subTab!=='transactions' && (
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-semibold text-sm text-gray-800">Import {SUB_TABS.find(t=>t.id===subTab)?.label}</div>
+            <div className="text-xs text-gray-400 mt-0.5">{
+              subTab==='actuals'?'date, amount, department, vendor, category, account, grant, description':
+              subTab==='budget'?'department, category, scenario, monthly_amount':
+              'date, label, contributions, merch, other'
+            }</div>
+          </div>
+          <button onClick={()=>downloadTemplate(subTab)} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
+            <Download size={12}/> Template
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {/* Drop zone */}
-      {!preview && !success && <DropZone onFile={f=>handleFile(subTab,f)}/>}
+      {subTab!=='transactions' && (
+        <div className="flex gap-2">
+          {[['replace','Replace all'],['append','Append']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setMode(id)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-colors ${mode===id?'border-teal-500 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Error */}
-      {error && <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{error}<button onClick={reset} className="ml-2 text-red-400 hover:text-red-600"><X size={12}/></button></div>}
+      {subTab!=='transactions' && !preview && !success && <DropZone onFile={f=>handleFile(subTab,f)}/>}
 
-      {/* Preview */}
-      {preview && (
+      {subTab!=='transactions' && error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+          {error}<button onClick={reset} className="ml-2 text-red-400 hover:text-red-600"><X size={12}/></button>
+        </div>
+      )}
+
+      {subTab!=='transactions' && preview && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -1545,8 +1554,7 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
         </div>
       )}
 
-      {/* Success */}
-      {success && (
+      {subTab!=='transactions' && success && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
             <Check size={14}/> {success}
