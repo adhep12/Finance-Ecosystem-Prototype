@@ -23,6 +23,7 @@ import {
   X, Download, Loader2, Info, RefreshCw, BarChart2, Users,
 } from 'lucide-react'
 import { supabase, ORG_ID, dbInsert } from '../lib/supabase'
+import LastImportSummary from '../components/LastImportSummary'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -264,8 +265,9 @@ export default function PatronImportFlow() {
   // ── Validation ───────────────────────────────────────────────────────────────
   const [validationResults, setValidationResults] = useState(null)
   const [validRows, setValidRows]                 = useState([])
+  const [validateError, setValidateError]         = useState(null)
 
-  // (monthlyRows removed — CSV is already monthly summaries, no aggregation needed)
+  // (monthlyRows removed — CSV is already monthly summaries; validRows IS the monthly rows)
 
   // ── Import result ────────────────────────────────────────────────────────────
   const [importResult, setImportResult] = useState(null)
@@ -317,6 +319,8 @@ export default function PatronImportFlow() {
 
   // ── Validate ─────────────────────────────────────────────────────────────────
   function runValidation() {
+    setValidateError(null)
+    try {
     const checks = []
     const valid  = []
     const errors = []
@@ -383,6 +387,10 @@ export default function PatronImportFlow() {
     setValidationResults({ checks, errorRows: errors, totalRows: rawRows.length, validCount: valid.length })
     setValidRows(valid)
     setStep(STEPS.validate)
+    } catch (err) {
+      console.error('Validation error:', err)
+      setValidateError(err.message || 'Unexpected error during validation. Please check your CSV and try again.')
+    }
   }
 
   // ── Confirm & import ─────────────────────────────────────────────────────────
@@ -513,6 +521,7 @@ export default function PatronImportFlow() {
     setMappingDraft({})
     setValidationResults(null)
     setValidRows([])
+    setValidateError(null)
     setImportResult(null)
     setImportError(null)
     setImportLog(null)
@@ -524,6 +533,9 @@ export default function PatronImportFlow() {
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
+
+      {/* Last import summary */}
+      <LastImportSummary importType="patron" accentColor="pink"/>
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -658,6 +670,19 @@ export default function PatronImportFlow() {
             </table>
           </div>
 
+          {validateError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5"/>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-red-800 mb-0.5">Validation error</p>
+                <p className="text-xs text-red-600">{validateError}</p>
+              </div>
+              <button onClick={() => setValidateError(null)} className="text-red-400 hover:text-red-600">
+                <X size={14}/>
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <button
               onClick={runValidation}
@@ -697,49 +722,46 @@ export default function PatronImportFlow() {
             ))}
           </div>
 
-          {/* Monthly aggregates preview */}
-          {!hasHardErrors && monthlyRows.length > 0 && (
+          {/* Monthly data preview */}
+          {!hasHardErrors && validRows.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5">
-                <BarChart2 size={14}/> Monthly Aggregates Preview
-                <span className="text-xs font-normal text-gray-400">({monthlyRows.length} months)</span>
+                <BarChart2 size={14}/> Monthly Data Preview
+                <span className="text-xs font-normal text-gray-400">({validRows.length} month{validRows.length !== 1 ? 's' : ''})</span>
               </h3>
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 text-gray-500">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium">Period</th>
-                      <th className="px-3 py-2 text-right font-medium">Total Gifts</th>
-                      <th className="px-3 py-2 text-right font-medium">Recurring</th>
-                      <th className="px-3 py-2 text-right font-medium">One-time</th>
-                      <th className="px-3 py-2 text-right font-medium">Avg Gift</th>
                       <th className="px-3 py-2 text-right font-medium">Active Patrons</th>
+                      <th className="px-3 py-2 text-right font-medium">New Patrons</th>
+                      <th className="px-3 py-2 text-right font-medium">Recurring $</th>
+                      <th className="px-3 py-2 text-right font-medium">Spontaneous $</th>
+                      <th className="px-3 py-2 text-right font-medium">Avg Gift</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {monthlyRows.slice(0, 12).map(r => (
+                    {validRows.slice(0, 12).map(r => (
                       <tr key={r.period} className="hover:bg-gray-50">
                         <td className="px-3 py-2 font-medium">{r.period}</td>
-                        <td className="px-3 py-2 text-right">${((r.recurring_giving_total||0) + (r.spontaneous_giving_total||0)).toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right text-pink-700">${(r.recurring_giving_total||0).toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right">${(r.spontaneous_giving_total||0).toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right">{r.avg_gift_size ? `$${r.avg_gift_size.toLocaleString()}` : '—'}</td>
-                        <td className="px-3 py-2 text-right">{r.total_active_patrons ?? '—'}</td>
+                        <td className="px-3 py-2 text-right">{(r.total_active_patrons ?? '—').toLocaleString?.() ?? r.total_active_patrons ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-pink-700">{(r.new_patrons_total ?? '—').toLocaleString?.() ?? r.new_patrons_total ?? '—'}</td>
+                        <td className="px-3 py-2 text-right">{r.recurring_giving_total != null ? `$${r.recurring_giving_total.toLocaleString()}` : '—'}</td>
+                        <td className="px-3 py-2 text-right">{r.spontaneous_giving_total != null ? `$${r.spontaneous_giving_total.toLocaleString()}` : '—'}</td>
+                        <td className="px-3 py-2 text-right">{r.avg_gift_size != null ? `$${r.avg_gift_size.toLocaleString()}` : '—'}</td>
                       </tr>
                     ))}
-                    {monthlyRows.length > 12 && (
+                    {validRows.length > 12 && (
                       <tr>
                         <td colSpan={6} className="px-3 py-2 text-center text-gray-400">
-                          … {monthlyRows.length - 12} more month(s) not shown
+                          … {validRows.length - 12} more month(s) not shown
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
-                <Info size={11}/> Fields left blank (new_patrons, retention_rate) require multi-period history — can be filled later via Setup
-              </p>
             </div>
           )}
 
@@ -799,12 +821,12 @@ export default function PatronImportFlow() {
               <dd className="font-medium capitalize">{IMPORT_MODES.find(m=>m.id===importMode)?.label}</dd>
               <dt className="text-gray-500">File</dt>
               <dd className="font-medium truncate">{fileName}</dd>
-              <dt className="text-gray-500">Gift rows (valid)</dt>
+              <dt className="text-gray-500">Valid rows</dt>
               <dd className="font-medium">{validRows.length.toLocaleString()} / {rawRows.length.toLocaleString()}</dd>
               <dt className="text-gray-500">Monthly rows to write</dt>
-              <dd className="font-medium">{monthlyRows.length}</dd>
+              <dd className="font-medium">{validRows.length}</dd>
               <dt className="text-gray-500">Periods</dt>
-              <dd className="font-medium text-xs">{monthlyRows.map(r=>r.period).join(', ')}</dd>
+              <dd className="font-medium text-xs">{validRows.map(r=>r.period).join(', ')}</dd>
             </dl>
             {importMode === 'replace_full' && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 font-medium">

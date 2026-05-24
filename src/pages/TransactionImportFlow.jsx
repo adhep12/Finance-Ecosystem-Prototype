@@ -24,6 +24,7 @@ import {
   CheckCircle2, XCircle, AlertCircle,
 } from 'lucide-react'
 import { supabase, ORG_ID } from '../lib/supabase'
+import LastImportSummary from '../components/LastImportSummary'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -824,6 +825,9 @@ export default function TransactionImportFlow() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+
+      {/* Last import summary */}
+      <LastImportSummary importType="transactions" accentColor="teal"/>
 
       {/* Registry health check */}
       {(accounts.length === 0 || departments.length === 0) && step === 'mode' && (

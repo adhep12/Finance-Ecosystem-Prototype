@@ -21,6 +21,7 @@ import {
   X, Download, Loader2, Info, RefreshCw, TrendingUp,
 } from 'lucide-react'
 import { supabase, ORG_ID } from '../lib/supabase'
+import LastImportSummary from '../components/LastImportSummary'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -594,6 +595,9 @@ export default function CashFlowImportFlow() {
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
+
+      {/* Last import summary */}
+      <LastImportSummary importType="cashflow" accentColor="indigo"/>
 
       {/* Header */}
       <div className="flex items-center justify-between">

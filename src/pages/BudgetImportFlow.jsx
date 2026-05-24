@@ -22,6 +22,7 @@ import {
   FileText, TrendingUp,
 } from 'lucide-react'
 import { supabase, ORG_ID } from '../lib/supabase'
+import LastImportSummary from '../components/LastImportSummary'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -688,6 +689,9 @@ export default function BudgetImportFlow() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+
+      {/* Last import summary */}
+      <LastImportSummary importType="budget" accentColor="blue"/>
 
       {/* ── Step: Mode ─────────────────────────────────────────────────────── */}
       {step === 'mode' && (
