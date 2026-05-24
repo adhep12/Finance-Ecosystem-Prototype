@@ -13,8 +13,19 @@
 --   • v_org_summary        — rebuilt on top of v_actuals_vs_budget; now includes budget
 --   • v_transactions_enriched — income sign flip added; inner joins where appropriate
 --
--- Safe to re-run: all statements use CREATE OR REPLACE VIEW.
+-- Safe to re-run: DROP IF EXISTS before each CREATE handles column layout changes.
 -- ─────────────────────────────────────────────────────────────────────────────
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- DROP existing views in dependency order before recreating with new columns.
+-- CREATE OR REPLACE VIEW cannot change column names/order on existing views.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+drop view if exists v_team_summary;
+drop view if exists v_org_summary;
+drop view if exists v_actuals_vs_budget;
+drop view if exists v_transactions_enriched;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
