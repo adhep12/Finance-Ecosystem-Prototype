@@ -108,6 +108,10 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
   const s = dateRange?.startDate || '2025-06-01'
   const e = dateRange?.endDate   || '2026-05-31'
 
+  // Period range (YYYY-MM) — used for all period-based filtering
+  const startP = s.substring(0, 7)   // YYYY-MM
+  const endP   = e.substring(0, 7)   // YYYY-MM
+
   // Build sorted YYYY-MM list for the range
   const months = []
   const cur = new Date(s.substring(0,4), parseInt(s.substring(5,7))-1, 1)
@@ -119,14 +123,20 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
   }
   const monthSet = new Set(months)
 
-  // ── Income — from AppContext.incomeMonths ─────────────────────────────────
-  const incInRange = (incomeMonths||[]).filter(m => m.date >= s && m.date <= e)
+  // ── Income — from AppContext.incomeMonths (period-based filter) ───────────
+  const incInRange = (incomeMonths||[]).filter(m => {
+    const p = m.period || (m.date ? m.date.substring(0,7) : null)
+    return p && p >= startP && p <= endP
+  })
   const contributions      = incInRange.reduce((t,m) => t + (m.contributions||0), 0)
   const merchandiseRevenue = incInRange.reduce((t,m) => t + (m.merch||0), 0)
   const otherIncome        = incInRange.reduce((t,m) => t + (m.other||0), 0)
 
-  // ── Expenses — from AppContext.actuals ────────────────────────────────────
-  const actInRange = (actuals||[]).filter(t => t.date >= s && t.date <= e && t.record_type !== 'income')
+  // ── Expenses — from AppContext.actuals (period-based filter) ──────────────
+  const actInRange = (actuals||[]).filter(t => {
+    const p = t.period || (t.date ? t.date.substring(0,7) : null)
+    return p && p >= startP && p <= endP && t.record_type !== 'income'
+  })
   const sumCat = (...cats) => actInRange.filter(t => cats.some(c => (t.category||'').toLowerCase().includes(c.toLowerCase()))).reduce((t,r) => t + (r.amount||0), 0)
   const staff         = sumCat('Staff','Payroll','Salaries','Compensation')
   const contract      = sumCat('Contract','Professional Services','Consulting','Legal')

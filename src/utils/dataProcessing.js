@@ -4,13 +4,20 @@
 
 /**
  * Filter actuals to a date range (inclusive).
+ * Uses the `period` field (YYYY-MM) when available, falls back to `date`.
+ * startDate / endDate can be YYYY-MM-DD — only the YYYY-MM prefix is used.
  * Optionally restrict to a set of department codes.
  */
 export function filterActualsByRange(actuals, startDate, endDate, depts = null) {
   if (!actuals) return []
   let rows = actuals
   if (startDate && endDate) {
-    rows = rows.filter(t => t.date >= startDate && t.date <= endDate)
+    const startP = startDate.substring(0, 7)  // YYYY-MM
+    const endP   = endDate.substring(0, 7)    // YYYY-MM
+    rows = rows.filter(t => {
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      return p && p >= startP && p <= endP
+    })
   }
   if (depts && depts.length > 0) {
     rows = rows.filter(t => depts.includes(t.department))
@@ -92,11 +99,13 @@ export function countBy(actuals, field) {
 
 /**
  * Aggregate actuals by month.
+ * Uses `period` (YYYY-MM) field when available; falls back to t.date.substring(0,7).
  * @returns {Array} [{ month: "2025-10", actual: number }] sorted ascending
  */
 export function aggregateByMonth(actuals) {
   const byMonth = actuals.reduce((acc, t) => {
-    const month = t.date.substring(0, 7)
+    const month = t.period || (t.date ? t.date.substring(0, 7) : null)
+    if (!month) return acc
     acc[month] = (acc[month] || 0) + (t.amount || 0)
     return acc
   }, {})

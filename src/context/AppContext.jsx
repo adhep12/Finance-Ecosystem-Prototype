@@ -98,6 +98,7 @@ export function AppProvider({ children }) {
   // ── Core data state (populated from Supabase on mount) ───────────────────
   const [actuals,    setActuals]    = useState([])
   const [budgetFlat, setBudgetFlat] = useState([])
+  const [orgSummary, setOrgSummary] = useState([])   // v_org_summary: actual+budget by category+period+scenario
   const [comments,   setComments]   = useState([])
 
   // Undo history
@@ -119,23 +120,33 @@ export function AppProvider({ children }) {
     setDbError(null)
     try {
       // Run all three fetches in parallel
+      // v_org_summary is the canonical source for budget vs actual — pre-aggregated
+      // at category level, correct sign convention, no fan-out bugs.
       const [
         { data: txRows,      error: txErr   },
-        { data: budgetRows,  error: bErr    },
+        { data: summaryRows, error: sumErr  },
         { data: settingsRow, error: settErr },
       ] = await Promise.all([
         supabase.from('v_transactions_enriched').select('*').eq('org_id', ORG_ID),
-        supabase.from('v_budget_enriched').select('*').eq('org_id', ORG_ID),
+        supabase.from('v_org_summary').select('*').eq('org_id', ORG_ID),
         supabase.from('org_settings').select('*').eq('org_id', ORG_ID).single(),
       ])
 
       if (txErr)    throw txErr
-      if (bErr)     throw bErr
+      if (sumErr)   throw sumErr
       // org_settings errors are non-fatal — fall back to DEFAULT_ORG
       if (settErr)  console.warn('[AppContext] org_settings fetch failed:', settErr.message)
 
       setActuals(mapActuals(txRows || []))
-      setBudgetFlat(mapBudget(budgetRows || []))
+
+      // Store the raw org summary for components that need it
+      setOrgSummary(summaryRows || [])
+
+      // Map v_org_summary rows into budgetFlat format for calcBudgetByCategory
+      // and filterELTByRange compatibility.
+      // v_org_summary has one row per (category, period, scenario, record_type).
+      // We set amount = budget so existing helpers can sum it up.
+      setBudgetFlat(mapOrgSummaryToBudget(summaryRows || []))
 
       // Apply org settings from the database, falling back to DEFAULT_ORG values
       if (settingsRow) {
@@ -211,10 +222,24 @@ export function AppProvider({ children }) {
     }))
   }
 
+  // Map v_org_summary rows to the shape expected by calcBudgetByCategory
+  // and filterELTByRange: { period, amount, category, record_type, scenario, department }
+  // Only rows where scenario IS NOT NULL are budget rows; null = actual-only (no budget).
+  function mapOrgSummaryToBudget(rows) {
+    return rows
+      .filter(row => row.scenario != null)   // skip actual-only rows (no budget)
+      .map(row => ({
+        ...row,
+        amount:     row.budget,   // calcBudgetByCategory sums 'amount'
+        department: null,         // v_org_summary is org-wide (no dept granularity)
+      }))
+  }
+
+  // Map manually-imported budget rows (from legacy CSV import flow)
   function mapBudget(rows) {
     return rows.map(row => ({
       ...row,
-      department: row.dept_code,    // calcBudgetByCategory
+      department: row.dept_code || row.department,  // calcBudgetByCategory
     }))
   }
 
@@ -237,7 +262,7 @@ export function AppProvider({ children }) {
     const byMonth = {}
     for (const t of actuals) {
       if (t.record_type !== 'income') continue
-      const ym = (t.date || '').substring(0, 7)
+      const ym = t.period || (t.date ? t.date.substring(0, 7) : '')
       if (!ym) continue
       if (!byMonth[ym]) byMonth[ym] = { contributions: 0, merch: 0, other: 0 }
       const cat  = (t.category || '').toLowerCase()
@@ -254,8 +279,9 @@ export function AppProvider({ children }) {
         const [y, mo] = ym.split('-')
         const d = new Date(parseInt(y), parseInt(mo) - 1, 1)
         return {
-          date:  `${ym}-01`,
-          label: d.toLocaleString('en-US', { month: 'short' }),
+          period: ym,            // YYYY-MM — used for period-based filtering
+          date:   `${ym}-01`,   // legacy compat
+          label:  d.toLocaleString('en-US', { month: 'short' }),
           ...vals,
         }
       })
@@ -306,9 +332,14 @@ export function AppProvider({ children }) {
     setActuals(prev => { setPreviousActuals(prev); return mapActuals(rows) })
   }
   function replaceActualsByRange(rows, startDate, endDate) {
+    const startP = startDate.substring(0, 7)
+    const endP   = endDate.substring(0, 7)
     setActuals(prev => {
       setPreviousActuals(prev)
-      const outside = prev.filter(t => t.date < startDate || t.date > endDate)
+      const outside = prev.filter(t => {
+        const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+        return !p || p < startP || p > endP
+      })
       return [...outside, ...mapActuals(rows)]
     })
   }
@@ -327,9 +358,11 @@ export function AppProvider({ children }) {
     setBudgetFlat(prev => { setPreviousBudget(prev); return mapBudget(rows) })
   }
   function replaceBudgetByRange(rows, startDate, endDate) {
+    const startP = startDate.substring(0, 7)
+    const endP   = endDate.substring(0, 7)
     setBudgetFlat(prev => {
       setPreviousBudget(prev)
-      const outside = prev.filter(b => !b.date || b.date < startDate || b.date > endDate)
+      const outside = prev.filter(b => !b.period || b.period < startP || b.period > endP)
       return [...outside, ...mapBudget(rows)]
     })
   }
@@ -382,6 +415,7 @@ export function AppProvider({ children }) {
     // Core data
     actuals, importActuals,
     budgetFlat, importBudget,
+    orgSummary,   // v_org_summary: pre-aggregated actual+budget by category+period+scenario
     // Scenario + date range
     availableScenarios,
     selectedScenario, setSelectedScenario,
