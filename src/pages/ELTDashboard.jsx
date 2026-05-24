@@ -1458,7 +1458,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
   return (
     <div className="min-h-screen" style={{backgroundColor:'var(--color-primary-bg)'}}>
-      <div className="max-w-4xl mx-auto px-6 py-8 pb-16">
+      <div className="max-w-3xl mx-auto px-6 py-8 pb-16">
 
         {/* ── Document header: icon + title + inline month selector + action buttons ── */}
         <div className="flex items-start justify-between gap-4 mb-8">
@@ -2566,13 +2566,29 @@ function DocumentsTab({ orgConfig }) {
   ])
 
   // Upload modal state
-  const [showUpload, setShowUpload] = useState(false)
-  const [upName,     setUpName]     = useState('')
-  const [upType,     setUpType]     = useState(DOC_TYPES[0])
-  const [upMonth,    setUpMonth]    = useState('April')
-  const [upYear,     setUpYear]     = useState(new Date().getFullYear())
-  const [upFileType, setUpFileType] = useState('pdf')
-  const [upFileName, setUpFileName] = useState('')
+  const [showUpload,  setShowUpload]  = useState(false)
+  const [upName,      setUpName]      = useState('')
+  const [upType,      setUpType]      = useState(DOC_TYPES[0])
+  const [upMonth,     setUpMonth]     = useState('April')
+  const [upYear,      setUpYear]      = useState(new Date().getFullYear())
+  const [upFileType,  setUpFileType]  = useState('pdf')
+  const [upFileName,  setUpFileName]  = useState('')
+  const [isDragOver,  setIsDragOver]  = useState(false)
+
+  function openWithFile(file) {
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf'
+    setUpFileName(file.name)
+    if (DOC_FILE_TYPES.includes(ext)) setUpFileType(ext)
+    setUpName(file.name.replace(/\.[^.]+$/, ''))
+    setShowUpload(true)
+  }
+
+  function handleDropZoneDrop(e) {
+    e.preventDefault()
+    setIsDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) openWithFile(file)
+  }
 
   // Date range filter (local to documents)
   const [showPicker,   setShowPicker]   = useState(false)
@@ -2710,10 +2726,14 @@ function DocumentsTab({ orgConfig }) {
       )}
 
       {/* Drop zone */}
-      <div onClick={() => setShowUpload(true)}
-        className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-gray-400 hover:bg-gray-50/50 transition-all cursor-pointer">
-        <Upload size={22} className="text-gray-300 mx-auto mb-2"/>
-        <p className="text-sm text-gray-400">Drop files here or click to upload</p>
+      <div
+        onClick={() => setShowUpload(true)}
+        onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={handleDropZoneDrop}
+        className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${isDragOver ? 'border-gray-500 bg-gray-100/70 scale-[1.01]' : 'border-gray-200 hover:border-gray-400 hover:bg-gray-50/50'}`}>
+        <Upload size={22} className={`mx-auto mb-2 transition-colors ${isDragOver ? 'text-gray-500' : 'text-gray-300'}`}/>
+        <p className="text-sm text-gray-400">{isDragOver ? 'Release to attach file…' : 'Drop files here or click to upload'}</p>
         <p className="text-xs text-gray-300 mt-1">PDF, Excel, PNG, JPG, CSV — attached to a specific month</p>
       </div>
 
@@ -2734,14 +2754,7 @@ function DocumentsTab({ orgConfig }) {
                   <Upload size={16} className="text-gray-300 flex-shrink-0"/>
                   <span className="text-sm text-gray-400">{upFileName || 'Click to choose a file…'}</span>
                   <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.csv" className="hidden"
-                    onChange={e => {
-                      const f = e.target.files?.[0]
-                      if (!f) return
-                      setUpFileName(f.name)
-                      const ext = f.name.split('.').pop()?.toLowerCase()
-                      if (DOC_FILE_TYPES.includes(ext)) setUpFileType(ext)
-                      if (!upName) setUpName(f.name.replace(/\.[^.]+$/,''))
-                    }}/>
+                    onChange={e => { const f = e.target.files?.[0]; if (f) openWithFile(f) }}/>
                 </div>
               </div>
               {/* Document name */}
@@ -2811,6 +2824,229 @@ function DocumentsTab({ orgConfig }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Import Tab — CSV templates + append / replace logic
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF Export
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateReportHTML({ sections, dateRange, orgConfig, summaries, summaryMonth }) {
+  const d           = ELT_MOCK
+  const accentColor = orgConfig?.accentColor || '#0EA5A0'
+  const orgName     = orgConfig?.name || 'Organization'
+  const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
+  const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
+  const totalBudgetExp= d.budget.staff+d.budget.contract+d.budget.technology+d.budget.travel+d.budget.otherGenAdmin
+  const totalExpenses = Object.values(d.expenseLines).reduce((s,v)=>s+v,0)
+  const netPosition   = totalGiving - totalExpenses
+  const totalPriorGiv = d.priorYear.contributions + d.priorYear.merchandiseRevenue + d.priorYear.otherIncome
+  const periodLabel   = presetLabel(dateRange?.preset) || 'Fiscal YTD'
+  const reportDate    = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+
+  function fmt(n)         { return '$'+Math.abs(n).toLocaleString() }
+  function pct(a,b)       { if(!b) return '—'; const p=((a-b)/Math.abs(b)*100).toFixed(1); return (a>=b?'+':'')+p+'%' }
+  function vc(n,inv=false){ return (inv?(n<=0):(n>=0)) ? '#059669' : '#dc2626' }
+
+  const css = `*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;font-size:12px;line-height:1.6;background:#fff}
+.page{padding:48px;max-width:860px;margin:0 auto}
+h1{font-size:26px;font-weight:800;color:#111827;margin-bottom:6px}
+h2{font-size:16px;font-weight:700;color:#111827;margin:28px 0 10px}
+h3{font-size:13px;font-weight:600;color:#374151;margin:16px 0 6px}
+.label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:${accentColor};margin-bottom:4px}
+.divider{border:none;border-top:1px solid #e5e7eb;margin:24px 0}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin:12px 0 20px}
+.kpi{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px}
+.kpi-val{font-size:22px;font-weight:800;color:#111827;margin:6px 0}
+.kpi-row{font-size:10px;color:#6b7280;margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:11px;margin:10px 0 20px}
+th{background:#f9fafb;padding:7px 12px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;border-bottom:2px solid #e5e7eb;text-align:left}
+.tr{text-align:right}
+td{padding:7px 12px;border-bottom:1px solid #f3f4f6}
+.sec-row td{background:#f3f4f6;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${accentColor};padding:6px 12px}
+.sub-row td{padding-left:28px}
+.sum-row td{background:#f9fafb;font-weight:600}
+.tot-row td{background:#111827;color:#fff;font-weight:700}
+.narrative{line-height:1.8;color:#374151;margin:8px 0 14px}
+.takeaway{padding:10px 0;border-bottom:1px solid #f3f4f6}
+.tk-num{font-weight:800;color:${accentColor};margin-right:6px}
+.footer{margin-top:40px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:10px;color:#9ca3af;display:flex;justify-content:space-between}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:32px}}`
+
+  let html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${orgName} — Executive Report</title><style>${css}</style></head><body><div class="page">`
+
+  // ── Cover header
+  html += `<div class="label">${orgName}</div><h1>Executive Financial Report</h1>
+  <div style="color:#6b7280;font-size:12px;margin-bottom:28px">Period: ${periodLabel} &nbsp;·&nbsp; Generated ${reportDate}</div>
+  <hr class="divider"/>`
+
+  // ── Dashboard section
+  if (sections.includes('dashboard')) {
+    html += `<h2>Key Financial Metrics</h2>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">Total Giving YTD</div><div class="kpi-val">${fmt(totalGiving)}</div>
+        <div class="kpi-row">vs Forecast: <strong style="color:${vc(totalGiving-totalForecast)}">${pct(totalGiving,totalForecast)}</strong></div>
+        <div class="kpi-row">vs Prior Year: <strong style="color:${vc(totalGiving-totalPriorGiv)}">${pct(totalGiving,totalPriorGiv)}</strong></div>
+      </div>
+      <div class="kpi"><div class="label">Expenses YTD</div><div class="kpi-val">${fmt(totalExpenses)}</div>
+        <div class="kpi-row">vs Budget: <strong style="color:${vc(totalExpenses-totalBudgetExp,true)}">${pct(totalExpenses,totalBudgetExp)}</strong></div>
+        <div class="kpi-row">vs Prior Year: <strong style="color:${vc(totalExpenses-d.priorYear.expenses,true)}">${pct(totalExpenses,d.priorYear.expenses)}</strong></div>
+      </div>
+      <div class="kpi"><div class="label">Net Position YTD</div><div class="kpi-val">${fmt(netPosition)}</div>
+        <div class="kpi-row">vs Forecast: <strong style="color:${vc(netPosition-(totalForecast-totalBudgetExp))}">${pct(netPosition,totalForecast-totalBudgetExp)}</strong></div>
+      </div>
+      <div class="kpi"><div class="label">Cash Position</div><div class="kpi-val">${fmt(d.cash.current)}</div>
+        <div class="kpi-row">vs Prior Month: <strong style="color:${vc(d.cash.current-d.cash.priorMonth)}">${pct(d.cash.current,d.cash.priorMonth)}</strong></div>
+        <div class="kpi-row">vs Prior Year: <strong style="color:${vc(d.cash.current-d.cash.priorYear)}">${pct(d.cash.current,d.cash.priorYear)}</strong></div>
+      </div>
+    </div>
+    <h3>Profit & Loss</h3>
+    <table>
+      <thead><tr><th>Line Item</th><th class="tr">Actual</th><th class="tr">Budget</th><th class="tr">Variance</th></tr></thead>
+      <tbody>
+        <tr class="sec-row"><td colspan="4">INCOME</td></tr>
+        <tr class="sub-row"><td>Contributions</td><td class="tr">${fmt(d.giving.contributions)}</td><td class="tr" style="color:#9ca3af">${fmt(d.budget.contributions)}</td><td class="tr" style="color:${vc(d.giving.contributions-d.budget.contributions)}">${(d.giving.contributions-d.budget.contributions)>=0?'+':''}${fmt(d.giving.contributions-d.budget.contributions)}</td></tr>
+        <tr class="sub-row"><td>Merchandise Revenue</td><td class="tr">${fmt(d.giving.merchandiseRevenue)}</td><td class="tr" style="color:#9ca3af">${fmt(d.budget.merchandiseRevenue)}</td><td class="tr" style="color:${vc(d.giving.merchandiseRevenue-d.budget.merchandiseRevenue)}">${(d.giving.merchandiseRevenue-d.budget.merchandiseRevenue)>=0?'+':''}${fmt(d.giving.merchandiseRevenue-d.budget.merchandiseRevenue)}</td></tr>
+        <tr class="sub-row"><td>Other Income</td><td class="tr">${fmt(d.giving.otherIncome)}</td><td class="tr" style="color:#9ca3af">${fmt(d.budget.otherIncome)}</td><td class="tr" style="color:${vc(d.giving.otherIncome-d.budget.otherIncome)}">${(d.giving.otherIncome-d.budget.otherIncome)>=0?'+':''}${fmt(d.giving.otherIncome-d.budget.otherIncome)}</td></tr>
+        <tr class="sum-row"><td><strong>Total Income</strong></td><td class="tr"><strong>${fmt(totalGiving)}</strong></td><td class="tr" style="color:#9ca3af">${fmt(totalForecast)}</td><td class="tr" style="color:${vc(totalGiving-totalForecast)}"><strong>${(totalGiving-totalForecast)>=0?'+':''}${fmt(totalGiving-totalForecast)}</strong></td></tr>
+        <tr><td colspan="4">&nbsp;</td></tr>
+        <tr class="sec-row"><td colspan="4">EXPENSES</td></tr>
+        ${[['staff','Staff'],['contract','Contract Services'],['technology','Technology'],['travel','Travel'],['otherGenAdmin','Other Gen & Admin']].map(([k,lbl]) => {
+          const v=d.expenseLines[k]||0, b=d.budget[k]||0, dv=v-b
+          return `<tr class="sub-row"><td>${lbl}</td><td class="tr">${fmt(v)}</td><td class="tr" style="color:#9ca3af">${fmt(b)}</td><td class="tr" style="color:${vc(dv,true)}">${dv>=0?'+':''}${fmt(dv)}</td></tr>`
+        }).join('')}
+        <tr class="sum-row"><td><strong>Total Expenses</strong></td><td class="tr"><strong>${fmt(totalExpenses)}</strong></td><td class="tr" style="color:#9ca3af">${fmt(totalBudgetExp)}</td><td class="tr" style="color:${vc(totalExpenses-totalBudgetExp,true)}"><strong>${(totalExpenses-totalBudgetExp)>=0?'+':''}${fmt(totalExpenses-totalBudgetExp)}</strong></td></tr>
+        <tr class="tot-row"><td><strong>Net Operating Income</strong></td><td class="tr"><strong>${fmt(netPosition)}</strong></td><td class="tr" style="color:#6b7280">${fmt(totalForecast-totalBudgetExp)}</td><td class="tr" style="color:${netPosition>=(totalForecast-totalBudgetExp)?'#34d399':'#f87171'}"><strong>${(netPosition-(totalForecast-totalBudgetExp))>=0?'+':''}${fmt(netPosition-(totalForecast-totalBudgetExp))}</strong></td></tr>
+      </tbody>
+    </table>`
+  }
+
+  // ── Summary section
+  if (sections.includes('summary') && summaryMonth && summaries[summaryMonth]) {
+    const s = summaries[summaryMonth]
+    if (sections.includes('dashboard')) html += `<hr class="divider"/>`
+    html += `<h2>Monthly Summary — ${summaryMonth}</h2>`
+    if (s.title) html += `<h3 style="font-size:17px;font-weight:700;line-height:1.4;margin-bottom:10px">${s.title}</h3>`
+    if (s.overallSummary) html += `<p class="narrative">${s.overallSummary.replace(/\n/g,'<br/>')}</p>`
+    if (s.monthlyNarrative) html += `<p class="narrative">${s.monthlyNarrative.replace(/\n/g,'<br/>')}</p>`
+    if (s.keyTakeaways?.length > 0) {
+      html += `<h3>Key Takeaways</h3>`
+      s.keyTakeaways.forEach((kt,i) => {
+        html += `<div class="takeaway"><span class="tk-num">${String(i+1).padStart(2,'0')}</span><strong>${kt.title}</strong><p style="margin-top:4px;color:#6b7280;font-size:11px">${kt.body}</p></div>`
+      })
+    }
+  }
+
+  // ── Teams section
+  if (sections.includes('teams')) {
+    const totalA = TEAMS_MOCK.reduce((s,t)=>s+t.actual,0)
+    const totalB = TEAMS_MOCK.reduce((s,t)=>s+t.budget,0)
+    const totalV = totalA - totalB
+    if (sections.includes('dashboard')||sections.includes('summary')) html += `<hr class="divider"/>`
+    html += `<h2>Team Spend Summary</h2>
+    <table>
+      <thead><tr><th>Team</th><th>Manager</th><th class="tr">Actual YTD</th><th class="tr">Budget</th><th class="tr">Variance $</th><th class="tr">Variance %</th></tr></thead>
+      <tbody>
+        ${TEAMS_MOCK.map(t => {
+          const v=t.actual-t.budget, vp=t.budget>0?(v/t.budget*100).toFixed(1):'—'
+          return `<tr><td><strong>${t.name}</strong></td><td style="color:#6b7280">${t.manager}</td><td class="tr">${fmt(t.actual)}</td><td class="tr" style="color:#9ca3af">${fmt(t.budget)}</td><td class="tr" style="color:${vc(v,true)}">${v>=0?'+':''}${fmt(v)}</td><td class="tr" style="color:${vc(v,true)}">${v>=0?'+':''}${vp}%</td></tr>`
+        }).join('')}
+        <tr class="tot-row"><td colspan="2"><strong>Total — All Teams</strong></td><td class="tr">${fmt(totalA)}</td><td class="tr" style="color:#6b7280">${fmt(totalB)}</td><td class="tr" style="color:${vc(totalV,true)}">${totalV>=0?'+':''}${fmt(totalV)}</td><td class="tr" style="color:${vc(totalV,true)}">${totalV>=0?'+':''}${totalB>0?((totalV/totalB)*100).toFixed(1):'0'}%</td></tr>
+      </tbody>
+    </table>`
+  }
+
+  html += `<div class="footer"><span>${orgName} — Executive Report · Confidential</span><span>${periodLabel} · ${reportDate}</span></div>
+  </div></body></html>`
+  return html
+}
+
+function ExportPanel({ dateRange, orgConfig, summaries }) {
+  const [sections,       setSections]       = useState(['dashboard','summary','teams'])
+  const [summaryMonth,   setSummaryMonth]   = useState(Object.keys(summaries).sort((a,b)=>new Date('1 '+b)-new Date('1 '+a))[0] || ALL_MONTHS[0])
+  const [exportPreset,   setExportPreset]   = useState(dateRange?.preset || 'fiscal-ytd')
+  const [exportRange,    setExportRange]    = useState(dateRange)
+
+  function toggleSection(id) {
+    setSections(prev => prev.includes(id) ? prev.filter(s=>s!==id) : [...prev,id])
+  }
+
+  function handleExport() {
+    if (sections.length === 0) return
+    const html = generateReportHTML({ sections, dateRange: { ...exportRange, preset: exportPreset }, orgConfig, summaries, summaryMonth })
+    const win  = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 400)
+  }
+
+  const sectionOpts = [
+    { id:'dashboard', label:'Dashboard KPIs & P&L', desc:'Financial metrics, P&L table with actuals vs budget' },
+    { id:'summary',   label:'Monthly Summary',       desc:'Narrative summary, key takeaways, watch areas' },
+    { id:'teams',     label:'Team Breakdown',        desc:'All-team spend table with variance detail' },
+  ]
+
+  const existingMonths = Object.keys(summaries).sort((a,b)=>new Date('1 '+b)-new Date('1 '+a))
+
+  return (
+    <div className="space-y-4">
+      {/* Sections */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Sections to Include</div>
+        <div className="space-y-2">
+          {sectionOpts.map(opt => {
+            const checked = sections.includes(opt.id)
+            return (
+              <button key={opt.id} onClick={() => toggleSection(opt.id)}
+                className={`w-full text-left px-4 py-3 rounded-xl border transition-all flex items-start gap-3 ${checked ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                <div className={`w-4 h-4 rounded flex-shrink-0 mt-0.5 border-2 flex items-center justify-center transition-all ${checked ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                  {checked && <Check size={10} className="text-white"/>}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-gray-800">{opt.label}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">{opt.desc}</div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+        {/* Summary month picker (shown when summary is selected) */}
+        {sections.includes('summary') && existingMonths.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Summary month to include</label>
+            <select value={summaryMonth} onChange={e=>setSummaryMonth(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white">
+              {existingMonths.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        )}
+        {sections.includes('summary') && existingMonths.length === 0 && (
+          <p className="mt-2 text-[10px] text-amber-600 font-medium">No monthly summaries yet — create one in the Summary tab first.</p>
+        )}
+      </div>
+
+      {/* Date range */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">Reporting Period</div>
+        <p className="text-xs text-gray-400 mb-3">Shown on the cover of the export. Defaults to the current dashboard date range.</p>
+        <div className="px-4 py-3 rounded-xl bg-gray-50 border border-gray-200">
+          <div className="text-xs font-semibold text-gray-700">{presetLabel(exportPreset)}</div>
+          {exportRange && <div className="text-[10px] text-gray-400 mt-0.5">{exportRange.startDate} → {exportRange.endDate}</div>}
+        </div>
+        <p className="text-[10px] text-gray-400 mt-2">To change the period, update the date range in the top nav and re-open Import.</p>
+      </div>
+
+      {/* Generate button */}
+      <button onClick={handleExport} disabled={sections.length===0}
+        className="w-full py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 flex items-center justify-center gap-2 transition-opacity"
+        style={{backgroundColor:'var(--color-accent)'}}>
+        <Download size={14}/> Generate PDF
+      </button>
+      <p className="text-[10px] text-gray-400 text-center">Opens a print-ready page in a new tab. Use your browser's Print → Save as PDF.</p>
+    </div>
+  )
+}
 
 // Generate and trigger a CSV download
 function downloadCSV(filename, rows) {
@@ -3087,7 +3323,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
   )
 }
 
-function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
+function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, orgConfig }) {
   const [activeImport, setActiveImport] = useState('financial')
   const [summaryMonth, setSummaryMonth] = useState(ALL_MONTHS[0])
 
@@ -3096,6 +3332,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
     { id:'patrons',   label:'Patron Data' },
     { id:'cashflow',  label:'Cash Flow' },
     { id:'narrative', label:'Monthly Summary' },
+    { id:'export',    label:'Export PDF' },
   ]
 
   const existingMonths = Object.keys(summaries)
@@ -3122,7 +3359,9 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
         ))}
       </div>
 
-      {activeImport === 'narrative' ? (
+      {activeImport === 'export' ? (
+        <ExportPanel dateRange={dateRange} orgConfig={orgConfig} summaries={summaries}/>
+      ) : activeImport === 'narrative' ? (
         /* Monthly Summary sub-tab (existing behavior) */
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -3222,7 +3461,7 @@ export default function ELTDashboard() {
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
-        {activeTab==='import'    && <ELTImportTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
+        {activeTab==='import'    && <ELTImportTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} dateRange={dateRange} orgConfig={orgConfig}/>}
       </main>
     </div>
   )
