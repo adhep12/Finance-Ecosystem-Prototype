@@ -443,8 +443,7 @@ export default function PatronImportFlow() {
     setImportError(null)
 
     try {
-      const batchId = crypto.randomUUID()
-      const now     = new Date().toISOString()
+      const now = new Date().toISOString()
 
       // 1. Determine periods in file
       const periodsInFile = [...new Set(monthlyRows.map(r => r.period))]
@@ -488,22 +487,20 @@ export default function PatronImportFlow() {
         const { error } = await supabase.from('patron_data').insert(rows)
         if (error) throw error
 
-        // Write import_log
+        // Write import_log (columns aligned to import_log schema)
+        const sortedPeriods = [...periodsInFile].sort()
         const logEntry = {
-          org_id:          ORG_ID,
-          batch_id:        batchId,
-          import_type:     'patron',
-          mode:            importMode,
-          file_name:       fileName,
-          rows_in_file:    rawRows.length,
-          rows_valid:      validRows.length,
-          rows_inserted:   newMonthlyRows.length,
-          rows_skipped:    monthlyRows.length - newMonthlyRows.length,
-          rows_errored:    rawRows.length - validRows.length,
-          periods_affected: periodsInFile.join(','),
-          status:          'success',
-          imported_by:     'system',
-          imported_at:     now,
+          org_id:        ORG_ID,
+          import_type:   'patron',
+          mode:          importMode,
+          filename:      fileName,
+          row_count:     rawRows.length,
+          rows_inserted: newMonthlyRows.length,
+          rows_skipped:  monthlyRows.length - newMonthlyRows.length,
+          period_start:  sortedPeriods[0] || null,
+          period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
+          status:        'success',
+          imported_by:   'system',
         }
         await supabase.from('import_log').insert([logEntry])
 
@@ -529,21 +526,19 @@ export default function PatronImportFlow() {
         if (error) throw error
       }
 
+      const sortedPeriods = [...periodsInFile].sort()
       const logEntry = {
-        org_id:           ORG_ID,
-        batch_id:         batchId,
-        import_type:      'patron',
-        mode:             importMode,
-        file_name:        fileName,
-        rows_in_file:     rawRows.length,
-        rows_valid:       validRows.length,
-        rows_inserted:    rows.length,
-        rows_skipped:     0,
-        rows_errored:     rawRows.length - validRows.length,
-        periods_affected: periodsInFile.join(','),
-        status:           'success',
-        imported_by:      'system',
-        imported_at:      now,
+        org_id:        ORG_ID,
+        import_type:   'patron',
+        mode:          importMode,
+        filename:      fileName,
+        row_count:     rawRows.length,
+        rows_inserted: rows.length,
+        rows_skipped:  rawRows.length - validRows.length,
+        period_start:  sortedPeriods[0] || null,
+        period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
+        status:        'success',
+        imported_by:   'system',
       }
       await supabase.from('import_log').insert([logEntry])
 
@@ -912,7 +907,7 @@ export default function PatronImportFlow() {
 
           {importLog && (
             <div className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-              Batch ID: <code>{importLog.batch_id}</code> · Logged in import_log
+              Logged in import_log · period range: {importLog.period_start} → {importLog.period_end}
             </div>
           )}
 
