@@ -239,6 +239,7 @@ function filterELTByRange(dateRange) {
       merchandiseRevenue: sum(ELT_MO_BUD.merchandiseRevenue),
       otherIncome: sum(ELT_MO_BUD.otherIncome),
     },
+    patrons: ELT_MOCK.patrons,
     monthsInRange: idxs.length,
     rangeLabel,
   }
