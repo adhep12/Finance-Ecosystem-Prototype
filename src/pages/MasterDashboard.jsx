@@ -1,353 +1,336 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import {
-  TrendingUp, TrendingDown, DollarSign, Users, AlertTriangle,
-  ChevronDown, ChevronRight, ChevronLeft, ChevronUp,
-  Plus, X, Edit2, Trash2, Upload, FileText, RefreshCw,
-  Save, BarChart2, LineChart as LineIcon, Activity,
-  Filter, Search, Check, Settings, Eye, EyeOff,
-  Building2, ArrowUpDown, Calendar, Download, Clock, CheckCircle,
+  TrendingUp, TrendingDown, DollarSign, AlertTriangle,
+  ChevronDown, ChevronRight, ChevronLeft,
+  Plus, X, Edit2, Trash2, Upload, RefreshCw,
+  BarChart2, Activity, Filter, Search, Check, Settings,
+  Building2, Calendar, Download, GripVertical, RotateCcw,
+  Ban, Eye, EyeOff, ArrowUp, ArrowDown, CheckSquare, Square,
+  Layers, FileText, Clock, ChevronUp,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'
-import { formatCurrency, formatPercent } from '../utils/formatters'
+import { formatCurrency, formatOverUnder } from '../utils/formatters'
+import {
+  filterActualsByRange, calcBudgetByCategory,
+  buildVisibleRows, getUniqueValues,
+} from '../utils/dataProcessing'
+import CalendarBreakdownView from '../components/CalendarBreakdownView'
+import { useLocalStorage } from '../hooks/useLocalStorage'
+import { DEPT_NAMES } from '../data/mockData'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEPT_NAMES = { '101': 'Product Design', '102': 'Product Engineering', '103': 'Operations' }
-const ALL_DEPTS  = ['101','102','103']
+const ALL_DEPTS = Object.keys(DEPT_NAMES)
 
-// Monthly income mock (Oct 2025 → May 2026, 8 months matching actuals window)
-const INCOME_MONTHS = [
-  { date:'2025-10-01', label:'Oct', contributions:220_000, merch:16_100, other:3_600 },
-  { date:'2025-11-01', label:'Nov', contributions:265_000, merch:19_500, other:4_200 },
-  { date:'2025-12-01', label:'Dec', contributions:310_000, merch:23_000, other:4_800 },
-  { date:'2026-01-01', label:'Jan', contributions:185_000, merch:13_500, other:2_800 },
-  { date:'2026-02-01', label:'Feb', contributions:198_000, merch:14_200, other:3_100 },
-  { date:'2026-03-01', label:'Mar', contributions:215_000, merch:16_000, other:3_500 },
-  { date:'2026-04-01', label:'Apr', contributions:245_000, merch:18_500, other:4_100 },
-  { date:'2026-05-01', label:'May', contributions:270_000, merch:20_000, other:4_600 },
-]
+const DEPT_COLORS  = { '101':'#0EA5A0','102':'#C05A2F','103':'#E8A838' }
+const FIELD_COLORS = { department:'#0EA5A0', category:'#C05A2F', account:'#E8A838', grant:'#4A2E5A', vendor:'#9BA8B5' }
+const FIELD_LABELS = { department:'Department', category:'Category', account:'Account', grant:'Grant', vendor:'Vendor' }
+const ALL_DRILL_FIELDS = ['department','category','account','grant','vendor']
+
 const INCOME_BUDGET_MONTHLY = {
-  contributions: [230_000, 280_000, 295_000, 195_000, 205_000, 220_000, 250_000, 275_000],
-  merch:         [ 16_500,  20_000,  22_000,  14_000,  14_500,  16_000,  18_000,  19_500],
-  other:         [  3_500,   4_000,   4_500,   2_800,   3_000,   3_400,   4_000,   4_500],
+  contributions: [230_000,280_000,295_000,195_000,205_000,220_000,250_000,275_000],
+  merch:         [ 16_500, 20_000, 22_000, 14_000, 14_500, 16_000, 18_000, 19_500],
+  other:         [  3_500,  4_000,  4_500,  2_800,  3_000,  3_400,  4_000,  4_500],
 }
 
-const ACCENT   = 'var(--color-accent)'
-const CAT_COLORS = {
-  Software: '#0EA5A0', Computers: '#C05A2F', Travel: '#E8A838',
-  Contract: '#4A2E5A', Office: '#9BA8B5',  Other: '#89929E',
-}
-const DEPT_COLORS = { '101': '#0EA5A0', '102': '#C05A2F', '103': '#E8A838' }
-
-const MASTER_IMPORT_TABS = [
-  { id:'actuals',   label:'Actuals' },
-  { id:'budget',    label:'Budget' },
-  { id:'financial', label:'Financial Data' },
-  { id:'patron',    label:'Patron Data' },
-  { id:'cashflow',  label:'Cash Flow' },
-  { id:'summary',   label:'Monthly Summary' },
-  { id:'history',   label:'Import History' },
+// Chart preset catalogue
+const CHART_PRESETS = [
+  { id:'monthly-income',   title:'Monthly Income Trend',   type:'area', xKey:'label', yKeys:['contributions','merch','other'],  source:'income',   colors:['#0EA5A0','#C05A2F','#E8A838'], stacked:false },
+  { id:'monthly-expense',  title:'Monthly Expenses',       type:'bar',  xKey:'label', yKeys:['total'],                          source:'expenses', colors:['#C05A2F'],                    stacked:false },
+  { id:'budget-vs-actual', title:'Budget vs Actual',       type:'bar',  xKey:'label', yKeys:['actual','budget'],                source:'bva',      colors:['#0EA5A0','#9BA8B5'],          stacked:false },
+  { id:'dept-breakdown',   title:'Spending by Team',       type:'bar',  xKey:'dept',  yKeys:['amount'],                         source:'dept',     colors:['#0EA5A0'],                    stacked:false },
+  { id:'cat-breakdown',    title:'Spend by Category',      type:'bar',  xKey:'category', yKeys:['amount'],                      source:'category', colors:['#E8A838'],                    stacked:false },
+  { id:'net-position',     title:'Net Position Trend',     type:'line', xKey:'label', yKeys:['net'],                            source:'net',      colors:['#10B981'],                    stacked:false },
 ]
 
-function readLS(key, fallback) {
-  try { const v = localStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback }
-  catch { return fallback }
-}
+const DEFAULT_CHART_IDS = ['monthly-income','monthly-expense','budget-vs-actual','dept-breakdown','cat-breakdown','net-position']
+
+const KPI_DEFS = [
+  { id:'total-income',    label:'Total Income',    icon:'TrendingUp',  color:'#0EA5A0' },
+  { id:'total-expenses',  label:'Total Expenses',  icon:'TrendingDown',color:'#C05A2F' },
+  { id:'net-position',    label:'Net Position',    icon:'DollarSign',  color:'#10B981' },
+  { id:'budget-variance', label:'Budget Variance', icon:'AlertTriangle',color:'#E8A838' },
+]
+const DEFAULT_KPI_IDS = ['total-income','total-expenses','net-position','budget-variance']
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Date utilities (self-contained — same approach as ELTDashboard)
+// Date helpers (self-contained)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function pad2(n) { return String(n).padStart(2,'0') }
-function ymd(y, m, d) { return `${y}-${pad2(m)}-${pad2(d)}` }
-function monthKey(dateStr) { return dateStr.slice(0,7) } // "2025-10"
+function pad2(n){ return String(n).padStart(2,'0') }
+function ymd(y,m,d){ return `${y}-${pad2(m)}-${pad2(d)}` }
+function monthKey(dateStr){ return dateStr.slice(0,7) }
 
-function getMasterPresetRange(preset) {
+function getMasterPresetRange(preset){
   const today = new Date()
   const todayStr = ymd(today.getFullYear(), today.getMonth()+1, today.getDate())
-  if (preset === 'full-fiscal')   return { startDate:'2025-10-01', endDate:'2026-09-30' }
-  if (preset === 'fiscal-ytd')    return { startDate:'2025-10-01', endDate: todayStr }
-  if (preset === 'full-operating') return { startDate:'2025-05-01', endDate:'2026-04-30' }
-  if (preset === 'operating-ytd') return { startDate:'2025-05-01', endDate: todayStr }
-  if (preset === 'last-month') {
-    const d = new Date(today.getFullYear(), today.getMonth()-1, 1)
-    const lastDay = new Date(today.getFullYear(), today.getMonth(), 0).getDate()
-    return { startDate: ymd(d.getFullYear(), d.getMonth()+1, 1), endDate: ymd(today.getFullYear(), today.getMonth(), lastDay) }
+  if(preset==='full-fiscal')    return { startDate:'2025-10-01', endDate:'2026-09-30' }
+  if(preset==='fiscal-ytd')     return { startDate:'2025-10-01', endDate:todayStr }
+  if(preset==='full-operating') return { startDate:'2025-05-01', endDate:'2026-04-30' }
+  if(preset==='operating-ytd')  return { startDate:'2025-05-01', endDate:todayStr }
+  if(preset==='last-month'){
+    const d=new Date(today.getFullYear(),today.getMonth()-1,1)
+    const last=new Date(today.getFullYear(),today.getMonth(),0).getDate()
+    return { startDate:ymd(d.getFullYear(),d.getMonth()+1,1), endDate:ymd(today.getFullYear(),today.getMonth(),last) }
   }
-  if (preset === 'last-3')  { const d=new Date(today); d.setMonth(d.getMonth()-3);  return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
-  if (preset === 'last-6')  { const d=new Date(today); d.setMonth(d.getMonth()-6);  return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
-  if (preset === 'last-12') { const d=new Date(today); d.setFullYear(d.getFullYear()-1); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
-  return { startDate:'2025-10-01', endDate: todayStr }
+  if(preset==='last-3'){ const d=new Date(today); d.setMonth(d.getMonth()-3); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
+  if(preset==='last-6'){ const d=new Date(today); d.setMonth(d.getMonth()-6); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
+  if(preset==='last-12'){ const d=new Date(today); d.setFullYear(d.getFullYear()-1); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
+  return { startDate:'2025-10-01', endDate:todayStr }
 }
-
-function presetLabel(preset) {
-  return { 'full-fiscal':'Full fiscal year','fiscal-ytd':'Fiscal YTD','full-operating':'Full operating year','operating-ytd':'Operating YTD','last-month':'Last month','last-3':'Last 3 months','last-6':'Last 6 months','last-12':'Last 12 months','custom':'Custom range' }[preset] || 'Date range'
+function presetLabel(p){
+  return {'full-fiscal':'Full fiscal year','fiscal-ytd':'Fiscal YTD','full-operating':'Full operating year','operating-ytd':'Operating YTD','last-month':'Last month','last-3':'Last 3 months','last-6':'Last 6 months','last-12':'Last 12 months','custom':'Custom range'}[p]||'Date range'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Data aggregation helpers
+// Data helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function filterActuals(actuals, startDate, endDate, dept=null) {
-  return actuals.filter(t => {
-    if (t.date < startDate || t.date > endDate) return false
-    if (dept && t.department !== dept) return false
-    return true
-  })
+function getIncomeInRange(incomeMonths, startDate, endDate){
+  return incomeMonths.filter(m => m.date >= startDate && m.date <= endDate)
 }
 
-function sumByCategory(transactions) {
-  const out = {}
-  for (const t of transactions) {
-    out[t.category] = (out[t.category] || 0) + t.amount
-  }
-  return out
-}
-
-function sumByDept(transactions) {
-  const out = {}
-  for (const t of transactions) {
-    out[t.department] = (out[t.department] || 0) + t.amount
-  }
-  return out
-}
-
-function groupByMonth(transactions) {
-  const out = {}
-  for (const t of transactions) {
+function groupByMonth(actuals){
+  return actuals.reduce((acc,t)=>{
     const k = monthKey(t.date)
-    out[k] = (out[k] || 0) + t.amount
+    acc[k] = (acc[k]||0) + t.amount
+    return acc
+  },{})
+}
+
+function numMonthsInRange(startDate, endDate){
+  const s=new Date(startDate), e=new Date(endDate)
+  return (e.getFullYear()-s.getFullYear())*12 + (e.getMonth()-s.getMonth()) + 1
+}
+
+/**
+ * Build Recharts-ready data array for a chart preset.
+ * incomeMonths comes from AppContext — all income charts update on import.
+ */
+function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths){
+  const { startDate, endDate } = dateRange
+  const inRange   = filterActualsByRange(actuals, startDate, endDate)
+  const incMonths = getIncomeInRange(incomeMonths, startDate, endDate)
+
+  if(preset.source==='income'){
+    return incMonths.map(m=>({
+      label: m.label,
+      contributions: Math.round(m.contributions/1000),
+      merch:         Math.round(m.merch/1000),
+      other:         Math.round(m.other/1000),
+    }))
   }
-  return out
-}
-
-function getIncomeInRange(startDate, endDate) {
-  return INCOME_MONTHS.filter(m => m.date >= startDate && m.date <= endDate)
-}
-
-function getBudgetForMonths(budgetFlat, scenario, startDate, endDate, dept=null) {
-  const months = INCOME_MONTHS.filter(m => m.date >= startDate && m.date <= endDate)
-  const n = months.length
-  const out = {}
-  for (const b of budgetFlat) {
-    if (b.scenario !== scenario) continue
-    if (dept && b.department !== dept) continue
-    out[b.category] = (out[b.category] || 0) + b.monthlyAmount * n
+  if(preset.source==='expenses'){
+    const byMonth = groupByMonth(inRange)
+    return incMonths.map(m=>({
+      label: m.label,
+      total: Math.round((byMonth[monthKey(m.date)]||0)/1000),
+    }))
   }
-  return out
+  if(preset.source==='bva'){
+    const byMonth   = groupByMonth(inRange)
+    const n         = numMonthsInRange(startDate, endDate)
+    const budgetRows= budgetFlat.filter(b=>b.scenario===scenario)
+    const monthlyBudget = budgetRows.reduce((s,b)=>s+b.monthlyAmount,0)
+    return incMonths.map(m=>({
+      label:  m.label,
+      actual: Math.round((byMonth[monthKey(m.date)]||0)/1000),
+      budget: Math.round(monthlyBudget/1000),
+    }))
+  }
+  if(preset.source==='dept'){
+    const byDept = inRange.reduce((acc,t)=>{
+      acc[t.department]=(acc[t.department]||0)+t.amount; return acc
+    },{})
+    return Object.entries(byDept).map(([dept,amt])=>({
+      dept: DEPT_NAMES[dept]||dept, amount: Math.round(amt/1000),
+    })).sort((a,b)=>b.amount-a.amount)
+  }
+  if(preset.source==='category'){
+    const byCat = inRange.reduce((acc,t)=>{
+      acc[t.category]=(acc[t.category]||0)+t.amount; return acc
+    },{})
+    return Object.entries(byCat).map(([cat,amt])=>({
+      category: cat, amount: Math.round(amt/1000),
+    })).sort((a,b)=>b.amount-a.amount)
+  }
+  if(preset.source==='net'){
+    const byMonth = groupByMonth(inRange)
+    return incMonths.map(m=>{
+      const income = m.contributions + m.merch + m.other
+      const exp    = byMonth[monthKey(m.date)]||0
+      return { label:m.label, net:Math.round((income-exp)/1000) }
+    })
+  }
+  return []
 }
-
-function numMonthsInRange(startDate, endDate) {
-  return INCOME_MONTHS.filter(m => m.date >= startDate && m.date <= endDate).length
-}
-
-// Variance helpers
-function varColor(delta) { return delta <= 0 ? '#10B981' : '#EF4444' }  // expenses: under=good
-function varBg(delta)    { return delta <= 0 ? '#ECFDF5' : '#FEF2F2' }
-function incVarColor(delta) { return delta >= 0 ? '#10B981' : '#EF4444' } // income: over=good
-function incVarBg(delta)    { return delta >= 0 ? '#ECFDF5' : '#FEF2F2' }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Date Range Picker (self-contained for master dashboard)
+// MasterDatePicker
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MasterDatePicker({ dateRange, onApplyPreset, onApplyCustom, onClose }) {
-  const [localStart, setLocalStart] = useState(dateRange.startDate)
-  const [localEnd,   setLocalEnd]   = useState(dateRange.endDate)
+const PRESET_GROUPS = [
+  { label:'Fiscal Year', items:[['full-fiscal','Full fiscal year'],['fiscal-ytd','Fiscal YTD']] },
+  { label:'Operating Year', items:[['full-operating','Full operating year'],['operating-ytd','Operating YTD']] },
+  { label:'Rolling', items:[['last-month','Last month'],['last-3','Last 3 months'],['last-6','Last 6 months'],['last-12','Last 12 months']] },
+]
 
-  const btn = (id, label, sub) => (
-    <button key={id} onClick={() => { onApplyPreset(id); onClose() }}
-      className={`text-left px-3 py-2 rounded-lg border transition-all text-xs ${
-        dateRange.preset === id ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-800 border-gray-200 hover:border-gray-400'
-      }`}>
-      <div className="font-medium">{label}</div>
-      {sub && <div className="opacity-60 mt-0.5 text-[10px] uppercase tracking-wide">{sub}</div>}
-    </button>
-  )
-
+function MasterDatePicker({ dateRange, onApplyPreset, onApplyCustom, onClose }){
+  const [start, setStart] = useState(dateRange.startDate||'')
+  const [end,   setEnd]   = useState(dateRange.endDate||'')
   return (
-    <div className="bg-white rounded-xl shadow-2xl border border-gray-200 p-5 w-80">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Date Range</div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">Fiscal Year</div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        {btn('full-fiscal','Full fiscal year','Oct 2025 → Sep 2026')}
-        {btn('fiscal-ytd','Fiscal YTD','Oct 2025 → Today')}
-      </div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">Operating Year</div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        {btn('full-operating','Full operating year','May 2025 → Apr 2026')}
-        {btn('operating-ytd','Operating YTD','May 2025 → Today')}
-      </div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">Rolling</div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        {btn('last-month','Last month','')}
-        {btn('last-3','Last 3 months','')}
-        {btn('last-6','Last 6 months','')}
-        {btn('last-12','Last 12 months','')}
-      </div>
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">From</div>
-          <input type="date" value={localStart} onChange={e => setLocalStart(e.target.value)}
-            className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-teal-500"/>
+    <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-72 p-4">
+      {PRESET_GROUPS.map(g=>(
+        <div key={g.label} className="mb-3">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">{g.label}</div>
+          {g.items.map(([id,lbl])=>(
+            <button key={id} onClick={()=>{onApplyPreset(id);onClose()}}
+              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm hover:bg-teal-50 hover:text-teal-700 transition-colors ${dateRange.preset===id?'bg-teal-50 text-teal-700 font-semibold':''}`}>
+              {lbl}
+            </button>
+          ))}
         </div>
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">To</div>
-          <input type="date" value={localEnd} onChange={e => setLocalEnd(e.target.value)}
-            className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-teal-500"/>
+      ))}
+      <div className="border-t border-gray-100 pt-3 mt-2">
+        <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Custom Range</div>
+        <div className="flex gap-2 items-center mb-2">
+          <input type="date" value={start} onChange={e=>setStart(e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs"/>
+          <span className="text-gray-400 text-xs">→</span>
+          <input type="date" value={end} onChange={e=>setEnd(e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs"/>
         </div>
-      </div>
-      <div className="flex justify-end">
-        <button onClick={() => { if(localStart&&localEnd&&localStart<=localEnd) { onApplyCustom(localStart,localEnd); onClose() }}}
-          className="px-4 py-1.5 rounded-lg text-xs font-medium text-white transition-colors"
-          style={{ backgroundColor: ACCENT }}>Apply</button>
+        <button onClick={()=>{ if(start&&end){ onApplyCustom(start,end); onClose() } }}
+          className="w-full bg-teal-600 text-white rounded-lg py-1.5 text-sm font-semibold hover:bg-teal-700 transition-colors">
+          Apply
+        </button>
       </div>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MasterNav
+// TeamMultiSelect — multi-select team pill dropdown for nav
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MASTER_TABS = [
+function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
+  const allActive = !activeDepts || activeDepts.size === ALL_DEPTS.length
+  return (
+    <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-52 py-2">
+      <button onClick={()=>{ onSelectAll(); onClose() }}
+        className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors ${allActive?'font-semibold text-teal-700':''}`}>
+        {allActive ? <CheckSquare size={14} className="text-teal-600"/> : <Square size={14} className="text-gray-300"/>}
+        All Teams
+      </button>
+      <div className="border-t border-gray-100 my-1"/>
+      {ALL_DEPTS.map(code=>{
+        const active = !activeDepts || activeDepts.has(code)
+        return (
+          <button key={code} onClick={()=>onToggle(code)}
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors">
+            <div className={`w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0`}
+              style={{ backgroundColor: active ? DEPT_COLORS[code] : 'transparent', border:`2px solid ${DEPT_COLORS[code]}` }}>
+              {active && <Check size={9} className="text-white"/>}
+            </div>
+            <span className={active?'text-gray-800':'text-gray-400'}>{DEPT_NAMES[code]}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MasterNav — 5 tabs, multi-select teams, date picker, scenario
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TABS = [
   { id:'overview',      label:'Overview' },
-  { id:'pl',            label:'P&L Breakdown' },
+  { id:'breakdown',     label:'Breakdown' },
   { id:'transactions',  label:'Transactions' },
-  { id:'teams',         label:'Teams' },
   { id:'comments',      label:'Comments & Requests' },
   { id:'import',        label:'Import' },
 ]
 
-function MasterNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom,
-                     activeBudget, onSetBudget, availableScenarios, teamFilter, setTeamFilter }) {
-  const [showDatePicker,   setShowDatePicker]   = useState(false)
-  const [showBudgetPicker, setShowBudgetPicker] = useState(false)
-  const [showTeamPicker,   setShowTeamPicker]   = useState(false)
-  const dateRef   = useRef(null)
-  const budgetRef = useRef(null)
-  const teamRef   = useRef(null)
-  useEffect(() => {
-    function h(e) { if(dateRef.current   && !dateRef.current.contains(e.target))   setShowDatePicker(false)   }
-    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
-  },[])
-  useEffect(() => {
-    function h(e) { if(budgetRef.current && !budgetRef.current.contains(e.target)) setShowBudgetPicker(false) }
-    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
-  },[])
-  useEffect(() => {
-    function h(e) { if(teamRef.current   && !teamRef.current.contains(e.target))   setShowTeamPicker(false)   }
-    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
+function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom,
+  activeDepts, onToggleDept, onSelectAllDepts,
+  activeBudget, availableScenarios, onSetBudget }){
+  const [showDate,  setShowDate]  = useState(false)
+  const [showTeam,  setShowTeam]  = useState(false)
+  const [showBudget,setShowBudget]= useState(false)
+  const navRef = useRef(null)
+
+  useEffect(()=>{
+    function handler(e){ if(navRef.current && !navRef.current.contains(e.target)){ setShowDate(false); setShowTeam(false); setShowBudget(false) } }
+    document.addEventListener('mousedown', handler)
+    return ()=>document.removeEventListener('mousedown', handler)
   },[])
 
-  const teamLabel = teamFilter === 'all' ? 'All Teams' : DEPT_NAMES[teamFilter] || teamFilter
+  const allActive = !activeDepts || activeDepts.size === ALL_DEPTS.length
+  const teamLabel = allActive ? 'All Teams' : `${activeDepts.size} Team${activeDepts.size!==1?'s':''}`
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-      <div className="flex items-center h-12 px-4 gap-2">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 min-w-0">
-          <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-               style={{ backgroundColor: orgConfig.accentColor || ACCENT }}>
-            {orgConfig.logoInitial}
-          </div>
-          <span className="text-sm font-semibold text-gray-800 truncate">{orgConfig.name}</span>
-          <span className="text-gray-300 text-sm">·</span>
-          <span className="text-sm text-gray-500">Finance</span>
+    <nav ref={navRef} className="sticky top-0 z-30 flex items-center gap-0 px-6 border-b border-gray-200 bg-white/95 backdrop-blur-sm" style={{height:48}}>
+      {/* Tabs */}
+      <div className="flex items-center gap-1 flex-1">
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setActiveTab(t.id)}
+            className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${activeTab===t.id?'border-teal-600 text-teal-700':'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Right controls */}
+      <div className="flex items-center gap-2">
+        {/* Team multi-select */}
+        <div className="relative">
+          <button onClick={()=>{ setShowTeam(p=>!p); setShowDate(false); setShowBudget(false) }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${!allActive?'bg-teal-50 border-teal-300 text-teal-700':'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+            <Building2 size={13}/>
+            {teamLabel}
+            <ChevronDown size={11}/>
+          </button>
+          {showTeam && <TeamMultiSelect activeDepts={activeDepts} onToggle={code=>{ onToggleDept(code) }} onSelectAll={onSelectAllDepts} onClose={()=>setShowTeam(false)}/>}
         </div>
 
-        {/* Tabs */}
-        <nav className="flex-1 flex justify-center overflow-x-auto">
-          <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-1">
-            {MASTER_TABS.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === tab.id ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                }`}>
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </nav>
+        {/* Budget scenario */}
+        <div className="relative">
+          <button onClick={()=>{ setShowBudget(p=>!p); setShowDate(false); setShowTeam(false) }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-300 transition-colors">
+            <BarChart2 size={13}/>
+            {activeBudget||'Budget'}
+            <ChevronDown size={11}/>
+          </button>
+          {showBudget && (
+            <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-52 py-2">
+              {availableScenarios.map(s=>(
+                <button key={s} onClick={()=>{ onSetBudget(s); setShowBudget(false) }}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${activeBudget===s?'font-semibold text-teal-700':''}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-        {/* Right controls */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Team filter */}
-          <div className="relative" ref={teamRef}>
-            <button onClick={() => setShowTeamPicker(v=>!v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-              <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">TEAM</span>
-              <span className="max-w-[100px] truncate">{teamLabel}</span>
-              <ChevronDown size={11} className="text-gray-400"/>
-            </button>
-            {showTeamPicker && (
-              <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-52">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Filter by Team</div>
-                <div className="space-y-1">
-                  {['all',...ALL_DEPTS].map(d => (
-                    <button key={d} onClick={() => { setTeamFilter(d); setShowTeamPicker(false) }}
-                      className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-all ${
-                        teamFilter===d ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-800 border-gray-200 bg-white hover:border-gray-400'
-                      }`}>
-                      {d==='all' ? 'All Teams' : DEPT_NAMES[d]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Budget scenario */}
-          <div className="relative" ref={budgetRef}>
-            <button onClick={() => setShowBudgetPicker(v=>!v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-              <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">BUDGET</span>
-              <span className="max-w-[100px] truncate">{activeBudget}</span>
-              <ChevronDown size={11} className="text-gray-400"/>
-            </button>
-            {showBudgetPicker && (
-              <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-60">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Budget Scenario</div>
-                <p className="text-xs text-gray-500 mb-3 leading-relaxed">Select which budget to compare actuals against.</p>
-                <div className="space-y-1">
-                  {availableScenarios.map(s => (
-                    <button key={s} onClick={() => { onSetBudget(s); setShowBudgetPicker(false) }}
-                      className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-all ${
-                        activeBudget===s ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-800 border-gray-200 bg-white hover:border-gray-400'
-                      }`}>
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Date range */}
-          <div className="relative" ref={dateRef}>
-            <button onClick={() => setShowDatePicker(v=>!v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-              <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">DATES</span>
-              <span>{presetLabel(dateRange.preset)}</span>
-              <ChevronDown size={11} className="text-gray-400"/>
-            </button>
-            {showDatePicker && (
-              <div className="absolute right-0 top-full mt-2 z-50">
-                <MasterDatePicker dateRange={dateRange} onApplyPreset={onApplyPreset}
-                  onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
-              </div>
-            )}
-          </div>
+        {/* Date range */}
+        <div className="relative">
+          <button onClick={()=>{ setShowDate(p=>!p); setShowBudget(false); setShowTeam(false) }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-300 transition-colors">
+            <Calendar size={13}/>
+            {presetLabel(dateRange.preset)}
+            <ChevronDown size={11}/>
+          </button>
+          {showDate && <MasterDatePicker dateRange={dateRange} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={()=>setShowDate(false)}/>}
         </div>
       </div>
-    </header>
+    </nav>
   )
 }
 
@@ -355,37 +338,101 @@ function MasterNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPrese
 // KPI Card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function KPICard({ title, value, sub, sub2, delta, deltaLabel, inverse=false, accent, onHide, editMode }) {
-  const good = inverse ? delta < 0 : delta > 0
-  const dColor = delta === null || delta === undefined ? '#9BA8B5' : good ? '#10B981' : '#EF4444'
-  const dBg    = delta === null || delta === undefined ? '#F3F4F6' : good ? '#ECFDF5' : '#FEF2F2'
+function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, editMode, onRemove }){
+  const { startDate, endDate } = dateRange
+  const inRange = useMemo(()=>filterActualsByRange(actuals, startDate, endDate),[actuals,startDate,endDate])
+  const incomeInRange = useMemo(()=>getIncomeInRange(incomeMonths, startDate, endDate),[incomeMonths,startDate,endDate])
+
+  const totalExpenses = useMemo(()=>inRange.reduce((s,t)=>s+t.amount,0),[inRange])
+  const totalIncome   = useMemo(()=>incomeInRange.reduce((s,m)=>s+(m.contributions+m.merch+m.other),0),[incomeInRange])
+  const totalBudget   = useMemo(()=>{
+    const n = numMonthsInRange(startDate, endDate)
+    return budgetFlat.filter(b=>b.scenario===scenario).reduce((s,b)=>s+b.monthlyAmount*n,0)
+  },[budgetFlat,scenario,startDate,endDate])
+
+  let value, sub, subColor='text-gray-400'
+  if(def.id==='total-income'){
+    value = formatCurrency(totalIncome)
+    sub   = `${incomeInRange.length} months`
+  } else if(def.id==='total-expenses'){
+    value = formatCurrency(totalExpenses)
+    sub   = `${inRange.length} transactions`
+  } else if(def.id==='net-position'){
+    const net = totalIncome - totalExpenses
+    value = formatCurrency(net)
+    sub   = net>=0 ? 'Surplus' : 'Deficit'
+    subColor = net>=0 ? 'text-emerald-600' : 'text-red-500'
+  } else if(def.id==='budget-variance'){
+    const delta = totalExpenses - totalBudget
+    value = formatOverUnder(delta)
+    sub   = delta<=0 ? `${Math.round(Math.abs(delta/totalBudget||0)*100)}% under budget` : `${Math.round((delta/(totalBudget||1))*100)}% over budget`
+    subColor = delta<=0 ? 'text-emerald-600' : 'text-red-500'
+  }
+
+  const IconComp = def.icon==='TrendingUp'?TrendingUp:def.icon==='TrendingDown'?TrendingDown:def.icon==='DollarSign'?DollarSign:AlertTriangle
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 relative group">
-      {editMode && onHide && (
-        <button onClick={onHide}
-          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 flex items-center justify-center">
-          <X size={10} className="text-gray-400 hover:text-red-500"/>
-        </button>
-      )}
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{title}</div>
-      <div className="text-2xl font-bold text-gray-900 mb-1" style={accent ? {color:ACCENT}:{}}>
-        {value}
+    <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-start gap-3" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{backgroundColor:def.color+'20'}}>
+        <IconComp size={16} style={{color:def.color}}/>
       </div>
-      {(sub || sub2) && (
-        <div className="flex flex-wrap gap-1 mb-1.5">
-          {sub  && <span className="text-[11px] text-gray-500">{sub}</span>}
-          {sub2 && <span className="text-[11px] text-gray-400">· {sub2}</span>}
-        </div>
-      )}
-      {delta !== null && delta !== undefined && (
-        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
-             style={{ backgroundColor: dBg, color: dColor }}>
-          {good ? <TrendingUp size={9}/> : <TrendingDown size={9}/>}
-          {deltaLabel}
-        </div>
-      )}
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-0.5">{def.label}</div>
+        <div className="text-xl font-bold text-gray-900">{value||'—'}</div>
+        <div className={`text-xs mt-0.5 ${subColor}`}>{sub}</div>
+      </div>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recharts preset chart renderer — fixed, explicit heights
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TOOLTIP_STYLE = { fontSize:11, borderRadius:8, border:'1px solid #E5E7EB', boxShadow:'0 4px 12px rgba(0,0,0,0.08)' }
+const fmtK = v => v>=1000?`$${(v/1000).toFixed(1)}M`:`$${v}K`
+const axisStyle = { fontSize:10, fill:'#9CA3AF' }
+
+function PresetChartRender({ preset, data }){
+  if(!data || data.length===0) return (
+    <div className="flex items-center justify-center h-full text-gray-300 text-xs">No data in range</div>
+  )
+  const { type, xKey, yKeys=[], colors=[], stacked } = preset
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xAxis = <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false}/>
+  const yAxis = <YAxis tick={axisStyle} tickFormatter={fmtK} axisLine={false} tickLine={false} width={44}/>
+  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[fmtK(v),n]}/>
+  const leg   = yKeys.length>1 ? <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/> : null
+  const common = { data, margin:{top:4,right:4,left:0,bottom:0} }
+
+  if(type==='area') return (
+    <AreaChart {...common}>
+      {grid}{xAxis}{yAxis}{tip}{leg}
+      {yKeys.map((k,i)=>(
+        <Area key={k} type="monotone" dataKey={k} name={k}
+          fill={colors[i]+'33'} stroke={colors[i]} strokeWidth={2}
+          stackId={stacked?'a':undefined}/>
+      ))}
+    </AreaChart>
+  )
+  if(type==='line') return (
+    <LineChart {...common}>
+      {grid}{xAxis}{yAxis}{tip}{leg}
+      {yKeys.map((k,i)=>(
+        <Line key={k} type="monotone" dataKey={k} name={k}
+          stroke={colors[i]} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+      ))}
+    </LineChart>
+  )
+  // default bar
+  return (
+    <BarChart {...common}>
+      {grid}{xAxis}{yAxis}{tip}{leg}
+      {yKeys.map((k,i)=>(
+        <Bar key={k} dataKey={k} name={k} fill={colors[i]} radius={[3,3,0,0]}/>
+      ))}
+    </BarChart>
   )
 }
 
@@ -393,17 +440,16 @@ function KPICard({ title, value, sub, sub2, delta, deltaLabel, inverse=false, ac
 // Chart Panel wrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChartPanel({ title, subtitle, onRemove, editMode, children }) {
+function ChartPanel({ title, subtitle, editMode, onRemove, children }){
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 relative group">
+    <div className="relative bg-white rounded-xl border border-gray-100 p-4" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
       {editMode && onRemove && (
-        <button onClick={onRemove}
-          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 flex items-center justify-center">
-          <X size={10} className="text-gray-400 hover:text-red-500"/>
+        <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center z-10">
+          <X size={11}/>
         </button>
       )}
       <div className="mb-3">
-        <div className="text-xs font-semibold text-gray-800">{title}</div>
+        <div className="text-xs font-semibold text-gray-700">{title}</div>
         {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
       </div>
       {children}
@@ -412,1038 +458,897 @@ function ChartPanel({ title, subtitle, onRemove, editMode, children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chart Builder
+// Chart Builder Wizard
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CHART_PRESETS = [
-  { id:'monthly-income',  title:'Monthly Income Trend',  type:'area', xKey:'label', yKeys:['contributions','merch','other'], source:'income', colors:['#0EA5A0','#C05A2F','#E8A838'], stacked:false },
-  { id:'monthly-expense', title:'Monthly Expenses',      type:'bar',  xKey:'label', yKeys:['total'],  source:'expenses', colors:['#C05A2F'], stacked:false },
-  { id:'dept-breakdown',  title:'Spending by Team',      type:'bar',  xKey:'dept',  yKeys:['amount'], source:'dept',     colors:['#0EA5A0'], stacked:false },
-  { id:'budget-vs-actual',title:'Budget vs Actual',      type:'bar',  xKey:'label', yKeys:['actual','budget'], source:'bva', colors:['#0EA5A0','#9BA8B5'], stacked:false },
-  { id:'cat-breakdown',   title:'Spend by Category',     type:'bar',  xKey:'category', yKeys:['amount'], source:'category', colors:['#E8A838'], stacked:false },
-  { id:'net-position',    title:'Net Position Trend',    type:'line', xKey:'label', yKeys:['net'], source:'net', colors:['#10B981'], stacked:false },
-]
+const APP_SOURCES = CHART_PRESETS.map(p=>({ id:p.id, label:p.title, type:p.type }))
 
-function buildChartData(preset, actuals, dateRange, budgetFlat, scenario) {
-  const { startDate, endDate } = dateRange
-  const inRange = filterActuals(actuals, startDate, endDate)
-  const incMonths = getIncomeInRange(startDate, endDate)
-
-  if (preset.source === 'income') {
-    return incMonths.map(m => ({
-      label: m.label,
-      contributions: m.contributions / 1000,
-      merch: m.merch / 1000,
-      other: m.other / 1000,
-    }))
-  }
-  if (preset.source === 'expenses') {
-    const byMonth = groupByMonth(inRange)
-    return incMonths.map(m => {
-      const k = monthKey(m.date)
-      return { label: m.label, total: Math.round((byMonth[k]||0)/1000) }
-    })
-  }
-  if (preset.source === 'dept') {
-    const byDept = sumByDept(inRange)
-    return ALL_DEPTS.map(d => ({ dept: DEPT_NAMES[d].split(' ').pop(), amount: Math.round((byDept[d]||0)/1000) }))
-  }
-  if (preset.source === 'bva') {
-    const byMonth = groupByMonth(inRange)
-    const n = numMonthsInRange(startDate, endDate)
-    const budgetRows = budgetFlat.filter(b => b.scenario === scenario)
-    return incMonths.map((m, i) => {
-      const k = monthKey(m.date)
-      const budgetTotal = budgetRows.reduce((s,b) => s + b.monthlyAmount, 0)
-      return { label: m.label, actual: Math.round((byMonth[k]||0)/1000), budget: Math.round(budgetTotal/1000) }
-    })
-  }
-  if (preset.source === 'category') {
-    const byCat = sumByCategory(inRange)
-    return Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,amt]) => ({
-      category: cat, amount: Math.round(amt/1000)
-    }))
-  }
-  if (preset.source === 'net') {
-    const byMonth = groupByMonth(inRange)
-    return incMonths.map(m => {
-      const k = monthKey(m.date)
-      const income = m.contributions + m.merch + m.other
-      const expenses = byMonth[k] || 0
-      return { label: m.label, net: Math.round((income - expenses)/1000) }
-    })
-  }
-  return []
-}
-
-function PresetChart({ preset, data }) {
-  const { type, xKey, yKeys, colors, stacked } = preset
-  const fmt = v => `$${v}K`
-
-  if (type === 'area') return (
-    <AreaChart data={data} margin={{top:4,right:4,left:0,bottom:0}}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6"/>
-      <XAxis dataKey={xKey} tick={{fontSize:10}} axisLine={false} tickLine={false}/>
-      <YAxis tick={{fontSize:10}} tickFormatter={v=>v>=1000?`$${(v/1000).toFixed(0)}M`:`$${v}K`} axisLine={false} tickLine={false} width={50}/>
-      <Tooltip formatter={(v)=>[fmt(v)]}/>
-      {yKeys.map((k,i) => (
-        <Area key={k} type="monotone" dataKey={k} fill={colors[i]+'33'} stroke={colors[i]} strokeWidth={2} stackId={stacked?'a':undefined}/>
-      ))}
-    </AreaChart>
-  )
-  if (type === 'line') return (
-    <LineChart data={data} margin={{top:4,right:4,left:0,bottom:0}}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6"/>
-      <XAxis dataKey={xKey} tick={{fontSize:10}} axisLine={false} tickLine={false}/>
-      <YAxis tick={{fontSize:10}} tickFormatter={v=>`$${v}K`} axisLine={false} tickLine={false} width={50}/>
-      <Tooltip formatter={(v)=>[fmt(v)]}/>
-      {yKeys.map((k,i) => (
-        <Line key={k} type="monotone" dataKey={k} stroke={colors[i]} strokeWidth={2} dot={false}/>
-      ))}
-    </LineChart>
-  )
-  // bar (default)
-  return (
-    <BarChart data={data} margin={{top:4,right:4,left:0,bottom:0}}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6"/>
-      <XAxis dataKey={xKey} tick={{fontSize:10}} axisLine={false} tickLine={false}/>
-      <YAxis tick={{fontSize:10}} tickFormatter={v=>`$${v}K`} axisLine={false} tickLine={false} width={50}/>
-      <Tooltip formatter={(v)=>[fmt(v)]}/>
-      {yKeys.map((k,i) => (
-        <Bar key={k} dataKey={k} fill={colors[i]} radius={[3,3,0,0]} barSize={stacked?undefined:20}
-             stackId={stacked?'a':undefined}/>
-      ))}
-    </BarChart>
-  )
-}
-
-function ChartBuilderModal({ onSave, onClose, actuals, dateRange, budgetFlat, scenario }) {
-  const [mode, setMode] = useState('presets') // 'presets' | 'custom'
-  // Custom builder state
-  const [title,     setTitle]     = useState('')
+function ChartBuilderWizard({ onSave, onClose, actuals, budgetFlat, scenario, incomeMonths, dateRange }){
+  // step 0 = series type, 1 = data mode, 2 = app source or manual rows, 3 = title + type + save
+  const [step,      setStep]      = useState(0)
+  const [isMulti,   setIsMulti]   = useState(false)
+  const [dataMode,  setDataMode]  = useState(null)   // 'app' | 'manual'
+  const [appSource, setAppSource] = useState(null)   // preset id
   const [chartType, setChartType] = useState('bar')
-  const [source,    setSource]    = useState('expenses')
-  const [saved,     setSaved]     = useState(false)
+  const [title,     setTitle]     = useState('')
+  const [rows,      setRows]      = useState([{label:'',v0:'',v1:''}])
+  const [series,    setSeries]    = useState(['Series A','Series B'])
 
-  const previewPreset = mode==='presets' ? null : {
-    id: 'custom-' + Date.now(),
-    title: title || 'Custom Chart',
-    type: chartType,
-    xKey: source==='dept' ? 'dept' : source==='category' ? 'category' : 'label',
-    yKeys: source==='bva' ? ['actual','budget'] : source==='income' ? ['contributions','merch','other'] : ['total'],
-    source,
-    colors: ['#0EA5A0','#C05A2F','#E8A838'],
-    stacked: false,
-  }
-  const customData = previewPreset ? buildChartData(previewPreset, actuals, dateRange, budgetFlat, scenario) : []
+  function addRow(){ setRows(r=>[...r,{label:'',v0:'',v1:''}]) }
+  function removeRow(i){ setRows(r=>r.filter((_,j)=>j!==i)) }
+  function updateRow(i,field,val){ setRows(r=>r.map((row,j)=>j===i?{...row,[field]:val}:row)) }
 
-  function handleSaveCustom() {
-    if (!previewPreset) return
-    onSave(previewPreset)
-    setSaved(true)
-    setTimeout(() => { setSaved(false); onClose() }, 1000)
-  }
+  // Preview data for app-source charts
+  const previewData = useMemo(()=>{
+    if(dataMode!=='app'||!appSource) return []
+    const preset = CHART_PRESETS.find(p=>p.id===appSource)
+    if(!preset) return []
+    return buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths)
+  },[dataMode,appSource,actuals,dateRange,budgetFlat,scenario,incomeMonths])
 
-  function handleSavePreset(preset) {
-    onSave(preset)
+  function handleSave(){
+    if(dataMode==='app' && appSource){
+      const preset = CHART_PRESETS.find(p=>p.id===appSource)
+      if(!preset) return
+      onSave({ ...preset, id:'custom-app-'+Date.now(), title:title||preset.title, type:chartType, source:appSource, manualData:null })
+    } else {
+      const yKeys   = isMulti ? ['v0','v1'] : ['v0']
+      const names   = isMulti ? { v0:series[0]||'A', v1:series[1]||'B' } : { v0:series[0]||'Value' }
+      const data    = rows.filter(r=>r.label).map(r=>({ label:r.label, v0:parseFloat(r.v0)||0, v1:isMulti?parseFloat(r.v1)||0:undefined }))
+      onSave({ id:'custom-manual-'+Date.now(), title:title||'Custom Chart', type:chartType, source:'manual',
+        xKey:'label', yKeys, seriesNames:names, colors:['#0EA5A0','#C05A2F'], manualData:data })
+    }
     onClose()
   }
 
+  const canSave = (dataMode==='app'&&appSource) || (dataMode==='manual'&&title&&rows.some(r=>r.label))
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{backgroundColor:'rgba(0,0,0,0.4)'}}>
-      <div className="bg-white rounded-2xl shadow-2xl w-[860px] max-h-[90vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/30" onClick={onClose}/>
+      <div className="w-[440px] bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <div>
-            <div className="text-base font-bold text-gray-900">Chart Builder</div>
-            <div className="text-xs text-gray-400 mt-0.5">Add charts to your Overview dashboard</div>
-          </div>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              <button onClick={() => setMode('presets')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode==='presets'?'bg-white text-gray-900 shadow-sm':'text-gray-500'}`}>
-                Preset Gallery
-              </button>
-              <button onClick={() => setMode('custom')}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${mode==='custom'?'bg-white text-gray-900 shadow-sm':'text-gray-500'}`}>
-                Custom Builder
-              </button>
-            </div>
-            <button onClick={onClose} className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center">
-              <X size={14} className="text-gray-500"/>
-            </button>
+            {step>0 && <button onClick={()=>setStep(s=>s-1)} className="text-gray-400 hover:text-gray-600"><ChevronLeft size={18}/></button>}
+            <span className="font-semibold text-gray-800 text-sm">Add Chart</span>
+            <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">Step {step+1} of 3</span>
           </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
         </div>
 
-        <div className="flex-1 overflow-auto p-6">
-          {mode === 'presets' ? (
-            <div>
-              <p className="text-xs text-gray-500 mb-4">Click a preset to add it to your overview dashboard.</p>
-              <div className="grid grid-cols-3 gap-4">
-                {CHART_PRESETS.map(preset => {
-                  const data = buildChartData(preset, actuals, dateRange, budgetFlat, scenario)
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+
+          {/* ── Step 0: Series type ── */}
+          {step===0 && (
+            <>
+              <p className="text-sm font-semibold text-gray-700">How many data series?</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id:false, label:'Simple', sub:'One X axis + one Y axis', icon:<BarChart2 size={22}/> },
+                  { id:true,  label:'Multi-series', sub:'Compare two or more series', icon:<Layers size={22}/> },
+                ].map(opt=>(
+                  <button key={String(opt.id)} onClick={()=>{ setIsMulti(opt.id); setStep(1) }}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${isMulti===opt.id?'border-teal-500 bg-teal-50':'border-gray-200 hover:border-gray-300'}`}>
+                    <div className="text-teal-600">{opt.icon}</div>
+                    <div className="font-semibold text-sm text-gray-800">{opt.label}</div>
+                    <div className="text-[11px] text-gray-400 text-center">{opt.sub}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* ── Step 1: Data mode ── */}
+          {step===1 && (
+            <>
+              <p className="text-sm font-semibold text-gray-700">Where does the data come from?</p>
+              <div className="space-y-2">
+                <button onClick={()=>{ setDataMode('app'); setStep(2) }}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition-all text-left">
+                  <Activity size={20} className="text-teal-600 flex-shrink-0"/>
+                  <div>
+                    <div className="font-semibold text-sm text-gray-800">From app data</div>
+                    <div className="text-[11px] text-gray-400">Auto-updates when you import · actuals, budget, income</div>
+                  </div>
+                </button>
+                <button onClick={()=>{ setDataMode('manual'); setStep(2) }}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition-all text-left">
+                  <FileText size={20} className="text-teal-600 flex-shrink-0"/>
+                  <div>
+                    <div className="font-semibold text-sm text-gray-800">Enter manually</div>
+                    <div className="text-[11px] text-gray-400">Type in your own numbers · stored locally</div>
+                  </div>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Step 2a: App source picker ── */}
+          {step===2 && dataMode==='app' && (
+            <>
+              <p className="text-sm font-semibold text-gray-700">Pick a data source</p>
+              <div className="space-y-1.5">
+                {APP_SOURCES.map(src=>{
+                  const preset = CHART_PRESETS.find(p=>p.id===src.id)
+                  const preview = preset ? buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths) : []
+                  const hasData = preview.length > 0
                   return (
-                    <div key={preset.id}
-                      className="border border-gray-200 rounded-xl p-3 hover:border-teal-400 hover:shadow-md transition-all cursor-pointer group"
-                      onClick={() => handleSavePreset(preset)}>
-                      <div className="text-xs font-semibold text-gray-800 mb-2 group-hover:text-teal-600">{preset.title}</div>
-                      <div className="h-32">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PresetChart preset={preset} data={data}/>
-                        </ResponsiveContainer>
+                    <button key={src.id} onClick={()=>setAppSource(src.id)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${appSource===src.id?'border-teal-500 bg-teal-50':'border-gray-100 hover:border-gray-200'}`}>
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-medium text-gray-800">{src.label}</div>
+                        <div className="text-[10px] text-gray-400">{src.type} · {hasData?`${preview.length} points`:'no data in range'}</div>
                       </div>
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">{preset.type}</span>
-                        <span className="text-[10px] text-teal-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">+ Add</span>
-                      </div>
-                    </div>
+                      {appSource===src.id && <Check size={14} className="text-teal-600 flex-shrink-0"/>}
+                    </button>
                   )
                 })}
               </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-6">
-              {/* Left: config */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Chart Title</label>
-                  <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Monthly Revenue"
-                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-teal-500"/>
+              {appSource && previewData.length>0 && (
+                <div className="mt-3 p-3 bg-gray-50 rounded-xl">
+                  <div className="text-[10px] text-gray-400 mb-2 font-semibold uppercase tracking-wider">Preview</div>
+                  <ResponsiveContainer width="100%" height={100}>
+                    <PresetChartRender preset={{...CHART_PRESETS.find(p=>p.id===appSource), type:chartType}} data={previewData}/>
+                  </ResponsiveContainer>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Chart Type</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[{id:'bar',label:'Bar',Icon:BarChart2},{id:'line',label:'Line',Icon:LineIcon},{id:'area',label:'Area',Icon:Activity}].map(({id,label,Icon})=>(
-                      <button key={id} onClick={()=>setChartType(id)}
-                        className={`flex flex-col items-center gap-1 p-3 rounded-xl border transition-all text-xs font-medium ${
-                          chartType===id ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-600 hover:border-gray-400'
-                        }`}>
-                        <Icon size={18}/>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Data Source</label>
-                  <div className="space-y-1.5">
-                    {[
-                      {id:'income',    label:'Income (Contributions, Merch, Other)'},
-                      {id:'expenses',  label:'Expenses by Month'},
-                      {id:'bva',       label:'Budget vs Actual by Month'},
-                      {id:'dept',      label:'Spending by Department'},
-                      {id:'category',  label:'Spending by Category'},
-                      {id:'net',       label:'Net Position by Month'},
-                    ].map(({id,label})=>(
-                      <button key={id} onClick={()=>setSource(id)}
-                        className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-all ${
-                          source===id ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-700 hover:border-gray-400'
-                        }`}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <button onClick={handleSaveCustom}
-                  className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-                    saved ? 'bg-green-500 text-white' : 'text-white'
-                  }`}
-                  style={saved ? {} : {backgroundColor: ACCENT}}>
-                  {saved ? <><Check size={14}/> Saved!</> : <><Save size={14}/> Save to Dashboard</>}
-                </button>
-              </div>
-              {/* Right: preview */}
-              <div className="border border-gray-200 rounded-xl p-4">
-                <div className="text-xs font-semibold text-gray-700 mb-3">{title || 'Preview'}</div>
-                <div className="h-56">
-                  {customData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PresetChart preset={previewPreset} data={customData}/>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-xs text-gray-400">
-                      Select a data source to preview
+              )}
+              {appSource && <button onClick={()=>setStep(3)} className="w-full bg-teal-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-teal-700 transition-colors mt-2">Continue →</button>}
+            </>
+          )}
+
+          {/* ── Step 2b: Manual entry ── */}
+          {step===2 && dataMode==='manual' && (
+            <>
+              <p className="text-sm font-semibold text-gray-700">Enter your data</p>
+              {isMulti && (
+                <div className="grid grid-cols-2 gap-2">
+                  {[0,1].map(i=>(
+                    <div key={i}>
+                      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Series {i+1} name</label>
+                      <input value={series[i]} onChange={e=>setSeries(s=>s.map((v,j)=>j===i?e.target.value:v))}
+                        className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" placeholder={`Series ${i+1}`}/>
                     </div>
-                  )}
+                  ))}
+                </div>
+              )}
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="grid bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-400 uppercase tracking-wider"
+                  style={{gridTemplateColumns:isMulti?'1fr 1fr 1fr auto':'1fr 1fr auto'}}>
+                  <div className="px-3 py-2">Label</div>
+                  <div className="px-3 py-2">{isMulti?(series[0]||'Series A'):'Value'}</div>
+                  {isMulti && <div className="px-3 py-2">{series[1]||'Series B'}</div>}
+                  <div className="px-3 py-2"/>
+                </div>
+                {rows.map((row,i)=>(
+                  <div key={i} className="grid border-b border-gray-100 last:border-0"
+                    style={{gridTemplateColumns:isMulti?'1fr 1fr 1fr auto':'1fr 1fr auto'}}>
+                    <input value={row.label} onChange={e=>updateRow(i,'label',e.target.value)} placeholder="e.g. Oct"
+                      className="px-3 py-2 text-sm border-r border-gray-100 focus:outline-none focus:bg-teal-50"/>
+                    <input value={row.v0} onChange={e=>updateRow(i,'v0',e.target.value)} placeholder="0"
+                      className="px-3 py-2 text-sm border-r border-gray-100 focus:outline-none focus:bg-teal-50"/>
+                    {isMulti && <input value={row.v1} onChange={e=>updateRow(i,'v1',e.target.value)} placeholder="0"
+                      className="px-3 py-2 text-sm border-r border-gray-100 focus:outline-none focus:bg-teal-50"/>}
+                    <button onClick={()=>removeRow(i)} className="px-2 text-gray-300 hover:text-red-400"><X size={12}/></button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={addRow} className="text-sm text-teal-600 font-medium hover:underline flex items-center gap-1">
+                <Plus size={13}/> Add row
+              </button>
+              <button onClick={()=>setStep(3)} className="w-full bg-teal-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-teal-700 transition-colors">Continue →</button>
+            </>
+          )}
+
+          {/* ── Step 3: Title + chart type + save ── */}
+          {step===3 && (
+            <>
+              <p className="text-sm font-semibold text-gray-700">Finish up</p>
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Chart title</label>
+                <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Monthly Revenue"
+                  className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-400"/>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Chart type</label>
+                <div className="flex gap-2 mt-1">
+                  {[['bar','Bar'],['line','Line'],['area','Area']].map(([id,lbl])=>(
+                    <button key={id} onClick={()=>setChartType(id)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-all ${chartType===id?'border-teal-500 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                      {lbl}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
+              {/* Preview */}
+              {dataMode==='app' && appSource && previewData.length>0 && (
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <div className="text-[10px] text-gray-400 mb-2 font-semibold uppercase tracking-wider">Preview</div>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <PresetChartRender preset={{...CHART_PRESETS.find(p=>p.id===appSource),type:chartType}} data={previewData}/>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {dataMode==='manual' && rows.some(r=>r.label) && (
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <div className="text-[10px] text-gray-400 mb-2 font-semibold uppercase tracking-wider">Preview</div>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <PresetChartRender
+                      preset={{ type:chartType, xKey:'label', yKeys:isMulti?['v0','v1']:['v0'], colors:['#0EA5A0','#C05A2F'], stacked:false }}
+                      data={rows.filter(r=>r.label).map(r=>({label:r.label,v0:parseFloat(r.v0)||0,v1:isMulti?parseFloat(r.v1)||0:undefined}))}/>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </>
           )}
         </div>
+
+        {/* Footer — save on step 3 */}
+        {step===3 && (
+          <div className="px-5 py-4 border-t border-gray-100">
+            <button onClick={handleSave} disabled={!canSave}
+              className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${canSave?'bg-teal-600 text-white hover:bg-teal-700':'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
+              Add to dashboard
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Watch Area — threshold alerts
+// Watch Area Panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange }) {
+function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
-  const inRange   = useMemo(() => filterActuals(actuals, startDate, endDate), [actuals, startDate, endDate])
-  const budgetMap = useMemo(() => getBudgetForMonths(budgetFlat, scenario, startDate, endDate), [budgetFlat, scenario, startDate, endDate])
-  const byCat     = useMemo(() => sumByCategory(inRange), [inRange])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
+  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+t.amount; return acc },{}), [inRange])
 
-  const alerts = useMemo(() => {
-    const out = []
-    for (const [cat, actual] of Object.entries(byCat)) {
-      const budget = budgetMap[cat] || 0
-      if (!budget) continue
-      const pct = actual / budget * 100
-      if (pct >= 90) {
-        out.push({ cat, actual, budget, pct, level: pct >= 100 ? 'over' : 'near' })
-      }
-    }
-    return out.sort((a,b) => b.pct - a.pct)
-  }, [byCat, budgetMap])
-
-  if (alerts.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
-        <div className="text-xs font-semibold text-gray-800 mb-3">Watch Areas</div>
-        <div className="flex items-center gap-2 text-xs text-green-600">
-          <CheckCircle size={14}/> All categories within budget thresholds
-        </div>
-      </div>
-    )
-  }
+  const alerts = useMemo(()=>
+    Object.entries(budgetByCat)
+      .map(([cat,bud])=>({ cat, bud, actual:byCat[cat]||0, pct:bud>0?((byCat[cat]||0)/bud*100):0 }))
+      .filter(r=>r.pct>=80)
+      .sort((a,b)=>b.pct-a.pct)
+      .slice(0,5)
+  ,[budgetByCat,byCat])
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="text-xs font-semibold text-gray-800">Watch Areas</div>
-        <span className="px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 text-[10px] font-bold">{alerts.length}</span>
-      </div>
-      <div className="space-y-2">
-        {alerts.map(a => (
-          <div key={a.cat} className="flex items-center gap-3 py-1.5 border-b border-gray-100 last:border-0">
-            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${a.level==='over'?'bg-red-500':'bg-amber-400'}`}/>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-gray-800">{a.cat}</div>
-              <div className="text-[10px] text-gray-400">{formatCurrency(a.actual)} of {formatCurrency(a.budget)} budget</div>
-            </div>
-            <div className={`text-xs font-bold ${a.level==='over'?'text-red-500':'text-amber-500'}`}>
-              {Math.round(a.pct)}%
+    <div className="relative bg-white rounded-xl border border-gray-100 p-4" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Budget Watch Areas</div>
+      {alerts.length===0 && <div className="text-xs text-gray-400 text-center py-4">All categories under 80% of budget</div>}
+      {alerts.map(({cat,bud,actual,pct})=>(
+        <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${pct>=100?'bg-red-500':pct>=90?'bg-orange-400':'bg-amber-400'}`}/>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
+            <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+              <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor:pct>=100?'#EF4444':pct>=90?'#F97316':'#F59E0B'}}/>
             </div>
           </div>
-        ))}
-      </div>
+          <div className="text-xs font-semibold flex-shrink-0" style={{color:pct>=100?'#EF4444':pct>=90?'#F97316':'#F59E0B'}}>{Math.round(pct)}%</div>
+        </div>
+      ))}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Overview Tab
+// Overview Tab — three independently-editable sections
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_KPI_IDS = ['total-revenue','total-expenses','net-position','budget-variance','ytd-income','ytd-expense','patron-count','cash-balance']
-const DEFAULT_CHART_IDS = ['monthly-income','monthly-expense','budget-vs-actual','dept-breakdown','cat-breakdown','net-position-chart']
-
-function OverviewTab({ actuals, budgetFlat, scenario, dateRange }) {
-  const { startDate, endDate } = dateRange
-  const [editMode,      setEditMode]      = useState(false)
+function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
+  const [visibleKPIs,   setVisibleKPIs]   = useLocalStorage('master-kpi-ids',    DEFAULT_KPI_IDS)
+  const [visibleCharts, setVisibleCharts] = useLocalStorage('master-chart-ids',  DEFAULT_CHART_IDS)
+  const [savedCharts,   setSavedCharts]   = useLocalStorage('master-saved-charts',[])
   const [showBuilder,   setShowBuilder]   = useState(false)
-  const [savedCharts,   setSavedCharts]   = useState(() => readLS('master-saved-charts', []))
-  const [visibleKPIs,   setVisibleKPIs]   = useState(() => readLS('master-visible-kpis', DEFAULT_KPI_IDS))
-  const [visibleCharts, setVisibleCharts] = useState(() => readLS('master-visible-charts', DEFAULT_CHART_IDS))
+  const [editKPI,       setEditKPI]       = useState(false)
+  const [editCharts,    setEditCharts]    = useState(false)
+  const [editWatch,     setEditWatch]     = useState(false)
+  const [showWatch,     setShowWatch]     = useLocalStorage('master-show-watch',  true)
 
-  // Persist state
-  useEffect(() => { localStorage.setItem('master-saved-charts',   JSON.stringify(savedCharts))   }, [savedCharts])
-  useEffect(() => { localStorage.setItem('master-visible-kpis',   JSON.stringify(visibleKPIs))   }, [visibleKPIs])
-  useEffect(() => { localStorage.setItem('master-visible-charts', JSON.stringify(visibleCharts)) }, [visibleCharts])
+  // All charts = presets + custom saved
+  const allCharts = useMemo(()=>[
+    ...CHART_PRESETS.map(p=>({...p,isPreset:true})),
+    ...savedCharts,
+  ],[savedCharts])
 
-  // Derived data
-  const inRange   = useMemo(() => filterActuals(actuals, startDate, endDate), [actuals, startDate, endDate])
-  const incMonths = useMemo(() => getIncomeInRange(startDate, endDate), [startDate, endDate])
-  const budgetMap = useMemo(() => getBudgetForMonths(budgetFlat, scenario, startDate, endDate), [budgetFlat, scenario, startDate, endDate])
+  const activeCharts = useMemo(()=>
+    allCharts.filter(c=>visibleCharts.includes(c.id))
+  ,[allCharts,visibleCharts])
 
-  const totalIncome   = useMemo(() => incMonths.reduce((s,m) => s + m.contributions + m.merch + m.other, 0), [incMonths])
-  const totalExpenses = useMemo(() => inRange.reduce((s,t) => s + t.amount, 0), [inRange])
-  const netPosition   = totalIncome - totalExpenses
-  const totalBudget   = useMemo(() => Object.values(budgetMap).reduce((s,v)=>s+v,0), [budgetMap])
-  const budgetVar     = totalExpenses - totalBudget
-
-  // Budget for income (simple estimate)
-  const n = numMonthsInRange(startDate, endDate)
-  const incomeBudget = n * (230_000 + 16_500 + 3_500) // ~250K/mo
-  const incomeVar = totalIncome - incomeBudget
-
-  const ALL_KPI_DEFS = [
-    { id:'total-revenue',    title:'Total Revenue',     value: formatCurrency(totalIncome),    sub:`${n} months`,                delta: incomeVar,   deltaLabel: `${formatCurrency(Math.abs(incomeVar))} ${incomeVar>=0?'above':'below'} budget` },
-    { id:'total-expenses',   title:'Total Expenses',    value: formatCurrency(totalExpenses),  sub:`${n} months`,                delta: budgetVar,   deltaLabel: `${formatCurrency(Math.abs(budgetVar))} ${budgetVar<=0?'under':'over'} budget`, inverse:true },
-    { id:'net-position',     title:'Net Position',      value: formatCurrency(netPosition),    sub:'Income minus expenses',      delta: netPosition, deltaLabel: netPosition >= 0 ? 'Surplus' : 'Deficit', accent: netPosition>0 },
-    { id:'budget-variance',  title:'Expense Budget Var',value: formatCurrency(Math.abs(budgetVar)), sub: budgetVar<=0?'Under budget':'Over budget', delta: -budgetVar, deltaLabel:`${Math.abs(Math.round(budgetVar/totalBudget*100))}% of budget`, inverse:false },
-    { id:'ytd-income',       title:'YTD Contributions', value: formatCurrency(incMonths.reduce((s,m)=>s+m.contributions,0)), sub:'Patron contributions', delta: null, deltaLabel:'' },
-    { id:'ytd-expense',      title:'Largest Department',value: (() => { const bd = sumByDept(inRange); const top = Object.entries(bd).sort((a,b)=>b[1]-a[1])[0]; return top ? formatCurrency(top[1]) : '—' })(), sub: (() => { const bd = sumByDept(inRange); const top = Object.entries(bd).sort((a,b)=>b[1]-a[1])[0]; return top ? DEPT_NAMES[top[0]] : '—' })(), delta: null, deltaLabel:'' },
-    { id:'patron-count',     title:'Patron Count',      value:'24,810',                        sub: '+390 vs prior mo',         delta: 390,         deltaLabel: '+1.6% growth' },
-    { id:'cash-balance',     title:'Cash Balance',      value:'$3.24M',                        sub:'Prior month: $3.1M',        delta: 135_000,     deltaLabel: '+$135K MOM' },
-  ]
-
-  const activeKPIs   = ALL_KPI_DEFS.filter(k => visibleKPIs.includes(k.id))
-  const allPresets   = CHART_PRESETS.map(p => ({ ...p, isPreset: true }))
-  const allCharts    = [...allPresets, ...savedCharts]
-  const activeCharts = allCharts.filter(c => visibleCharts.includes(c.id) || visibleCharts.includes(c.id+'-chart'))
-
-  function addChart(preset) {
-    const id = preset.id + (preset.isPreset ? '-chart' : '')
-    setSavedCharts(prev => prev.find(c=>c.id===preset.id) ? prev : [...prev, preset])
-    setVisibleCharts(prev => prev.includes(id) ? prev : [...prev, id])
-  }
-
-  function removeChart(chartId) {
-    setVisibleCharts(prev => prev.filter(id => id !== chartId))
-  }
-
-  function removeKPI(kpiId) {
-    setVisibleKPIs(prev => prev.filter(id => id !== kpiId))
-  }
-
-  // Build chart data for each active chart
-  const chartDataMap = useMemo(() => {
-    const map = {}
-    for (const c of allCharts) {
-      map[c.id] = buildChartData(c, actuals, dateRange, budgetFlat, scenario)
+  // Build chart data — all charts share this map; income is live from AppContext
+  const chartDataMap = useMemo(()=>{
+    const map={}
+    for(const c of allCharts){
+      if(c.source==='manual') map[c.id] = c.manualData||[]
+      else map[c.id] = buildChartData(c, actuals, dateRange, budgetFlat, scenario, incomeMonths)
     }
     return map
-  }, [actuals, dateRange, budgetFlat, scenario])
+  },[allCharts,actuals,dateRange,budgetFlat,scenario,incomeMonths])
 
-  const hiddenKPIs   = ALL_KPI_DEFS.filter(k => !visibleKPIs.includes(k.id))
-  const hiddenCharts = allCharts.filter(c => {
-    const id = c.id + (c.isPreset ? '-chart' : '')
-    return !visibleCharts.includes(c.id) && !visibleCharts.includes(id)
-  })
+  function addPresetChart(id){
+    if(!visibleCharts.includes(id)) setVisibleCharts(p=>[...p,id])
+  }
+  function addCustomChart(chart){
+    setSavedCharts(p=>[...p,chart])
+    setVisibleCharts(p=>[...p,chart.id])
+  }
+  function removeChart(id){
+    setVisibleCharts(p=>p.filter(v=>v!==id))
+    setSavedCharts(p=>p.filter(c=>c.id!==id))
+  }
+  function removeKPI(id){ setVisibleKPIs(p=>p.filter(v=>v!==id)) }
+  function addKPI(id){ if(!visibleKPIs.includes(id)) setVisibleKPIs(p=>[...p,id]) }
+
+  const hiddenPresets = CHART_PRESETS.filter(p=>!visibleCharts.includes(p.id))
+  const hiddenKPIs    = KPI_DEFS.filter(k=>!visibleKPIs.includes(k.id))
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">Financial Overview</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {presetLabel(dateRange.preset)} · {formatCurrency(totalIncome)} income · {formatCurrency(totalExpenses)} expenses
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowBuilder(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-            <Plus size={13}/> Add Chart
-          </button>
-          <button onClick={() => setEditMode(v=>!v)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
-              editMode ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-            }`}>
-            <Settings size={13}/>{editMode ? 'Done' : 'Customize'}
-          </button>
-        </div>
-      </div>
+    <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
 
-      {/* KPI Grid */}
-      <div>
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Key Metrics</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {activeKPIs.map(kpi => (
-            <KPICard key={kpi.id} {...kpi} editMode={editMode} onHide={() => removeKPI(kpi.id)}/>
-          ))}
-          {editMode && hiddenKPIs.map(kpi => (
-            <button key={kpi.id} onClick={() => setVisibleKPIs(p => [...p, kpi.id])}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-xs text-gray-400 hover:border-teal-300 hover:text-teal-500 transition-colors flex items-center gap-1.5">
-              <Plus size={12}/> {kpi.title}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Charts Grid */}
-      <div>
+      {/* ── KPI Section ── */}
+      <section>
         <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Charts</div>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Key Metrics</span>
+          <div className="flex items-center gap-2">
+            {editKPI && hiddenKPIs.length>0 && hiddenKPIs.map(k=>(
+              <button key={k.id} onClick={()=>addKPI(k.id)} className="text-[10px] px-2 py-1 rounded-full border border-dashed border-teal-400 text-teal-600 hover:bg-teal-50">
+                + {k.label}
+              </button>
+            ))}
+            <button onClick={()=>setEditKPI(p=>!p)}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editKPI?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+              <Settings size={11}/> {editKPI?'Done':'Edit'}
+            </button>
+          </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-          {activeCharts.map(chart => {
-            const chartId = chart.id + (chart.isPreset ? '-chart' : '')
-            const preset  = CHART_PRESETS.find(p=>p.id===chart.id) || chart
-            const data    = chartDataMap[chart.id] || []
+        <div className="grid gap-3" style={{gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))'}}>
+          {visibleKPIs.map(id=>{
+            const def = KPI_DEFS.find(k=>k.id===id)
+            if(!def) return null
+            return <KPICard key={id} def={def} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} incomeMonths={incomeMonths} dateRange={dateRange} editMode={editKPI} onRemove={()=>removeKPI(id)}/>
+          })}
+        </div>
+      </section>
+
+      {/* ── Charts Section ── */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Charts</span>
+          <div className="flex items-center gap-2">
+            <button onClick={()=>setShowBuilder(true)}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-teal-400 text-teal-600 hover:bg-teal-50 transition-colors">
+              <Plus size={11}/> Add Chart
+            </button>
+            <button onClick={()=>setEditCharts(p=>!p)}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editCharts?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+              <Settings size={11}/> {editCharts?'Done':'Edit'}
+            </button>
+          </div>
+        </div>
+        {/* Hidden preset restore bar */}
+        {editCharts && hiddenPresets.length>0 && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="text-[10px] text-gray-400">Hidden:</span>
+            {hiddenPresets.map(p=>(
+              <button key={p.id} onClick={()=>addPresetChart(p.id)} className="text-[10px] px-2 py-1 rounded-full border border-dashed border-gray-400 text-gray-500 hover:bg-gray-50">
+                + {p.title}
+              </button>
+            ))}
+          </div>
+        )}
+        {activeCharts.length===0 && (
+          <div className="text-center py-16 text-gray-400 text-sm">
+            No charts visible — <button onClick={()=>setShowBuilder(true)} className="text-teal-600 underline">add one</button>
+          </div>
+        )}
+        <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))'}}>
+          {activeCharts.map(chart=>{
+            const data   = chartDataMap[chart.id]||[]
+            const preset = CHART_PRESETS.find(p=>p.id===chart.id)||chart
             return (
-              <ChartPanel key={chartId} title={chart.title || preset.title}
-                subtitle={`${chart.type} chart · ${presetLabel(dateRange.preset)}`}
-                editMode={editMode} onRemove={() => removeChart(chartId)}>
-                <div className="h-44">
+              <ChartPanel key={chart.id} title={chart.title} subtitle={`${presetLabel(dateRange.preset)} · ${data.length} points`}
+                editMode={editCharts} onRemove={()=>removeChart(chart.id)}>
+                <div style={{height:200}}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <PresetChart preset={preset} data={data}/>
+                    <PresetChartRender preset={preset} data={data}/>
                   </ResponsiveContainer>
                 </div>
               </ChartPanel>
             )
           })}
-          {editMode && (
-            <button onClick={() => setShowBuilder(true)}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-xs text-gray-400 hover:border-teal-300 hover:text-teal-500 transition-colors flex items-center justify-center gap-2 h-56">
-              <Plus size={14}/> Add Chart
-            </button>
-          )}
         </div>
-      </div>
+      </section>
 
-      {/* Watch Areas */}
-      <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+      {/* ── Watch Areas Section ── */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Watch Areas</span>
+          <div className="flex items-center gap-2">
+            <button onClick={()=>setEditWatch(p=>!p)}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editWatch?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+              <Settings size={11}/> {editWatch?'Done':'Edit'}
+            </button>
+          </div>
+        </div>
+        <div className="max-w-sm">
+          <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={editWatch} onRemove={()=>setShowWatch(false)}/>
+        </div>
+      </section>
 
-      {/* Chart Builder Modal */}
       {showBuilder && (
-        <ChartBuilderModal
-          onSave={addChart}
-          onClose={() => setShowBuilder(false)}
+        <ChartBuilderWizard
+          onSave={addCustomChart}
+          onClose={()=>setShowBuilder(false)}
           actuals={actuals}
-          dateRange={dateRange}
           budgetFlat={budgetFlat}
-          scenario={scenario}/>
+          scenario={scenario}
+          incomeMonths={incomeMonths}
+          dateRange={dateRange}/>
       )}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// P&L Breakdown Tab
+// Breakdown Tab — replaces P&L + Teams; mirrors BreakdownPage logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PLBreakdownTab({ actuals, budgetFlat, scenario, dateRange, teamFilter }) {
+function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
   const { startDate, endDate } = dateRange
-  const [expandedDepts, setExpandedDepts] = useState(new Set())
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
 
-  const depts = teamFilter === 'all' ? ALL_DEPTS : [teamFilter]
-  const inRange = useMemo(() => filterActuals(actuals, startDate, endDate), [actuals, startDate, endDate])
-  const incMonths = useMemo(() => getIncomeInRange(startDate, endDate), [startDate, endDate])
-  const n = numMonthsInRange(startDate, endDate)
+  const depts = activeDepts ? [...activeDepts] : ALL_DEPTS
 
-  // Income
-  const totalContributions  = incMonths.reduce((s,m)=>s+m.contributions,0)
-  const totalMerch          = incMonths.reduce((s,m)=>s+m.merch,0)
-  const totalOtherInc       = incMonths.reduce((s,m)=>s+m.other,0)
-  const totalIncome         = totalContributions + totalMerch + totalOtherInc
-
-  const budgetContributions = n * 230_000
-  const budgetMerch         = n * 16_500
-  const budgetOtherInc      = n * 3_500
-  const budgetIncome        = budgetContributions + budgetMerch + budgetOtherInc
-
-  // Expenses by dept and category
-  const expenseRows = useMemo(() => {
-    return depts.map(dept => {
-      const deptTx = filterActuals(inRange, startDate, endDate, dept).filter(t => depts.includes(t.department) ? true : dept==='all')
-      // actually re-filter by dept
-      const dtx = inRange.filter(t => t.department === dept)
-      const byCat = sumByCategory(dtx)
-      const deptBudget = budgetFlat.filter(b => b.scenario===scenario && b.department===dept)
-      const budgetByCat = {}
-      for (const b of deptBudget) { budgetByCat[b.category] = (budgetByCat[b.category]||0) + b.monthlyAmount * n }
-      const total  = Object.values(byCat).reduce((s,v)=>s+v,0)
-      const budgetTotal = Object.values(budgetByCat).reduce((s,v)=>s+v,0)
-      const cats = Object.keys({...byCat,...budgetByCat}).sort()
-      return { dept, deptName: DEPT_NAMES[dept], total, budgetTotal, byCat, budgetByCat, cats }
-    })
-  }, [inRange, depts, budgetFlat, scenario, n, startDate, endDate])
-
-  const totalExpenses       = expenseRows.reduce((s,r)=>s+r.total,0)
-  const totalBudgetExpenses = expenseRows.reduce((s,r)=>s+r.budgetTotal,0)
-  const netPosition         = totalIncome - totalExpenses
-  const netBudget           = budgetIncome - totalBudgetExpenses
-
-  function toggleDept(dept) {
-    setExpandedDepts(prev => {
-      const next = new Set(prev)
-      next.has(dept) ? next.delete(dept) : next.add(dept)
-      return next
-    })
-  }
-
-  const colHdr = 'text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2'
-  const hdrRow = 'text-[10px] font-bold uppercase tracking-widest text-gray-500 bg-gray-50 px-4 py-2 border-b border-gray-200'
-  const dataRow = (label, actual, budget, indent=0, bold=false, isIncome=false) => {
-    const vari = isIncome ? actual - budget : actual - budget
-    const pct  = budget > 0 ? actual/budget*100 : null
-    const good = isIncome ? vari >= 0 : vari <= 0
-    return (
-      <tr className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-        <td className="px-4 py-2" style={{ paddingLeft: 16 + indent*16 + 'px' }}>
-          <span className={`text-xs ${bold ? 'font-bold text-gray-900' : 'text-gray-700'}`}>{label}</span>
-        </td>
-        <td className="text-right px-3 py-2">
-          <span className={`text-xs font-medium ${bold ? 'font-bold text-gray-900' : 'text-gray-700'}`}>
-            {formatCurrency(actual, {compact:false})}
-          </span>
-        </td>
-        <td className="text-right px-3 py-2">
-          <span className="text-xs text-gray-500">{budget > 0 ? formatCurrency(budget, {compact:false}) : '—'}</span>
-        </td>
-        <td className="text-right px-3 py-2">
-          {budget > 0 ? (
-            <span className="text-xs font-medium" style={{color: good ? '#10B981' : '#EF4444'}}>
-              {vari >= 0 ? '+' : ''}{formatCurrency(vari, {compact:false})}
-            </span>
-          ) : <span className="text-xs text-gray-300">—</span>}
-        </td>
-        <td className="text-right px-3 py-2 w-20">
-          {pct !== null ? (
-            <div className="flex items-center justify-end gap-1.5">
-              <span className="text-xs text-gray-500">{Math.round(pct)}%</span>
-              <div className="w-12 bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                <div className="h-full rounded-full" style={{
-                  width: Math.min(pct,100)+'%',
-                  backgroundColor: good ? '#10B981' : '#EF4444'
-                }}/>
-              </div>
-            </div>
-          ) : null}
-        </td>
-      </tr>
-    )
-  }
+  const cards = useMemo(()=>depts.map(code=>{
+    const dActuals = inRange.filter(t=>t.department===code)
+    const actual   = dActuals.reduce((s,t)=>s+t.amount,0)
+    // Budget: sum categories belonging to this dept
+    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code)
+    const n = numMonthsInRange(startDate,endDate)
+    const budget = dBudgetRows.reduce((s,b)=>s+b.monthlyAmount*n,0)
+    const pct = budget>0 ? Math.round(actual/budget*100) : null
+    const delta = actual - budget
+    return { code, actual, budget, pct, delta }
+  }),[depts,inRange,budgetFlat,scenario,startDate,endDate])
 
   return (
-    <div className="p-6">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-gray-900">P&L Breakdown</h2>
-        <p className="text-xs text-gray-400 mt-0.5">{presetLabel(dateRange.preset)} · {scenario}</p>
+    <div className="flex gap-3 px-5 py-3 border-b border-gray-100 overflow-x-auto">
+      {cards.map(({code,actual,budget,pct,delta})=>{
+        const color = DEPT_COLORS[code]||'#9BA8B5'
+        const over  = delta>0
+        return (
+          <div key={code} className="flex-shrink-0 bg-white rounded-xl border border-gray-100 px-4 py-3 min-w-[170px]"
+            style={{borderLeftColor:color,borderLeftWidth:3,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{color}}>{DEPT_NAMES[code]||code}</div>
+            <div className="text-base font-bold text-gray-900">{formatCurrency(actual)}</div>
+            <div className="text-[11px] text-gray-400">{budget>0?`of ${formatCurrency(budget)}`:'No budget'}</div>
+            {pct!==null && (
+              <div className="flex items-center gap-1 mt-1">
+                <div className="flex-1 bg-gray-100 rounded-full h-1">
+                  <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?'#EF4444':color}}/>
+                </div>
+                <span className="text-[10px] font-semibold" style={{color:over?'#EF4444':'#10B981'}}>{pct}%</span>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// DrillOrderBar (master version)
+function MasterDrillOrderBar({ drillOrder, setDrillOrder, openPath, setOpenPath, searchQuery, setSearchQuery, viewMode, setViewMode }){
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dropIdx, setDropIdx] = useState(null)
+  const inactive = ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f))
+
+  function handleDragStart(e,i){ setDragIdx(i); e.dataTransfer.effectAllowed='move' }
+  function handleDragOver(e,i){ e.preventDefault(); setDropIdx(i) }
+  function handleDrop(e,i){
+    e.preventDefault()
+    if(dragIdx===null||dragIdx===i){ setDragIdx(null); setDropIdx(null); return }
+    const next=[...drillOrder]; const [mv]=next.splice(dragIdx,1); next.splice(i,0,mv)
+    setDrillOrder(next); setOpenPath([]); setDragIdx(null); setDropIdx(null)
+  }
+  function removeField(f){ setDrillOrder(drillOrder.filter(x=>x!==f)); setOpenPath([]) }
+  function addField(f){ setDrillOrder([...drillOrder,f]); setOpenPath([]) }
+  function reset(){ setDrillOrder(['department','category','account','vendor']); setOpenPath([]) }
+
+  return (
+    <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100 bg-white flex-wrap">
+      {/* Search */}
+      <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-52 flex-shrink-0">
+        <Search size={12} className="text-gray-400"/>
+        <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Search…"
+          className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"/>
+        {searchQuery && <button onClick={()=>setSearchQuery('')} className="text-gray-400 hover:text-gray-600"><X size={10}/></button>}
       </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-200">
-              <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Line Item</th>
-              <th className={colHdr}>Actual</th>
-              <th className={colHdr}>Budget</th>
-              <th className={colHdr}>Variance</th>
-              <th className={colHdr}>% of Budget</th>
-            </tr>
-          </thead>
-          <tbody>
-            {/* INCOME */}
-            <tr><td colSpan={5} className={hdrRow}>Income</td></tr>
-            {dataRow('Contributions',   totalContributions, budgetContributions, 0, false, true)}
-            {dataRow('Merchandise Revenue', totalMerch,    budgetMerch,         0, false, true)}
-            {dataRow('Other Income',    totalOtherInc,     budgetOtherInc,      0, false, true)}
-            <tr className="bg-teal-50 border-b border-teal-100">
-              <td className="px-4 py-2.5 text-xs font-bold text-teal-800">Total Income</td>
-              <td className="text-right px-3 py-2.5 text-xs font-bold text-teal-800">{formatCurrency(totalIncome, {compact:false})}</td>
-              <td className="text-right px-3 py-2.5 text-xs text-teal-600">{formatCurrency(budgetIncome, {compact:false})}</td>
-              <td className="text-right px-3 py-2.5 text-xs font-bold" style={{color:(totalIncome-budgetIncome)>=0?'#0EA5A0':'#EF4444'}}>
-                {(totalIncome-budgetIncome)>=0?'+':''}{formatCurrency(totalIncome-budgetIncome, {compact:false})}
-              </td>
-              <td className="text-right px-3 py-2.5 text-xs text-teal-600">{budgetIncome>0 ? Math.round(totalIncome/budgetIncome*100)+'%' : '—'}</td>
-            </tr>
-
-            {/* EXPENSES */}
-            <tr><td colSpan={5} className={hdrRow}>Expenses</td></tr>
-            {expenseRows.map(row => (
-              <React.Fragment key={row.dept}>
-                <tr className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => toggleDept(row.dept)}>
-                  <td className="px-4 py-2.5 flex items-center gap-2">
-                    <span className="text-gray-300">{expandedDepts.has(row.dept) ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}</span>
-                    <span className="text-xs font-semibold text-gray-800">{row.deptName}</span>
-                  </td>
-                  <td className="text-right px-3 py-2.5 text-xs font-semibold text-gray-800">{formatCurrency(row.total, {compact:false})}</td>
-                  <td className="text-right px-3 py-2.5 text-xs text-gray-500">{formatCurrency(row.budgetTotal, {compact:false})}</td>
-                  <td className="text-right px-3 py-2.5 text-xs font-semibold"
-                      style={{color:(row.total-row.budgetTotal)<=0?'#10B981':'#EF4444'}}>
-                    {(row.total-row.budgetTotal)<=0?'+':''}{formatCurrency(row.budgetTotal-row.total, {compact:false})}
-                  </td>
-                  <td className="text-right px-3 py-2.5 text-xs text-gray-500">
-                    {row.budgetTotal > 0 ? Math.round(row.total/row.budgetTotal*100)+'%' : '—'}
-                  </td>
-                </tr>
-                {expandedDepts.has(row.dept) && row.cats.map(cat => (
-                  dataRow(cat, row.byCat[cat]||0, row.budgetByCat[cat]||0, 1, false, false)
-                ))}
-              </React.Fragment>
-            ))}
-
-            {/* Total Expenses */}
-            <tr className="bg-orange-50 border-b border-orange-100">
-              <td className="px-4 py-2.5 text-xs font-bold text-orange-800">Total Expenses</td>
-              <td className="text-right px-3 py-2.5 text-xs font-bold text-orange-800">{formatCurrency(totalExpenses, {compact:false})}</td>
-              <td className="text-right px-3 py-2.5 text-xs text-orange-600">{formatCurrency(totalBudgetExpenses, {compact:false})}</td>
-              <td className="text-right px-3 py-2.5 text-xs font-bold"
-                  style={{color:(totalExpenses-totalBudgetExpenses)<=0?'#10B981':'#EF4444'}}>
-                {(totalExpenses-totalBudgetExpenses)<=0?'+':''}{formatCurrency(totalBudgetExpenses-totalExpenses, {compact:false})}
-              </td>
-              <td className="text-right px-3 py-2.5 text-xs text-orange-600">{totalBudgetExpenses>0 ? Math.round(totalExpenses/totalBudgetExpenses*100)+'%' : '—'}</td>
-            </tr>
-
-            {/* Net Position */}
-            <tr className="border-t-2 border-gray-300" style={{backgroundColor: netPosition>=0?'#ECFDF5':'#FEF2F2'}}>
-              <td className="px-4 py-3 text-sm font-bold" style={{color:netPosition>=0?'#065F46':'#991B1B'}}>Net Position</td>
-              <td className="text-right px-3 py-3 text-sm font-bold" style={{color:netPosition>=0?'#10B981':'#EF4444'}}>
-                {formatCurrency(netPosition, {compact:false})}
-              </td>
-              <td className="text-right px-3 py-3 text-xs" style={{color:netPosition>=0?'#6EE7B7':'#FCA5A5'}}>
-                {formatCurrency(netBudget, {compact:false})}
-              </td>
-              <td className="text-right px-3 py-3 text-xs font-semibold" style={{color:netPosition>=0?'#10B981':'#EF4444'}}>
-                {(netPosition-netBudget)>=0?'+':''}{formatCurrency(netPosition-netBudget, {compact:false})}
-              </td>
-              <td/>
-            </tr>
-          </tbody>
-        </table>
+      <div className="w-px h-5 bg-gray-200"/>
+      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex-shrink-0">Drill Order</span>
+      {/* Draggable pills */}
+      <div className="flex items-center gap-1.5 flex-wrap flex-1">
+        {drillOrder.map((field,idx)=>(
+          <div key={field} draggable onDragStart={e=>handleDragStart(e,idx)} onDragOver={e=>handleDragOver(e,idx)} onDrop={e=>handleDrop(e,idx)} onDragEnd={()=>{ setDragIdx(null); setDropIdx(null) }} className="relative">
+            {dropIdx===idx && dragIdx!==null && dragIdx!==idx && <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full"/>}
+            <div className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab ${dragIdx===idx?'opacity-40':''}`}
+              style={{backgroundColor:FIELD_COLORS[field]+'20',borderColor:FIELD_COLORS[field]+'60',color:FIELD_COLORS[field]}}>
+              <GripVertical size={10} className="opacity-60"/>
+              {FIELD_LABELS[field]}
+              <button onClick={()=>removeField(field)} className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
+            </div>
+          </div>
+        ))}
+        {inactive.length>0 && (
+          <div className="relative group">
+            <button className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-gray-400">
+              <Plus size={10}/> Add
+            </button>
+            <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
+              {inactive.map(f=>(
+                <button key={f} onClick={()=>addField(f)} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                  {FIELD_LABELS[f]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <button onClick={reset} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><RotateCcw size={10}/>Reset</button>
+      </div>
+      {/* View toggle */}
+      <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+        {[['summary','List'],['calendar','Calendar']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setViewMode(id)}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode===id?'bg-teal-600 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+            {lbl}
+          </button>
+        ))}
       </div>
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Transactions Tab
-// ─────────────────────────────────────────────────────────────────────────────
+// Breakdown table: GroupRow
+function MasterGroupRow({ row, onToggle, onHide }){
+  const delta = row.budget!==null ? row.actual - row.budget : null
+  const isOver = delta!==null && delta>=0
+  const pct = row.budget ? Math.round(row.actual/row.budget*100) : null
+  const indent = 12 + row.depth*20
+  return (
+    <div className="flex items-center gap-2 border-b border-gray-100 group cursor-pointer hover:bg-gray-50 transition-colors"
+      style={{paddingLeft:indent,paddingRight:16,paddingTop:9,paddingBottom:9,opacity:row.isDimmed?0.35:1}}
+      onClick={()=>onToggle(row.depth,row.value)}>
+      <div className={`flex-shrink-0 w-4 h-4 flex items-center justify-center transition-transform ${row.isExpanded?'rotate-90':''}`}>
+        <ChevronRight size={12} className="text-gray-400"/>
+      </div>
+      <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
+        style={{backgroundColor:FIELD_COLORS[row.field]+'20',color:FIELD_COLORS[row.field]}}>
+        {FIELD_LABELS[row.field]}
+      </span>
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
+        <span className="text-sm font-semibold text-gray-800 truncate">{row.value}</span>
+        <button onClick={e=>{ e.stopPropagation(); onHide(row.field,row.value) }}
+          className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0"><Ban size={10}/></button>
+      </div>
+      <div className="text-right flex-shrink-0 font-semibold text-gray-800 text-sm w-24">{formatCurrency(row.actual)}</div>
+      <div className="text-right flex-shrink-0 text-gray-400 text-sm w-24">{row.budget>0?formatCurrency(row.budget):'—'}</div>
+      <div className="text-right flex-shrink-0 w-28">
+        {delta!==null ? (
+          <div>
+            <div className="text-sm font-bold" style={{color:isOver?'var(--color-over)':'var(--color-under)'}}>{formatOverUnder(delta)}</div>
+            {pct!==null&&<div className="text-[10px] text-gray-400">{pct}% used</div>}
+          </div>
+        ) : <span className="text-gray-300">—</span>}
+      </div>
+    </div>
+  )
+}
 
-function MasterTransactionsTab({ actuals, dateRange, teamFilter }) {
+function MasterTxRow({ row, onSelect }){
+  const t = row.item
+  const indent = 12 + row.depth*20
+  return (
+    <div className="flex items-center gap-3 border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors"
+      style={{paddingLeft:indent,paddingRight:16,paddingTop:7,paddingBottom:7}}
+      onClick={()=>onSelect(t)}>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium text-gray-800 truncate">{t.vendor}</div>
+        <div className="text-[10px] text-gray-400">{t.date}{t.description&&` · ${t.description}`}</div>
+      </div>
+      <div className="text-sm font-semibold text-gray-700 flex-shrink-0 w-24 text-right">{formatCurrency(t.amount)}</div>
+      <div className="w-24 flex-shrink-0"/>
+      <div className="w-28 flex-shrink-0"/>
+    </div>
+  )
+}
+
+function MasterTableHeader({ drillOrder, scenario, sortCol, sortDir, onSort }){
+  const SortBtn = ({col,children})=>(
+    <button onClick={()=>onSort(col)} className="flex items-center justify-end gap-1 hover:text-gray-700 transition-colors w-full">
+      {children}
+      {sortCol===col ? (sortDir==='desc'?<ArrowDown size={10}/>:<ArrowUp size={10}/>) : <ArrowUp size={10} className="opacity-20"/>}
+    </button>
+  )
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 bg-gray-50">
+      <div className="flex-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+        {drillOrder.map(f=>FIELD_LABELS[f]).join(' → ')}
+      </div>
+      <div className="w-24 text-[10px] font-bold uppercase tracking-widest text-gray-400 text-right"><SortBtn col="actual">Actual</SortBtn></div>
+      <div className="w-24 text-[10px] font-bold uppercase tracking-widest text-gray-400 text-right"><SortBtn col="budget">Budget</SortBtn></div>
+      <div className="w-28 text-[10px] font-bold uppercase tracking-widest text-gray-400 text-right"><SortBtn col="delta">Over/Under</SortBtn></div>
+    </div>
+  )
+}
+
+function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const [drillOrder, setDrillOrder] = useLocalStorage('master-drill-order',['department','category','account','vendor'])
+  const [hidden,     setHidden]     = useLocalStorage('master-bd-hidden',[])
+  const [viewMode,   setViewMode]   = useState('summary')
+  const [searchQ,    setSearchQ]    = useState('')
+  const [openPath,   setOpenPath]   = useState([])
+  const [sortCol,    setSortCol]    = useState(null)
+  const [sortDir,    setSortDir]    = useState('desc')
+  const [selectedTx, setSelectedTx] = useState(null)
+
+  function handleSort(col){ if(sortCol===col){ setSortDir(d=>d==='desc'?'asc':'desc') } else { setSortCol(col); setSortDir('desc') } }
+
   const { startDate, endDate } = dateRange
-  const [search,   setSearch]   = useState('')
-  const [deptFilt, setDeptFilt] = useState(teamFilter === 'all' ? 'all' : teamFilter)
-  const [catFilt,  setCatFilt]  = useState('all')
-  const [sortCol,  setSortCol]  = useState('date')
-  const [sortDir,  setSortDir]  = useState('desc')
-  const [page,     setPage]     = useState(0)
-  const PAGE_SIZE = 50
 
-  // Sync team filter from nav
-  useEffect(() => { if(teamFilter !== 'all') setDeptFilt(teamFilter) }, [teamFilter])
+  const dateFiltered = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const deptFiltered = useMemo(()=>
+    activeDepts ? dateFiltered.filter(t=>activeDepts.has(t.department)) : dateFiltered
+  ,[dateFiltered,activeDepts])
+  const unhidden = useMemo(()=>
+    deptFiltered.filter(t=>!hidden.some(h=>(t[h.field]??'N/A')===h.value))
+  ,[deptFiltered,hidden])
+  const searchFiltered = useMemo(()=>{
+    const q=searchQ.trim().toLowerCase()
+    if(!q) return unhidden
+    return unhidden.filter(t=>[t.vendor,t.description,t.category,t.account,t.grant].some(v=>v?.toLowerCase().includes(q)))
+  },[unhidden,searchQ])
 
-  const inRange = useMemo(() => filterActuals(actuals, startDate, endDate), [actuals, startDate, endDate])
-  const categories = useMemo(() => ['all', ...new Set(inRange.map(t=>t.category)).values()], [inRange])
+  const budgetByCat = useMemo(()=>{
+    const depts = activeDepts ? [...activeDepts] : null
+    return calcBudgetByCategory(budgetFlat,scenario,startDate,endDate,depts)
+  },[budgetFlat,scenario,startDate,endDate,activeDepts])
 
-  const filtered = useMemo(() => {
-    let rows = inRange
-    if (deptFilt !== 'all') rows = rows.filter(t => t.department === deptFilt)
-    if (catFilt  !== 'all') rows = rows.filter(t => t.category   === catFilt)
-    if (search) {
-      const q = search.toLowerCase()
-      rows = rows.filter(t => t.vendor?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q) || t.account?.toLowerCase().includes(q))
-    }
-    rows = [...rows].sort((a,b) => {
-      let va = a[sortCol], vb = b[sortCol]
-      if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase() }
-      return sortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0)
-    })
+  const sortConfig = useMemo(()=>sortCol?{col:sortCol,dir:sortDir}:null,[sortCol,sortDir])
+  const visibleRows = useMemo(()=>
+    buildVisibleRows(searchFiltered,drillOrder,openPath,budgetByCat,sortConfig)
+  ,[searchFiltered,drillOrder,openPath,budgetByCat,sortConfig])
+
+  const toggleRow = useCallback((depth,value)=>{
+    setOpenPath(prev=>{ if(prev[depth]===value) return prev.slice(0,depth); const next=prev.slice(0,depth); next[depth]=value; return next })
+  },[])
+  function hideRow(field,value){ setHidden(p=>p.some(h=>h.field===field&&h.value===value)?p:[...p,{field,value}]) }
+  function restoreHidden(field,value){ setHidden(p=>p.filter(h=>!(h.field===field&&h.value===value))) }
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden">
+      {/* Dept KPI cards */}
+      <DeptStatusCards actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} activeDepts={activeDepts}/>
+      {/* Drill order bar */}
+      <MasterDrillOrderBar drillOrder={drillOrder} setDrillOrder={setDrillOrder} openPath={openPath} setOpenPath={setOpenPath}
+        searchQuery={searchQ} setSearchQuery={setSearchQ} viewMode={viewMode} setViewMode={setViewMode}/>
+      {/* Hidden bar */}
+      {hidden.length>0 && (
+        <div className="flex items-center gap-2 px-5 py-2 border-b border-gray-100 bg-amber-50 flex-wrap">
+          <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Hidden:</span>
+          {hidden.map(h=>(
+            <button key={`${h.field}:${h.value}`} onClick={()=>restoreHidden(h.field,h.value)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-amber-300 text-xs text-amber-700 hover:bg-amber-100">
+              {h.value} <X size={9}/>
+            </button>
+          ))}
+          <button onClick={()=>setHidden([])} className="text-xs text-amber-600 ml-auto hover:underline">Show all</button>
+        </div>
+      )}
+      {/* Calendar view */}
+      {viewMode==='calendar' && (
+        <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
+          <CalendarBreakdownView transactions={unhidden} budgetFlat={budgetFlat} selectedScenario={scenario}
+            drillOrder={drillOrder} dateRange={dateRange} deptNames={DEPT_NAMES}
+            activeDepts={activeDepts} onHide={hideRow}/>
+        </div>
+      )}
+      {/* Summary table */}
+      {viewMode==='summary' && (
+        <div className="flex-1 overflow-y-auto">
+          <MasterTableHeader drillOrder={drillOrder} scenario={scenario} sortCol={sortCol} sortDir={sortDir} onSort={handleSort}/>
+          {visibleRows.length===0 && (
+            <div className="text-center py-16 text-gray-400 text-sm">
+              {searchQ ? `No results for "${searchQ}"` : 'No data in this date range'}
+            </div>
+          )}
+          {visibleRows.map((row,i)=>{
+            if(row.type==='transaction') return <MasterTxRow key={i} row={row} onSelect={setSelectedTx}/>
+            return <MasterGroupRow key={i} row={row} onToggle={toggleRow} onHide={hideRow}/>
+          })}
+        </div>
+      )}
+      {/* Tx detail modal */}
+      {selectedTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={()=>setSelectedTx(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-96 p-6" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="font-semibold text-gray-800">{selectedTx.vendor}</span>
+              <button onClick={()=>setSelectedTx(null)}><X size={16} className="text-gray-400"/></button>
+            </div>
+            <div className="space-y-2 text-sm">
+              {[['Amount',formatCurrency(selectedTx.amount,{compact:false})],['Date',selectedTx.date],['Department',DEPT_NAMES[selectedTx.department]||selectedTx.department],['Category',selectedTx.category],['Account',selectedTx.account],selectedTx.grant&&['Grant',selectedTx.grant],selectedTx.description&&['Note',selectedTx.description]].filter(Boolean).map(([k,v])=>(
+                <div key={k} className="flex gap-3"><span className="text-gray-400 w-24 flex-shrink-0">{k}</span><span className="text-gray-800">{v}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transactions Tab — multi-select filters
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MultiSelectFilter({ label, options, selected, onToggle, onClear }){
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(()=>{
+    function h(e){ if(ref.current&&!ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown',h); return ()=>document.removeEventListener('mousedown',h)
+  },[])
+  const count = selected.length
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={()=>setOpen(p=>!p)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${count>0?'bg-teal-50 border-teal-300 text-teal-700':'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+        <Filter size={11}/>
+        {label}{count>0&&` (${count})`}
+        <ChevronDown size={10}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 bg-white border border-gray-200 rounded-xl shadow-xl z-40 w-48 py-1 max-h-60 overflow-y-auto">
+          {count>0 && <button onClick={()=>{ onClear(); setOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 border-b border-gray-100">Clear all</button>}
+          {options.map(opt=>{
+            const active = selected.includes(opt)
+            return (
+              <button key={opt} onClick={()=>onToggle(opt)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
+                <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${active?'bg-teal-600 border-teal-600':'border-gray-300'}`}>
+                  {active&&<Check size={9} className="text-white"/>}
+                </div>
+                <span className="truncate">{opt}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const [search,       setSearch]       = useState('')
+  const [teamFilter,   setTeamFilter]   = useState([])
+  const [catFilter,    setCatFilter]    = useState([])
+  const [vendorFilter, setVendorFilter] = useState([])
+  const [grantFilter,  setGrantFilter]  = useState([])
+  const [sortCol,      setSortCol]      = useState('date')
+  const [sortDir,      setSortDir]      = useState('desc')
+  const [page,         setPage]         = useState(1)
+  const PAGE = 50
+
+  const { startDate, endDate } = dateRange
+
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const deptRows = useMemo(()=>activeDepts ? inRange.filter(t=>activeDepts.has(t.department)) : inRange,[inRange,activeDepts])
+
+  const allTeams    = useMemo(()=>getUniqueValues(deptRows,'department').map(d=>DEPT_NAMES[d]||d),[deptRows])
+  const allCats     = useMemo(()=>getUniqueValues(deptRows,'category'),[deptRows])
+  const allVendors  = useMemo(()=>getUniqueValues(deptRows,'vendor'),[deptRows])
+  const allGrants   = useMemo(()=>getUniqueValues(deptRows,'grant').filter(Boolean),[deptRows])
+
+  const filtered = useMemo(()=>{
+    let rows = deptRows
+    const q = search.trim().toLowerCase()
+    if(q) rows = rows.filter(t=>[t.vendor,t.description,t.category,t.account,t.grant].some(v=>v?.toLowerCase().includes(q)))
+    if(teamFilter.length)   rows = rows.filter(t=>teamFilter.includes(DEPT_NAMES[t.department]||t.department))
+    if(catFilter.length)    rows = rows.filter(t=>catFilter.includes(t.category))
+    if(vendorFilter.length) rows = rows.filter(t=>vendorFilter.includes(t.vendor))
+    if(grantFilter.length)  rows = rows.filter(t=>grantFilter.includes(t.grant))
     return rows
-  }, [inRange, deptFilt, catFilt, search, sortCol, sortDir])
+  },[deptRows,search,teamFilter,catFilter,vendorFilter,grantFilter])
 
-  const pageData   = filtered.slice(page*PAGE_SIZE, (page+1)*PAGE_SIZE)
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const sorted = useMemo(()=>[...filtered].sort((a,b)=>{
+    let va=a[sortCol], vb=b[sortCol]
+    if(typeof va==='string') va=va.toLowerCase(), vb=vb.toLowerCase()
+    return (va<vb?-1:va>vb?1:0)*(sortDir==='asc'?1:-1)
+  }),[filtered,sortCol,sortDir])
 
-  function handleSort(col) {
-    if (sortCol === col) setSortDir(d => d==='asc'?'desc':'asc')
-    else { setSortCol(col); setSortDir('desc') }
-  }
+  const pages = Math.max(1,Math.ceil(sorted.length/PAGE))
+  const pageRows = sorted.slice((page-1)*PAGE, page*PAGE)
 
-  const SortHdr = ({ col, children }) => (
-    <th className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 cursor-pointer hover:text-gray-700 select-none"
-        onClick={() => handleSort(col)}>
-      <div className="flex items-center gap-1">
+  function toggleSort(col){ if(sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc'); else { setSortCol(col); setSortDir('desc') } }
+  function toggleCat(v){ setCatFilter(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]); setPage(1) }
+  function toggleTeam(v){ setTeamFilter(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]); setPage(1) }
+  function toggleVendor(v){ setVendorFilter(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]); setPage(1) }
+  function toggleGrant(v){ setGrantFilter(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v]); setPage(1) }
+
+  const ColHead = ({col,children})=>(
+    <th className="text-left px-4 py-2 cursor-pointer select-none hover:bg-gray-100 transition-colors" onClick={()=>toggleSort(col)}>
+      <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
         {children}
-        {sortCol===col ? (sortDir==='asc'?<ChevronUp size={10}/>:<ChevronDown size={10}/>) : <ArrowUpDown size={10} className="opacity-30"/>}
+        {sortCol===col?(sortDir==='desc'?<ArrowDown size={9}/>:<ArrowUp size={9}/>):<ArrowUp size={9} className="opacity-20"/>}
       </div>
     </th>
   )
 
-  const totalFiltered = filtered.reduce((s,t)=>s+t.amount,0)
-
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">All Transactions</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {filtered.length} transactions · {formatCurrency(totalFiltered)} total
-          </p>
-        </div>
-      </div>
-
+    <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden">
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
-          <input value={search} onChange={e=>{setSearch(e.target.value);setPage(0)}} placeholder="Search vendor, account…"
-            className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-teal-400"/>
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-wrap">
+        <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-60">
+          <Search size={12} className="text-gray-400"/>
+          <input value={search} onChange={e=>{ setSearch(e.target.value); setPage(1) }} placeholder="Search vendor, description…"
+            className="text-sm bg-transparent outline-none flex-1 placeholder-gray-400"/>
+          {search&&<button onClick={()=>setSearch('')}><X size={10} className="text-gray-400"/></button>}
         </div>
-        <select value={deptFilt} onChange={e=>{setDeptFilt(e.target.value);setPage(0)}}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none">
-          <option value="all">All Teams</option>
-          {ALL_DEPTS.map(d => <option key={d} value={d}>{DEPT_NAMES[d]}</option>)}
-        </select>
-        <select value={catFilt} onChange={e=>{setCatFilt(e.target.value);setPage(0)}}
-          className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none">
-          {categories.map(c => <option key={c} value={c}>{c==='all'?'All Categories':c}</option>)}
-        </select>
-        {(search||deptFilt!=='all'||catFilt!=='all') && (
-          <button onClick={() => { setSearch(''); setDeptFilt('all'); setCatFilt('all'); setPage(0) }}
-            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-2 rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={12}/> Clear
-          </button>
-        )}
+        <MultiSelectFilter label="Team"   options={allTeams}   selected={teamFilter}   onToggle={toggleTeam}   onClear={()=>setTeamFilter([])}/>
+        <MultiSelectFilter label="Category" options={allCats}  selected={catFilter}    onToggle={toggleCat}    onClear={()=>setCatFilter([])}/>
+        <MultiSelectFilter label="Vendor" options={allVendors} selected={vendorFilter} onToggle={toggleVendor} onClear={()=>setVendorFilter([])}/>
+        {allGrants.length>0 && <MultiSelectFilter label="Grant" options={allGrants} selected={grantFilter} onToggle={toggleGrant} onClear={()=>setGrantFilter([])}/>}
+        <div className="ml-auto text-xs text-gray-400">{filtered.length} of {deptRows.length} transactions</div>
       </div>
-
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <SortHdr col="date">Date</SortHdr>
-              <SortHdr col="department">Team</SortHdr>
-              <SortHdr col="vendor">Vendor</SortHdr>
-              <SortHdr col="category">Category</SortHdr>
-              <SortHdr col="account">Account</SortHdr>
-              <SortHdr col="amount">Amount</SortHdr>
-              <th className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Grant</th>
+      <div className="flex-1 overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+            <tr>
+              <ColHead col="date">Date</ColHead>
+              <ColHead col="vendor">Vendor</ColHead>
+              <ColHead col="department">Team</ColHead>
+              <ColHead col="category">Category</ColHead>
+              <ColHead col="account">Account</ColHead>
+              <ColHead col="amount">Amount</ColHead>
+              <th className="text-left px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">Grant</th>
             </tr>
           </thead>
           <tbody>
-            {pageData.map((t, i) => (
-              <tr key={i} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-                <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{t.date}</td>
-                <td className="px-3 py-2">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full"
-                        style={{backgroundColor: (DEPT_COLORS[t.department]||'#9BA8B5')+'18', color: DEPT_COLORS[t.department]||'#9BA8B5'}}>
-                    {DEPT_NAMES[t.department] || t.department}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-xs text-gray-800 font-medium max-w-[160px] truncate">{t.vendor}</td>
-                <td className="px-3 py-2">
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-                        style={{backgroundColor:(CAT_COLORS[t.category]||'#9BA8B5')+'18', color:CAT_COLORS[t.category]||'#9BA8B5'}}>
-                    {t.category}
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-xs text-gray-500 max-w-[140px] truncate">{t.account}</td>
-                <td className="px-3 py-2 text-xs font-semibold text-gray-900 text-right whitespace-nowrap">{formatCurrency(t.amount, {compact:false})}</td>
-                <td className="px-3 py-2 text-xs text-gray-400">{t.grant || '—'}</td>
+            {pageRows.length===0 && (
+              <tr><td colSpan={7} className="text-center py-16 text-gray-400">No transactions match your filters</td></tr>
+            )}
+            {pageRows.map((t,i)=>(
+              <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-2 text-gray-500 tabular-nums">{t.date}</td>
+                <td className="px-4 py-2 font-medium text-gray-800 max-w-[180px] truncate">{t.vendor}</td>
+                <td className="px-4 py-2"><span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{backgroundColor:(DEPT_COLORS[t.department]||'#9BA8B5')+'20',color:DEPT_COLORS[t.department]||'#9BA8B5'}}>
+                  {DEPT_NAMES[t.department]||t.department}</span></td>
+                <td className="px-4 py-2 text-gray-600">{t.category}</td>
+                <td className="px-4 py-2 text-gray-400 text-xs">{t.account}</td>
+                <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums">{formatCurrency(t.amount,{compact:false})}</td>
+                <td className="px-4 py-2">{t.grant&&<span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{t.grant}</span>}</td>
               </tr>
             ))}
-            {pageData.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-xs text-gray-400">No transactions match the current filters.</td></tr>
-            )}
-          </tbody>
-        </table>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-            <span className="text-xs text-gray-400">
-              {page*PAGE_SIZE+1}–{Math.min((page+1)*PAGE_SIZE, filtered.length)} of {filtered.length}
-            </span>
-            <div className="flex items-center gap-1">
-              <button disabled={page===0} onClick={()=>setPage(p=>p-1)}
-                className="px-2 py-1 rounded text-xs text-gray-500 disabled:opacity-30 hover:bg-gray-100 transition-colors">
-                <ChevronLeft size={14}/>
-              </button>
-              {Array.from({length:totalPages},(_, i)=>i).slice(Math.max(0,page-2), page+3).map(i=>(
-                <button key={i} onClick={()=>setPage(i)}
-                  className={`w-7 h-7 rounded text-xs transition-colors ${i===page?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-100'}`}>
-                  {i+1}
-                </button>
-              ))}
-              <button disabled={page>=totalPages-1} onClick={()=>setPage(p=>p+1)}
-                className="px-2 py-1 rounded text-xs text-gray-500 disabled:opacity-30 hover:bg-gray-100 transition-colors">
-                <ChevronRight size={14}/>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Teams Tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-function MasterTeamsTab({ actuals, budgetFlat, scenario, dateRange }) {
-  const { startDate, endDate } = dateRange
-  const [expandedDept, setExpandedDept] = useState(null)
-  const inRange = useMemo(() => filterActuals(actuals, startDate, endDate), [actuals, startDate, endDate])
-  const n = numMonthsInRange(startDate, endDate)
-
-  const deptRows = useMemo(() => {
-    return ALL_DEPTS.map(dept => {
-      const dtx    = inRange.filter(t => t.department === dept)
-      const byCat  = sumByCategory(dtx)
-      const total  = dtx.reduce((s,t)=>s+t.amount,0)
-      const budgetRows = budgetFlat.filter(b => b.scenario===scenario && b.department===dept)
-      const budgetTotal = budgetRows.reduce((s,b)=>s+b.monthlyAmount*n,0)
-      const variance = total - budgetTotal
-      const pct = budgetTotal > 0 ? total/budgetTotal*100 : null
-      const status = pct === null ? 'no-budget' : pct <= 85 ? 'good' : pct <= 100 ? 'caution' : 'over'
-      const cats = Object.entries(byCat).sort((a,b)=>b[1]-a[1])
-      return { dept, deptName: DEPT_NAMES[dept], total, budgetTotal, variance, pct, status, cats }
-    })
-  }, [inRange, budgetFlat, scenario, n])
-
-  const STATUS_CONFIG = {
-    good:       { label:'On Track',   dot:'#10B981', bg:'#ECFDF5', text:'#065F46' },
-    caution:    { label:'Watch',      dot:'#F59E0B', bg:'#FFF8ED', text:'#B45309' },
-    over:       { label:'Over Budget',dot:'#EF4444', bg:'#FEF2F2', text:'#991B1B' },
-    'no-budget':{ label:'No Budget',  dot:'#9BA8B5', bg:'#F3F4F6', text:'#6B7280' },
-  }
-
-  return (
-    <div className="p-6">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-gray-900">Team Comparison</h2>
-        <p className="text-xs text-gray-400 mt-0.5">{presetLabel(dateRange.preset)} · {scenario}</p>
-      </div>
-
-      {/* Summary bar */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        {deptRows.map(row => (
-          <div key={row.dept} className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-xs font-bold text-gray-800">{row.deptName}</div>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide"
-                    style={{backgroundColor:STATUS_CONFIG[row.status].bg, color:STATUS_CONFIG[row.status].text}}>
-                <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:STATUS_CONFIG[row.status].dot}}/>
-                {STATUS_CONFIG[row.status].label}
-              </span>
-            </div>
-            <div className="text-2xl font-bold text-gray-900 mb-1">{formatCurrency(row.total)}</div>
-            <div className="text-[11px] text-gray-400 mb-2">Budget: {formatCurrency(row.budgetTotal)}</div>
-            {row.pct !== null && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-gray-400">Budget used</span>
-                  <span className="text-[10px] font-semibold" style={{color:STATUS_CONFIG[row.status].dot}}>{Math.round(row.pct)}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{
-                    width: Math.min(row.pct,100)+'%',
-                    backgroundColor: STATUS_CONFIG[row.status].dot
-                  }}/>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Detail table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50">
-              <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Team / Category</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Actual</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Budget</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Variance</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">% Budget</th>
-              <th className="text-center px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {deptRows.map(row => (
-              <React.Fragment key={row.dept}>
-                <tr className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => setExpandedDept(expandedDept===row.dept ? null : row.dept)}>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-300">{expandedDept===row.dept ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}</span>
-                      <div className="w-2 h-2 rounded-full" style={{backgroundColor:DEPT_COLORS[row.dept]}}/>
-                      <span className="text-xs font-semibold text-gray-800">{row.deptName}</span>
-                    </div>
-                  </td>
-                  <td className="text-right px-3 py-2.5 text-xs font-semibold text-gray-900">{formatCurrency(row.total, {compact:false})}</td>
-                  <td className="text-right px-3 py-2.5 text-xs text-gray-500">{formatCurrency(row.budgetTotal, {compact:false})}</td>
-                  <td className="text-right px-3 py-2.5 text-xs font-semibold" style={{color:row.variance<=0?'#10B981':'#EF4444'}}>
-                    {row.variance<=0?'+':''}{formatCurrency(Math.abs(row.variance), {compact:false})} {row.variance<=0?'under':'over'}
-                  </td>
-                  <td className="text-right px-3 py-2.5 text-xs text-gray-600">{row.pct!==null ? Math.round(row.pct)+'%' : '—'}</td>
-                  <td className="text-center px-3 py-2.5">
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide"
-                          style={{backgroundColor:STATUS_CONFIG[row.status].bg, color:STATUS_CONFIG[row.status].text}}>
-                      <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:STATUS_CONFIG[row.status].dot}}/>
-                      {STATUS_CONFIG[row.status].label}
-                    </span>
-                  </td>
-                </tr>
-                {expandedDept === row.dept && row.cats.map(([cat,amt]) => {
-                  const budgetForCat = (budgetFlat.find(b=>b.scenario===scenario&&b.department===row.dept&&b.category===cat)?.monthlyAmount||0)*n
-                  const catVar = amt - budgetForCat
-                  return (
-                    <tr key={cat} className="border-b border-gray-100 bg-gray-50/30">
-                      <td className="px-4 py-2 pl-10">
-                        <span className="text-[11px] text-gray-600">{cat}</span>
-                      </td>
-                      <td className="text-right px-3 py-2 text-[11px] text-gray-700">{formatCurrency(amt, {compact:false})}</td>
-                      <td className="text-right px-3 py-2 text-[11px] text-gray-400">{budgetForCat>0?formatCurrency(budgetForCat, {compact:false}):'—'}</td>
-                      <td className="text-right px-3 py-2 text-[11px] font-medium" style={{color:catVar<=0?'#10B981':'#EF4444'}}>
-                        {budgetForCat>0 ? `${catVar<=0?'+':''} ${formatCurrency(Math.abs(catVar), {compact:false})}` : '—'}
-                      </td>
-                      <td className="text-right px-3 py-2 text-[11px] text-gray-400">
-                        {budgetForCat>0 ? Math.round(amt/budgetForCat*100)+'%' : '—'}
-                      </td>
-                      <td/>
-                    </tr>
-                  )
-                })}
-              </React.Fragment>
-            ))}
           </tbody>
         </table>
       </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Import Tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ImportDropZone({ label, description, acceptedTypes }) {
-  const [dragging, setDragging] = useState(false)
-  const [files,    setFiles]    = useState([])
-  const inputRef = useRef(null)
-
-  function handleDrop(e) {
-    e.preventDefault(); setDragging(false)
-    const dropped = Array.from(e.dataTransfer.files)
-    setFiles(prev => [...prev, ...dropped.map(f => ({ name: f.name, size: f.size, status:'ready' }))])
-  }
-
-  function handleSelect(e) {
-    const selected = Array.from(e.target.files)
-    setFiles(prev => [...prev, ...selected.map(f => ({ name: f.name, size: f.size, status:'ready' }))])
-  }
-
-  return (
-    <div>
-      <div onDragOver={e=>{e.preventDefault();setDragging(true)}} onDragLeave={()=>setDragging(false)} onDrop={handleDrop}
-           onClick={() => inputRef.current?.click()}
-           className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-             dragging ? 'border-teal-400 bg-teal-50' : 'border-gray-200 hover:border-teal-300 hover:bg-gray-50'
-           }`}>
-        <input ref={inputRef} type="file" className="hidden" onChange={handleSelect} multiple accept={acceptedTypes}/>
-        <Upload size={24} className={`mx-auto mb-3 ${dragging?'text-teal-500':'text-gray-300'}`}/>
-        <div className="text-sm font-medium text-gray-700 mb-1">{label}</div>
-        <div className="text-xs text-gray-400">{description}</div>
-        <div className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium text-white transition-colors"
-             style={{backgroundColor: ACCENT}}>
-          <Upload size={12}/> Choose file
-        </div>
-      </div>
-      {files.length > 0 && (
-        <div className="mt-3 space-y-1.5">
-          {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-gray-200 text-xs">
-              <FileText size={13} className="text-gray-400 flex-shrink-0"/>
-              <span className="flex-1 text-gray-700 truncate">{f.name}</span>
-              <span className="text-gray-400">{(f.size/1024).toFixed(0)} KB</span>
-              <span className="text-teal-600 font-medium">Ready</span>
-              <button onClick={e=>{e.stopPropagation();setFiles(prev=>prev.filter((_,j)=>j!==i))}}
-                className="text-gray-300 hover:text-red-400 transition-colors"><X size={12}/></button>
-            </div>
-          ))}
-          <button className="w-full py-2 rounded-lg text-xs font-semibold text-white transition-colors"
-                  style={{backgroundColor:ACCENT}}>
-            Upload {files.length} file{files.length>1?'s':''}
+      {/* Pagination */}
+      {pages>1 && (
+        <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-white">
+          <button disabled={page<=1} onClick={()=>setPage(p=>p-1)} className="flex items-center gap-1 text-sm text-gray-500 disabled:opacity-30 hover:text-gray-700">
+            <ChevronLeft size={14}/> Previous
+          </button>
+          <span className="text-xs text-gray-400">Page {page} of {pages}</span>
+          <button disabled={page>=pages} onClick={()=>setPage(p=>p+1)} className="flex items-center gap-1 text-sm text-gray-500 disabled:opacity-30 hover:text-gray-700">
+            Next <ChevronRight size={14}/>
           </button>
         </div>
       )}
@@ -1451,145 +1356,203 @@ function ImportDropZone({ label, description, acceptedTypes }) {
   )
 }
 
-const IMPORT_HISTORY_MOCK = [
-  { date:'2026-05-01', type:'Actuals',          file:'actuals-apr-2026.csv',   rows:142, user:'Alex H.',     status:'success' },
-  { date:'2026-04-01', type:'Budget',            file:'budget-fy2026-v2.csv',   rows:24,  user:'Alex H.',     status:'success' },
-  { date:'2026-03-15', type:'Patron Data',       file:'patron-mar-2026.xlsx',   rows:890, user:'Jordan M.',   status:'success' },
-  { date:'2026-03-01', type:'Actuals',           file:'actuals-feb-2026.csv',   rows:138, user:'Alex H.',     status:'success' },
-  { date:'2026-02-12', type:'Financial Data',    file:'financial-q2.csv',       rows:56,  user:'Sam T.',      status:'error',  error:'Missing required column: grant' },
-  { date:'2026-02-01', type:'Actuals',           file:'actuals-jan-2026.csv',   rows:145, user:'Alex H.',     status:'success' },
-]
+// ─────────────────────────────────────────────────────────────────────────────
+// Import Tab — actuals, budget, and income CSV upload
+// ─────────────────────────────────────────────────────────────────────────────
 
-function MasterImportTab() {
-  const [activeImportTab, setActiveImportTab] = useState('actuals')
+function DropZone({ onFile }){
+  const [drag, setDrag] = useState(false)
+  const ref = useRef(null)
+  function handleDrop(e){ e.preventDefault(); setDrag(false); const f=e.dataTransfer.files[0]; if(f) onFile(f) }
+  function handleFile(e){ const f=e.target.files[0]; if(f) onFile(f) }
+  return (
+    <div onDragOver={e=>{ e.preventDefault(); setDrag(true) }} onDragLeave={()=>setDrag(false)} onDrop={handleDrop}
+      onClick={()=>ref.current?.click()}
+      className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${drag?'border-teal-400 bg-teal-50':'border-gray-200 hover:border-gray-300 bg-gray-50'}`}>
+      <input ref={ref} type="file" accept=".csv" className="hidden" onChange={handleFile}/>
+      <Upload size={24} className={`mx-auto mb-2 ${drag?'text-teal-500':'text-gray-300'}`}/>
+      <p className="text-sm font-medium text-gray-600">Drop CSV here or click to browse</p>
+      <p className="text-xs text-gray-400 mt-1">Accepts .csv files</p>
+    </div>
+  )
+}
 
-  const IMPORT_CONFIGS = {
-    actuals:   { label:'Actuals',          description:'CSV or Excel with columns: date, amount, department, vendor, category, account, grant, description', accept:'.csv,.xlsx,.xls' },
-    budget:    { label:'Budget',           description:'CSV or Excel with columns: department, category, scenario, monthlyAmount', accept:'.csv,.xlsx,.xls' },
-    financial: { label:'Financial Data',   description:'General ledger exports, balance sheet data, or cash position reports', accept:'.csv,.xlsx,.xls,.pdf' },
-    patron:    { label:'Patron Data',      description:'Donor database export with columns: id, date, amount, type, status', accept:'.csv,.xlsx,.xls' },
-    cashflow:  { label:'Cash Flow',        description:'Bank statement or cash flow projection file', accept:'.csv,.xlsx,.xls,.pdf' },
-    summary:   { label:'Monthly Summary',  description:'ELT-style monthly narrative summary (JSON or text format)', accept:'.json,.txt,.csv' },
+function parseCSV(text){
+  const lines = text.trim().split('\n').map(l=>l.trim()).filter(Boolean)
+  if(lines.length<2) return []
+  const headers = lines[0].split(',').map(h=>h.replace(/^"|"$/g,'').trim())
+  return lines.slice(1).map(line=>{
+    const vals=[]; let cur='',inQ=false
+    for(const ch of line){
+      if(ch==='"'){ inQ=!inQ } else if(ch===','&&!inQ){ vals.push(cur.trim()); cur='' } else { cur+=ch }
+    }
+    vals.push(cur.trim())
+    return Object.fromEntries(headers.map((h,i)=>[h,vals[i]??'']))
+  })
+}
+
+function findCol(row,...names){
+  const keys=Object.keys(row)
+  for(const n of names){
+    const k=keys.find(k=>k.toLowerCase().replace(/\s+/g,'').includes(n.toLowerCase()))
+    if(k) return row[k]
+  }
+  return ''
+}
+
+function parseDate(s){ const m=String(s||'').match(/(\d{4})-(\d{1,2})-(\d{1,2})/); return m?`${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`:'' }
+function parseAmt(s){ return parseFloat(String(s||'').replace(/[$,]/g,''))||0 }
+function monthLabel(dateStr){ return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dateStr.slice(5,7),10)-1]||dateStr.slice(0,7) }
+
+function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceBudget, appendIncome, replaceIncome, previousActuals, restorePreviousActuals, previousIncome, restorePreviousIncome }){
+  const [subTab, setSubTab] = useState('actuals')
+  const [preview, setPreview] = useState(null)
+  const [mode,    setMode]    = useState('replace')
+  const [success, setSuccess] = useState(null)
+  const [error,   setError]   = useState(null)
+
+  function reset(){ setPreview(null); setSuccess(null); setError(null) }
+
+  function handleFile(type, file){
+    reset()
+    const reader = new FileReader()
+    reader.onload = e=>{
+      try{
+        const rows = parseCSV(e.target.result)
+        if(rows.length===0){ setError('No data rows found in file.'); return }
+        let mapped
+        if(type==='actuals'){
+          mapped = rows.map(r=>({
+            date:       parseDate(findCol(r,'date')),
+            amount:     parseAmt(findCol(r,'amount','amt')),
+            department: findCol(r,'department','dept','dept_code'),
+            vendor:     findCol(r,'vendor'),
+            category:   findCol(r,'category','cat'),
+            account:    findCol(r,'account','acct','gl_account'),
+            grant:      findCol(r,'grant','fund','grant_code')||null,
+            description:findCol(r,'description','memo','note','desc'),
+          })).filter(r=>r.date&&r.amount)
+        } else if(type==='budget'){
+          mapped = rows.map(r=>({
+            department:    findCol(r,'department','dept'),
+            category:      findCol(r,'category','cat'),
+            scenario:      findCol(r,'scenario','plan','budget_name')||'Planned Spend',
+            monthlyAmount: parseAmt(findCol(r,'monthly','monthly_amount','amount')),
+          })).filter(r=>r.department&&r.category)
+        } else if(type==='income'){
+          mapped = rows.map(r=>({
+            date:          parseDate(findCol(r,'date','month')),
+            label:         findCol(r,'label','month_label')||monthLabel(parseDate(findCol(r,'date','month'))),
+            contributions: parseAmt(findCol(r,'contributions','giving','contributions_total')),
+            merch:         parseAmt(findCol(r,'merch','merchandise','merch_revenue')),
+            other:         parseAmt(findCol(r,'other','other_income','other_revenue')),
+          })).filter(r=>r.date)
+        }
+        setPreview({ type, mapped, count:mapped.length, sample:mapped.slice(0,3) })
+      } catch(err){ setError('Could not parse file: '+err.message) }
+    }
+    reader.readAsText(file)
+  }
+
+  function commit(){
+    if(!preview) return
+    const { type, mapped } = preview
+    if(type==='actuals'){ if(mode==='append') appendActuals(mapped); else replaceActuals(mapped) }
+    if(type==='budget'){  if(mode==='append') appendBudget(mapped);  else replaceBudget(mapped) }
+    if(type==='income'){  if(mode==='append') appendIncome(mapped);  else replaceIncome(mapped) }
+    setSuccess(`Imported ${preview.count} rows.`)
+    setPreview(null)
+  }
+
+  const SUB_TABS = [
+    { id:'actuals', label:'Actuals' },
+    { id:'budget',  label:'Budget' },
+    { id:'income',  label:'Income' },
+  ]
+
+  const TEMPLATES = {
+    actuals: 'date,amount,department,vendor,category,account,grant,description\n2026-01-15,5000,101,Vendor Name,Software,Software Subscriptions,,SaaS renewal',
+    budget:  'department,category,scenario,monthly_amount\n101,Software,Planned Spend,8000',
+    income:  'date,label,contributions,merch,other\n2026-01-01,Jan,185000,13500,2800',
+  }
+
+  function downloadTemplate(type){
+    const blob = new Blob([TEMPLATES[type]],{type:'text/csv'})
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${type}-template.csv`; a.click()
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-4">
-        <h2 className="text-lg font-bold text-gray-900">Import Data</h2>
-        <p className="text-xs text-gray-400 mt-0.5">Upload financial data to update dashboards across the organization</p>
-      </div>
-
-      {/* Sub-tabs */}
-      <div className="flex items-center gap-0.5 bg-gray-100 rounded-xl px-1 py-1 mb-6 w-fit">
-        {MASTER_IMPORT_TABS.map(tab => (
-          <button key={tab.id} onClick={() => setActiveImportTab(tab.id)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-              activeImportTab===tab.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}>
-            {tab.label}
+    <div className="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto space-y-6">
+      {/* Sub-tab selector */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {SUB_TABS.map(t=>(
+          <button key={t.id} onClick={()=>{ setSubTab(t.id); reset() }}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${subTab===t.id?'border-teal-600 text-teal-700':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {t.label}
           </button>
         ))}
       </div>
 
-      {activeImportTab === 'history' ? (
+      {/* Template download */}
+      <div className="flex items-center justify-between">
         <div>
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Date</th>
-                  <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Type</th>
-                  <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">File</th>
-                  <th className="text-right px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Rows</th>
-                  <th className="text-left px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Uploaded by</th>
-                  <th className="text-center px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {IMPORT_HISTORY_MOCK.map((row, i) => (
-                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-2.5 text-xs text-gray-600">{row.date}</td>
-                    <td className="px-4 py-2.5 text-xs font-medium text-gray-800">{row.type}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5 text-xs text-gray-700">
-                        <FileText size={12} className="text-gray-400"/>
-                        {row.file}
-                      </div>
-                      {row.error && <div className="text-[10px] text-red-500 mt-0.5">{row.error}</div>}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-right text-gray-500">{row.rows.toLocaleString()}</td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500">{row.user}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${
-                        row.status==='success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                      }`}>
-                        {row.status==='success' ? <Check size={9}/> : <X size={9}/>}
-                        {row.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="font-semibold text-sm text-gray-800">Import {SUB_TABS.find(t=>t.id===subTab)?.label}</div>
+          <div className="text-xs text-gray-400 mt-0.5">{
+            subTab==='actuals'?'date, amount, department, vendor, category, account, grant, description':
+            subTab==='budget'?'department, category, scenario, monthly_amount':
+            'date, label, contributions, merch, other'
+          }</div>
+        </div>
+        <button onClick={()=>downloadTemplate(subTab)} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
+          <Download size={12}/> Template
+        </button>
+      </div>
+
+      {/* Mode selector */}
+      <div className="flex gap-2">
+        {[['replace','Replace all'],['append','Append']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setMode(id)}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-colors ${mode===id?'border-teal-500 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500'}`}>
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Drop zone */}
+      {!preview && !success && <DropZone onFile={f=>handleFile(subTab,f)}/>}
+
+      {/* Error */}
+      {error && <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{error}<button onClick={reset} className="ml-2 text-red-400 hover:text-red-600"><X size={12}/></button></div>}
+
+      {/* Preview */}
+      {preview && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-semibold text-sm text-gray-800">{preview.count} rows ready to {mode}</div>
+              <div className="text-xs text-gray-400 mt-0.5">Sample: {JSON.stringify(preview.sample[0])}</div>
+            </div>
+            <button onClick={reset} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={commit} className="flex-1 bg-teal-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-teal-700">
+              Confirm import
+            </button>
+            <button onClick={reset} className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-500 hover:bg-gray-50">Cancel</button>
           </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            {IMPORT_CONFIGS[activeImportTab] && (
-              <ImportDropZone
-                label={`Import ${IMPORT_CONFIGS[activeImportTab].label}`}
-                description={IMPORT_CONFIGS[activeImportTab].description}
-                acceptedTypes={IMPORT_CONFIGS[activeImportTab].accept}/>
-            )}
+      )}
+
+      {/* Success */}
+      {success && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+            <Check size={14}/> {success}
           </div>
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-xs font-semibold text-gray-800 mb-3">Format Requirements</div>
-              <div className="space-y-2 text-xs text-gray-500">
-                {activeImportTab === 'actuals' && <>
-                  <div className="font-medium text-gray-700">Required columns:</div>
-                  <div className="font-mono text-[11px] bg-gray-50 p-2 rounded-lg border border-gray-100">
-                    date, amount, department, vendor, category, account
-                  </div>
-                  <div className="font-medium text-gray-700 mt-2">Optional columns:</div>
-                  <div className="font-mono text-[11px] bg-gray-50 p-2 rounded-lg border border-gray-100">
-                    grant, description
-                  </div>
-                  <div className="mt-2">Date format: YYYY-MM-DD. Amounts in USD (no currency symbol).</div>
-                </>}
-                {activeImportTab === 'budget' && <>
-                  <div className="font-medium text-gray-700">Required columns:</div>
-                  <div className="font-mono text-[11px] bg-gray-50 p-2 rounded-lg border border-gray-100">
-                    department, category, scenario, monthlyAmount
-                  </div>
-                  <div className="mt-2">monthlyAmount is the average monthly budget for that dept/category combination. It will be multiplied by the number of months in any date range query.</div>
-                </>}
-                {activeImportTab === 'patron' && <>
-                  <div className="font-medium text-gray-700">Required columns:</div>
-                  <div className="font-mono text-[11px] bg-gray-50 p-2 rounded-lg border border-gray-100">
-                    date, amount, patron_id
-                  </div>
-                  <div className="mt-2">Used to compute patron counts, average gift size, and monthly giving trends shown in the Overview.</div>
-                </>}
-                {!['actuals','budget','patron'].includes(activeImportTab) && (
-                  <div>Contact your Finance administrator for the expected column format for this data type.</div>
-                )}
-              </div>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-xs font-semibold text-gray-800 mb-2">Recent Imports</div>
-              {IMPORT_HISTORY_MOCK.filter(r=>r.type.toLowerCase().includes(IMPORT_CONFIGS[activeImportTab]?.label.split(' ')[0].toLowerCase())).slice(0,3).map((row,i)=>(
-                <div key={i} className="flex items-center gap-2 py-1.5 border-b border-gray-100 last:border-0">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${row.status==='success'?'bg-green-400':'bg-red-400'}`}/>
-                  <span className="text-xs text-gray-700 flex-1 truncate">{row.file}</span>
-                  <span className="text-[10px] text-gray-400">{row.date}</span>
-                </div>
-              ))}
-              {IMPORT_HISTORY_MOCK.filter(r=>r.type.toLowerCase().includes(IMPORT_CONFIGS[activeImportTab]?.label.split(' ')[0].toLowerCase())).length === 0 && (
-                <div className="text-xs text-gray-400 py-1">No recent imports for this type.</div>
-              )}
-            </div>
+          <div className="flex gap-2">
+            {subTab==='actuals' && previousActuals && <button onClick={()=>{ restorePreviousActuals(); setSuccess(null) }} className="text-xs text-emerald-600 hover:underline flex items-center gap-1"><RefreshCw size={10}/>Undo</button>}
+            {subTab==='income'  && previousIncome  && <button onClick={()=>{ restorePreviousIncome();  setSuccess(null) }} className="text-xs text-emerald-600 hover:underline flex items-center gap-1"><RefreshCw size={10}/>Undo</button>}
+            <button onClick={()=>{ reset() }} className="text-xs text-gray-400 hover:text-gray-600">Import another file</button>
           </div>
         </div>
       )}
@@ -1598,85 +1561,67 @@ function MasterImportTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Master Dashboard (main export)
+// Main: MasterDashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function MasterDashboard() {
-  const { orgConfig, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
+export default function MasterDashboard(){
+  const {
+    orgConfig,
+    actuals, appendActuals, replaceActuals,
+    budgetFlat, appendBudget, replaceBudget,
+    incomeMonths, appendIncome, replaceIncome, previousIncome, restorePreviousIncome,
+    availableScenarios, selectedScenario, setSelectedScenario,
+    previousActuals, restorePreviousActuals,
+  } = useApp()
 
   const [activeTab,   setActiveTab]   = useState('overview')
-  const [activeBudget, setActiveBudget] = useState(selectedScenario || 'Planned Spend')
-  const [teamFilter,  setTeamFilter]  = useState('all')
+  const [activeDepts, setActiveDepts] = useState(null) // null = all
 
-  // Local date range (independent of global AppContext, like ELTDashboard)
+  // Local date range (master dashboard has its own, independent of AppContext global)
   const defaultRange = getMasterPresetRange('fiscal-ytd')
   const [dateRange, setDateRange] = useState({ preset:'fiscal-ytd', ...defaultRange })
 
-  function applyPreset(preset) {
-    setDateRange({ preset, ...getMasterPresetRange(preset) })
-  }
-  function applyCustom(startDate, endDate) {
-    setDateRange({ preset:'custom', startDate, endDate })
+  function applyPreset(p){ setDateRange({ preset:p, ...getMasterPresetRange(p) }) }
+  function applyCustom(s,e){ setDateRange({ preset:'custom', startDate:s, endDate:e }) }
+
+  function toggleDept(code){
+    setActiveDepts(prev=>{
+      const all = new Set(ALL_DEPTS)
+      const cur = prev || all
+      const next = new Set(cur)
+      if(next.has(code)) next.delete(code); else next.add(code)
+      if(next.size===all.size) return null
+      return next
+    })
   }
 
-  // Filter actuals by team filter if set (for passing down to tabs)
-  const filteredActuals = useMemo(() => {
-    if (teamFilter === 'all') return actuals
-    return actuals.filter(t => t.department === teamFilter)
-  }, [actuals, teamFilter])
+  // Filtered actuals for tabs that respect team multi-select
+  const filteredActuals = useMemo(()=>
+    activeDepts ? actuals.filter(t=>activeDepts.has(t.department)) : actuals
+  ,[actuals,activeDepts])
+
+  const tabProps = { actuals:filteredActuals, budgetFlat, scenario:selectedScenario, incomeMonths, dateRange, activeDepts }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor:'var(--color-primary-bg)' }}>
+    <div className="flex flex-col min-h-screen bg-white">
       <MasterNav
-        orgConfig={orgConfig}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        dateRange={dateRange}
-        onApplyPreset={applyPreset}
-        onApplyCustom={applyCustom}
-        activeBudget={activeBudget}
-        onSetBudget={setActiveBudget}
-        availableScenarios={availableScenarios}
-        teamFilter={teamFilter}
-        setTeamFilter={setTeamFilter}
-      />
+        activeTab={activeTab} setActiveTab={setActiveTab}
+        dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}
+        activeDepts={activeDepts} onToggleDept={toggleDept} onSelectAllDepts={()=>setActiveDepts(null)}
+        activeBudget={selectedScenario} availableScenarios={availableScenarios} onSetBudget={setSelectedScenario}/>
 
-      <main className="flex-1 overflow-auto">
-        {activeTab === 'overview'     && (
-          <OverviewTab
-            actuals={filteredActuals}
-            budgetFlat={budgetFlat}
-            scenario={activeBudget}
-            dateRange={dateRange}
-          />
-        )}
-        {activeTab === 'pl'           && (
-          <PLBreakdownTab
-            actuals={actuals}
-            budgetFlat={budgetFlat}
-            scenario={activeBudget}
-            dateRange={dateRange}
-            teamFilter={teamFilter}
-          />
-        )}
-        {activeTab === 'transactions' && (
-          <MasterTransactionsTab
-            actuals={actuals}
-            dateRange={dateRange}
-            teamFilter={teamFilter}
-          />
-        )}
-        {activeTab === 'teams'        && (
-          <MasterTeamsTab
-            actuals={actuals}
-            budgetFlat={budgetFlat}
-            scenario={activeBudget}
-            dateRange={dateRange}
-          />
-        )}
-        {activeTab === 'comments'     && <CommentsPage />}
-        {activeTab === 'import'       && <MasterImportTab />}
-      </main>
+      {activeTab==='overview'      && <OverviewTab {...tabProps}/>}
+      {activeTab==='breakdown'     && <BreakdownTab {...tabProps}/>}
+      {activeTab==='transactions'  && <MasterTransactionsTab {...tabProps}/>}
+      {activeTab==='comments'      && <div className="flex-1"><CommentsPage/></div>}
+      {activeTab==='import'        && (
+        <MasterImportTab
+          appendActuals={appendActuals} replaceActuals={replaceActuals}
+          appendBudget={appendBudget}   replaceBudget={replaceBudget}
+          appendIncome={appendIncome}   replaceIncome={replaceIncome}
+          previousActuals={previousActuals} restorePreviousActuals={restorePreviousActuals}
+          previousIncome={previousIncome}   restorePreviousIncome={restorePreviousIncome}/>
+      )}
     </div>
   )
 }

@@ -199,19 +199,27 @@ const ELT_MO_PRI = {
   expenses:           [123_000,119_000,128_000,122_000,131_000,140_000,145_000,118_000,124_000,132_000,138_000,160_000],
 }
 
-function filterELTByRange(dateRange) {
+function filterELTByRange(dateRange, incomeMonths, actuals) {
   const s = dateRange?.startDate || '2025-06-01'
   const e = dateRange?.endDate   || '2026-05-31'
   const idxs = FISCAL_MONTHS.reduce((acc,m,i) => (m.date >= s && m.date <= e ? [...acc,i] : acc), [])
   function sum(arr) { return idxs.reduce((t,i) => t + (arr[i]||0), 0) }
-  const contributions    = sum(ELT_MO_ACT.contributions)
-  const merchandiseRevenue = sum(ELT_MO_ACT.merchandiseRevenue)
-  const otherIncome      = sum(ELT_MO_ACT.otherIncome)
-  const staff            = sum(ELT_MO_ACT.staff)
-  const contract         = sum(ELT_MO_ACT.contract)
-  const technology       = sum(ELT_MO_ACT.technology)
-  const travel           = sum(ELT_MO_ACT.travel)
-  const otherGenAdmin    = sum(ELT_MO_ACT.otherGenAdmin)
+
+  // ── Income: from AppContext.incomeMonths (auto-updates on import) ──────────
+  const incInRange = (incomeMonths||[]).filter(m => m.date >= s && m.date <= e)
+  const contributions      = incInRange.reduce((t,m) => t + (m.contributions||0), 0) || sum(ELT_MO_ACT.contributions)
+  const merchandiseRevenue = incInRange.reduce((t,m) => t + (m.merch||0), 0)         || sum(ELT_MO_ACT.merchandiseRevenue)
+  const otherIncome        = incInRange.reduce((t,m) => t + (m.other||0), 0)         || sum(ELT_MO_ACT.otherIncome)
+
+  // ── Expenses: from AppContext.actuals (auto-updates on import) ────────────
+  const actInRange = (actuals||[]).filter(t => t.date >= s && t.date <= e)
+  const sumCat = (...cats) => actInRange.filter(t => cats.includes(t.category)).reduce((t,r) => t + r.amount, 0)
+  const contract    = sumCat('Contract')    || sum(ELT_MO_ACT.contract)
+  const technology  = sumCat('Software','Computers') || sum(ELT_MO_ACT.technology)
+  const travel      = sumCat('Travel')      || sum(ELT_MO_ACT.travel)
+  const otherGenAdmin = actInRange.filter(t => !['Contract','Software','Computers','Travel'].includes(t.category)).reduce((t,r)=>t+r.amount,0) || sum(ELT_MO_ACT.otherGenAdmin)
+  // Staff stays from hardcoded arrays (payroll not in transaction actuals)
+  const staff = sum(ELT_MO_ACT.staff)
   const months = idxs.map(i => FISCAL_MONTHS[i])
   const rangeLabel = months.length === 0 ? 'No data' : months.length === 1
     ? months[0].label
@@ -1935,7 +1943,7 @@ const DEFAULT_KPI_CARDS     = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 const DEFAULT_PATRON_CHARTS  = ['new-patron-chart','patron-base-chart']
 
-function DashboardTab({ dateRange, orgConfig, activeBudget }) {
+function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
   const now = new Date()
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -1951,7 +1959,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget }) {
   const [showAddPatronChart, setShowAddPatronChart] = useState(false)
   const [manualCards,        setManualCards]        = useState({})
 
-  const d = filterELTByRange(dateRange)
+  const d = filterELTByRange(dateRange, incomeMonths, actuals)
   const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
@@ -3784,7 +3792,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig } = useApp()
+  const { orgConfig, incomeMonths, actuals } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   const [activeBudget, setActiveBudget] = useState(BUDGET_SCENARIOS[0])
 
@@ -3810,7 +3818,7 @@ export default function ELTDashboard() {
         dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}
         activeBudget={activeBudget} onSetBudget={setActiveBudget}/>
       <main className="flex-1 overflow-auto">
-        {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget}/>}
+        {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}

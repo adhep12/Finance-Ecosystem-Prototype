@@ -3,6 +3,21 @@ import { mockActuals, mockBudgetFlat, mockComments, DEPT_NAMES, DEPT_TEAM_GROUPS
 import { getScenarios } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Default monthly income data (Oct 2025 → May 2026 — 8-month fiscal window)
+// Importable via Financial Data CSV upload.
+// ─────────────────────────────────────────────────────────────────────────────
+export const DEFAULT_INCOME_MONTHS = [
+  { date:'2025-10-01', label:'Oct', contributions:220_000, merch:16_100, other:3_600 },
+  { date:'2025-11-01', label:'Nov', contributions:265_000, merch:19_500, other:4_200 },
+  { date:'2025-12-01', label:'Dec', contributions:310_000, merch:23_000, other:4_800 },
+  { date:'2026-01-01', label:'Jan', contributions:185_000, merch:13_500, other:2_800 },
+  { date:'2026-02-01', label:'Feb', contributions:198_000, merch:14_200, other:3_100 },
+  { date:'2026-03-01', label:'Mar', contributions:215_000, merch:16_000, other:3_500 },
+  { date:'2026-04-01', label:'Apr', contributions:245_000, merch:18_500, other:4_100 },
+  { date:'2026-05-01', label:'May', contributions:270_000, merch:20_000, other:4_600 },
+]
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Default org configuration — replace with actual org data on import
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_ORG = {
@@ -94,6 +109,10 @@ export function AppProvider({ children }) {
   const [previousActuals, setPreviousActuals] = useState(null)
   const [previousBudget,  setPreviousBudget]  = useState(null)
 
+  // Monthly income (contributions / merch / other) — importable via CSV
+  const [incomeMonths, setIncomeMonths] = useState(DEFAULT_INCOME_MONTHS)
+  const [previousIncome, setPreviousIncome] = useState(null)
+
   // Selected budget scenario
   const availableScenarios = useMemo(() => getScenarios(budgetFlat), [budgetFlat])
   const [selectedScenario, setSelectedScenario] = useState('Planned Spend')
@@ -163,6 +182,19 @@ export function AppProvider({ children }) {
   // Keep importBudget as alias for replaceBudget (backward compat)
   function importBudget(rows) { replaceBudget(rows) }
 
+  // Income months — append / replace (saves undo history)
+  function appendIncome(rows) {
+    setIncomeMonths(prev => [...prev, ...rows])
+  }
+  function replaceIncome(rows) {
+    setIncomeMonths(prev => { setPreviousIncome(prev); return rows })
+  }
+  function restorePreviousIncome() {
+    if (!previousIncome) return
+    setIncomeMonths(previousIncome)
+    setPreviousIncome(null)
+  }
+
   // Restore previous actuals
   function restorePreviousActuals() {
     if (!previousActuals) return
@@ -211,6 +243,9 @@ export function AppProvider({ children }) {
     previousBudget, restorePreviousBudget,
     appendActuals, replaceActuals, replaceActualsByRange,
     appendBudget, replaceBudget, replaceBudgetByRange,
+    // Income months (importable)
+    incomeMonths, appendIncome, replaceIncome,
+    previousIncome, restorePreviousIncome,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
