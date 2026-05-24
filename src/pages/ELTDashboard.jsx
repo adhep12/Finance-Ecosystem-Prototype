@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
 } from 'recharts'
 import {
   ChevronDown, Pencil, Plus, X, Check, ChevronRight, ChevronLeft,
@@ -137,6 +137,142 @@ const ELT_MOCK = {
   },
   expenseLines: { staff: 1_245_800, contract: 87_250, technology: 154_320, travel: 33_870, otherGenAdmin: 65_940 },
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fiscal month calendar for date-range filtering
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FISCAL_MONTHS = [
+  {date:'2025-06-01',label:'Jun'},{date:'2025-07-01',label:'Jul'},
+  {date:'2025-08-01',label:'Aug'},{date:'2025-09-01',label:'Sep'},
+  {date:'2025-10-01',label:'Oct'},{date:'2025-11-01',label:'Nov'},
+  {date:'2025-12-01',label:'Dec'},{date:'2026-01-01',label:'Jan'},
+  {date:'2026-02-01',label:'Feb'},{date:'2026-03-01',label:'Mar'},
+  {date:'2026-04-01',label:'Apr'},{date:'2026-05-01',label:'May'},
+]
+
+// Year-to-color palette (index 0 = current FY, 1 = 1yr back, etc.)
+const CURRENT_FY     = 2026
+const YEAR_PALETTE   = ['var(--color-accent)','#C05A2F','#E8A838','#9BA8B5','#C8D0D8']
+function yearColor(year) {
+  const dist = CURRENT_FY - parseInt(year)
+  return YEAR_PALETTE[Math.max(0, Math.min(dist, YEAR_PALETTE.length - 1))]
+}
+
+// Per-row colors for P&L % bars
+const PL_ROW_COLORS = {
+  'contributions':'var(--color-accent)',
+  'merch':'var(--color-accent)',
+  'other-inc':'var(--color-accent)',
+  'staff':'#C05A2F',
+  'contract':'#E8A838',
+  'technology':'#2A7B8C',
+  'travel':'#D98F1C',
+  'other-exp':'#9BA8B5',
+}
+
+// Monthly actual, budget, prior-year breakdowns (index 0=Jun…11=May)
+const ELT_MO_ACT = {
+  contributions:      [200_000,195_000,210_000,188_000,220_000,265_000,310_000,185_000,198_000,215_000,245_000,270_000],
+  merchandiseRevenue: [ 14_200, 13_800, 15_400, 13_200, 16_100, 19_500, 23_000, 13_500, 14_200, 16_000, 18_500, 20_000],
+  otherIncome:        [  3_100,  3_000,  3_400,  2_900,  3_600,  4_200,  4_800,  2_800,  3_100,  3_500,  4_100,  4_600],
+  staff:              [ 98_000,100_000,102_000,101_000,103_000,104_000,105_000, 99_000,101_000,103_000,104_000,125_800],
+  contract:           [  7_200,  6_800,  7_500,  7_000,  7_800,  7_200,  6_900,  7_100,  6_800,  7_500,  7_250,  8_200],
+  technology:         [ 11_800, 12_400, 13_200, 12_100, 12_800, 13_500, 14_200, 12_000, 13_100, 14_800, 15_420, 14_000],
+  travel:             [  2_400,  2_100,  3_200,  2_800,  3_100,  3_500,  2_100,  2_400,  2_900,  3_300,  3_870,  3_300],
+  otherGenAdmin:      [  5_200,  4_900,  5_600,  4_800,  5_500,  6_000,  5_800,  5_100,  5_400,  5_900,  5_940,  6_800],
+}
+const ELT_MO_BUD = {
+  contributions:      [198_000,193_000,208_000,185_000,218_000,262_000,308_000,182_000,195_000,213_000,242_000,268_000],
+  merchandiseRevenue: [ 13_500, 13_000, 14_600, 12_500, 15_200, 18_500, 21_800, 12_800, 13_500, 15_200, 17_500, 19_200],
+  otherIncome:        [  2_900,  2_800,  3_200,  2_700,  3_400,  4_000,  4_600,  2_600,  2_900,  3_300,  3_800,  4_300],
+  staff:              [ 99_000,101_000,103_000,102_000,104_000,105_000,106_000,100_000,102_000,105_000,106_000,147_000],
+  contract:           [  7_500,  7_100,  7_800,  7_200,  8_000,  7_500,  7_200,  7_400,  7_000,  7_800,  7_500,  8_500],
+  technology:         [ 12_200, 12_800, 13_600, 12_500, 13_200, 14_000, 14_600, 12_400, 13_600, 15_200, 16_000, 14_400],
+  travel:             [  2_600,  2_300,  3_500,  3_000,  3_300,  3_800,  2_300,  2_600,  3_100,  3_600,  4_200,  3_600],
+  otherGenAdmin:      [  5_500,  5_200,  5_900,  5_100,  5_800,  6_300,  6_100,  5_400,  5_700,  6_200,  6_300,  7_200],
+}
+const ELT_MO_PRI = {
+  contributions:      [185_000,178_000,192_000,171_000,198_000,240_000,285_000,168_000,180_000,198_000,221_000,250_000],
+  merchandiseRevenue: [ 13_200, 12_600, 14_200, 12_100, 14_800, 17_800, 21_200, 12_400, 13_100, 14_700, 16_800, 18_300],
+  otherIncome:        [  2_800,  2_700,  3_100,  2_600,  3_300,  3_900,  4_400,  2_500,  2_800,  3_200,  3_700,  4_200],
+  expenses:           [123_000,119_000,128_000,122_000,131_000,140_000,145_000,118_000,124_000,132_000,138_000,160_000],
+}
+
+function filterELTByRange(dateRange) {
+  const s = dateRange?.startDate || '2025-06-01'
+  const e = dateRange?.endDate   || '2026-05-31'
+  const idxs = FISCAL_MONTHS.reduce((acc,m,i) => (m.date >= s && m.date <= e ? [...acc,i] : acc), [])
+  function sum(arr) { return idxs.reduce((t,i) => t + (arr[i]||0), 0) }
+  const contributions    = sum(ELT_MO_ACT.contributions)
+  const merchandiseRevenue = sum(ELT_MO_ACT.merchandiseRevenue)
+  const otherIncome      = sum(ELT_MO_ACT.otherIncome)
+  const staff            = sum(ELT_MO_ACT.staff)
+  const contract         = sum(ELT_MO_ACT.contract)
+  const technology       = sum(ELT_MO_ACT.technology)
+  const travel           = sum(ELT_MO_ACT.travel)
+  const otherGenAdmin    = sum(ELT_MO_ACT.otherGenAdmin)
+  const months = idxs.map(i => FISCAL_MONTHS[i])
+  const rangeLabel = months.length === 0 ? 'No data' : months.length === 1
+    ? months[0].label
+    : `${months[0].label} – ${months[months.length-1].label}`
+  return {
+    giving: { contributions, merchandiseRevenue, otherIncome },
+    budget: {
+      contributions: sum(ELT_MO_BUD.contributions),
+      merchandiseRevenue: sum(ELT_MO_BUD.merchandiseRevenue),
+      otherIncome: sum(ELT_MO_BUD.otherIncome),
+      staff: sum(ELT_MO_BUD.staff), contract: sum(ELT_MO_BUD.contract),
+      technology: sum(ELT_MO_BUD.technology), travel: sum(ELT_MO_BUD.travel),
+      otherGenAdmin: sum(ELT_MO_BUD.otherGenAdmin),
+    },
+    priorYear: {
+      contributions: sum(ELT_MO_PRI.contributions),
+      merchandiseRevenue: sum(ELT_MO_PRI.merchandiseRevenue),
+      otherIncome: sum(ELT_MO_PRI.otherIncome),
+      expenses: sum(ELT_MO_PRI.expenses),
+    },
+    expenseLines: { staff, contract, technology, travel, otherGenAdmin },
+    cash: ELT_MOCK.cash,
+    forecast: {
+      contributions: sum(ELT_MO_BUD.contributions),
+      merchandiseRevenue: sum(ELT_MO_BUD.merchandiseRevenue),
+      otherIncome: sum(ELT_MO_BUD.otherIncome),
+    },
+    monthsInRange: idxs.length,
+    rangeLabel,
+  }
+}
+
+// Multi-year patron monthly data (index 0=Jun…11=May, null = not yet)
+const PATRON_MONTHLY_YEARS = {
+  '2026': [195,210,225,198,215,242,290,185,195,220,230,null],
+  '2025': [175,188,195,182,200,218,260,170,178,195,205,274],
+  '2024': [158,172,178,165,183,199,240,155,162,178,188,252],
+  '2023': [142,155,161,149,167,182,220,140,147,162,172,231],
+  '2022': [128,140,146,135,152,166,202,127,133,148,157,212],
+}
+const PATRON_MONTHLY_DATA = FISCAL_MONTHS.map((m,i) => {
+  const obj = { month: m.label }
+  Object.entries(PATRON_MONTHLY_YEARS).forEach(([yr,data]) => { obj[`y${yr}`] = data[i] })
+  return obj
+})
+
+// Yearly patron base: recurring giving $ per fiscal year
+const PATRON_BASE_YEARLY = [
+  { year:'2022', total:5_470_000 },
+  { year:'2023', total:5_980_000 },
+  { year:'2024', total:6_830_000 },
+  { year:'2025', total:7_600_000 },
+  { year:'2026', total:7_970_000 },
+]
+
+// Budget scenarios (for selector)
+const BUDGET_SCENARIOS = [
+  { id:'original', name:'Original Budget (FY26)' },
+  { id:'revised-q1', name:'Revised Budget — Q1' },
+  { id:'conservative', name:'Conservative Scenario' },
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // P&L Account-level drill-down data
@@ -1329,9 +1465,9 @@ function PatronBaseChartCard({ data, editMode, onRemove }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WATCH_STATUSES = {
-  'needs-attention': { label: 'NEEDS ATTENTION', pill: 'bg-red-50 text-red-600 border border-red-200' },
-  'monitoring':      { label: 'MONITORING',       pill: 'bg-blue-50 text-blue-600 border border-blue-200' },
-  'on-track':        { label: 'ON TRACK',          pill: 'bg-emerald-50 text-emerald-600 border border-emerald-200' },
+  'needs-attention': { label: 'NEEDS ATTENTION', pill: 'bg-red-100 text-red-700 border border-red-200' },
+  'monitoring':      { label: 'MONITORING',       pill: 'bg-sky-100 text-sky-700 border border-sky-200' },
+  'on-track':        { label: 'ON TRACK',          pill: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
 }
 
 function EditableArea({ value, onChange, editMode, className='', rows=3, placeholder='' }) {
