@@ -19,6 +19,7 @@ import TransactionImportFlow from './TransactionImportFlow'
 import BudgetImportFlow from './BudgetImportFlow'
 import MasterTransactionsEditor from './MasterTransactionsEditor'
 import PatronImportFlow from './PatronImportFlow'
+import CashFlowImportFlow from './CashFlowImportFlow'
 import { useOrgSettings } from '../hooks/useRegistry'
 import { formatCurrency, formatOverUnder } from '../utils/formatters'
 import {
@@ -1475,6 +1476,7 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
     { id:'transactions', label:'Transactions' },
     { id:'budget',       label:'Budget' },
     { id:'patron',       label:'Patron Data' },
+    { id:'cashflow',     label:'Cash Flow' },
     { id:'actuals',      label:'Actuals (legacy)' },
     { id:'budget_legacy',label:'Budget (legacy)' },
     { id:'income',       label:'Income (legacy)' },
@@ -1512,8 +1514,11 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
       {/* Patron data — aggregated monthly metrics from gift-level CSV */}
       {subTab==='patron' && <PatronImportFlow/>}
 
+      {/* Cash flow — monthly ending-balance snapshots */}
+      {subTab==='cashflow' && <CashFlowImportFlow/>}
+
       {/* Legacy in-memory import tabs */}
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && (
+      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && (
         <div className="flex items-center justify-between">
           <div>
             <div className="font-semibold text-sm text-gray-800">Import {SUB_TABS.find(t=>t.id===subTab)?.label}</div>
@@ -1529,7 +1534,7 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
         </div>
       )}
 
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && (
+      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && (
         <div className="flex gap-2">
           {[['replace','Replace all'],['append','Append']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setMode(id)}
@@ -1540,15 +1545,15 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
         </div>
       )}
 
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && !preview && !success && <DropZone onFile={f=>handleFile(subTab,f)}/>}
+      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && !preview && !success && <DropZone onFile={f=>handleFile(subTab,f)}/>}
 
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && error && (
+      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
           {error}<button onClick={reset} className="ml-2 text-red-400 hover:text-red-600"><X size={12}/></button>
         </div>
       )}
 
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && preview && (
+      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && preview && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -1566,7 +1571,7 @@ function MasterImportTab({ appendActuals, replaceActuals, appendBudget, replaceB
         </div>
       )}
 
-      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && success && (
+      {subTab!=='transactions' && subTab!=='budget' && subTab!=='patron' && subTab!=='cashflow' && success && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
             <Check size={14}/> {success}
