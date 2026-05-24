@@ -28,24 +28,14 @@ import {
 } from '../utils/dataProcessing'
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
-import { DEPT_NAMES } from '../data/mockData'
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
-
-const ALL_DEPTS = Object.keys(DEPT_NAMES)
 
 const DEPT_COLORS  = { '101':'#0EA5A0','102':'#C05A2F','103':'#E8A838' }
 const FIELD_COLORS = { department:'#0EA5A0', category:'#C05A2F', account:'#E8A838', grant:'#4A2E5A', vendor:'#9BA8B5' }
 const FIELD_LABELS = { department:'Department', category:'Category', account:'Account', grant:'Grant', vendor:'Vendor' }
 const ALL_DRILL_FIELDS = ['department','category','account','grant','vendor']
-
-const INCOME_BUDGET_MONTHLY = {
-  contributions: [230_000,280_000,295_000,195_000,205_000,220_000,250_000,275_000],
-  merch:         [ 16_500, 20_000, 22_000, 14_000, 14_500, 16_000, 18_000, 19_500],
-  other:         [  3_500,  4_000,  4_500,  2_800,  3_000,  3_400,  4_000,  4_500],
-}
 
 // Chart preset catalogue
 const CHART_PRESETS = [
@@ -142,14 +132,20 @@ function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, income
     }))
   }
   if(preset.source==='bva'){
-    const byMonth   = groupByMonth(inRange)
-    const n         = numMonthsInRange(startDate, endDate)
-    const budgetRows= budgetFlat.filter(b=>b.scenario===scenario)
-    const monthlyBudget = budgetRows.reduce((s,b)=>s+b.monthlyAmount,0)
+    const byMonth    = groupByMonth(inRange)
+    const budgetRows = budgetFlat.filter(b=>b.scenario===scenario)
+    // Build per-month budget map (new period-based shape) or legacy flat total
+    const budgetByMonth = {}
+    let legacyMonthly = 0
+    for(const b of budgetRows){
+      if(b.period != null) budgetByMonth[b.period] = (budgetByMonth[b.period]||0) + (b.amount||0)
+      else legacyMonthly += (b.monthlyAmount||0)
+    }
+    const hasPeriod = Object.keys(budgetByMonth).length > 0
     return incMonths.map(m=>({
       label:  m.label,
       actual: Math.round((byMonth[monthKey(m.date)]||0)/1000),
-      budget: Math.round(monthlyBudget/1000),
+      budget: Math.round((hasPeriod ? (budgetByMonth[monthKey(m.date)]||0) : legacyMonthly)/1000),
     }))
   }
   if(preset.source==='dept'){
@@ -157,7 +153,7 @@ function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, income
       acc[t.department]=(acc[t.department]||0)+t.amount; return acc
     },{})
     return Object.entries(byDept).map(([dept,amt])=>({
-      dept: DEPT_NAMES[dept]||dept, amount: Math.round(amt/1000),
+      dept, amount: Math.round(amt/1000),
     })).sort((a,b)=>b.amount-a.amount)
   }
   if(preset.source==='category'){
@@ -226,7 +222,9 @@ function MasterDatePicker({ dateRange, onApplyPreset, onApplyCustom, onClose }){
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
-  const allActive = !activeDepts || activeDepts.size === ALL_DEPTS.length
+  const { deptNames } = useApp()
+  const allDepts = Object.keys(deptNames)
+  const allActive = !activeDepts || activeDepts.size === allDepts.length
   return (
     <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-52 py-2">
       <button onClick={()=>{ onSelectAll(); onClose() }}
@@ -235,16 +233,17 @@ function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
         All Teams
       </button>
       <div className="border-t border-gray-100 my-1"/>
-      {ALL_DEPTS.map(code=>{
+      {allDepts.map(code=>{
         const active = !activeDepts || activeDepts.has(code)
+        const color  = DEPT_COLORS[code] || '#9BA8B5'
         return (
           <button key={code} onClick={()=>onToggle(code)}
             className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors">
             <div className={`w-3.5 h-3.5 rounded flex items-center justify-center flex-shrink-0`}
-              style={{ backgroundColor: active ? DEPT_COLORS[code] : 'transparent', border:`2px solid ${DEPT_COLORS[code]}` }}>
+              style={{ backgroundColor: active ? color : 'transparent', border:`2px solid ${color}` }}>
               {active && <Check size={9} className="text-white"/>}
             </div>
-            <span className={active?'text-gray-800':'text-gray-400'}>{DEPT_NAMES[code]}</span>
+            <span className={active?'text-gray-800':'text-gray-400'}>{deptNames[code] || code}</span>
           </button>
         )
       })}
@@ -279,7 +278,9 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
     return ()=>document.removeEventListener('mousedown', handler)
   },[])
 
-  const allActive = !activeDepts || activeDepts.size === ALL_DEPTS.length
+  const { deptNames } = useApp()
+  const allDepts  = Object.keys(deptNames)
+  const allActive = !activeDepts || activeDepts.size === allDepts.length
   const teamLabel = allActive ? 'All Teams' : `${activeDepts.size} Team${activeDepts.size!==1?'s':''}`
 
   return (
@@ -354,8 +355,13 @@ function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, 
   const totalExpenses = useMemo(()=>inRange.reduce((s,t)=>s+t.amount,0),[inRange])
   const totalIncome   = useMemo(()=>incomeInRange.reduce((s,m)=>s+(m.contributions+m.merch+m.other),0),[incomeInRange])
   const totalBudget   = useMemo(()=>{
-    const n = numMonthsInRange(startDate, endDate)
-    return budgetFlat.filter(b=>b.scenario===scenario).reduce((s,b)=>s+b.monthlyAmount*n,0)
+    const startM = startDate.substring(0,7)
+    const endM   = endDate.substring(0,7)
+    const n      = numMonthsInRange(startDate, endDate)
+    return budgetFlat.filter(b=>b.scenario===scenario).reduce((s,b)=>{
+      if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
+      return s + (b.monthlyAmount||0) * n
+    }, 0)
   },[budgetFlat,scenario,startDate,endDate])
 
   let value, sub, subColor='text-gray-400'
@@ -907,23 +913,30 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const { deptNames } = useApp()
   const { startDate, endDate } = dateRange
   const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
-  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
 
-  const depts = activeDepts ? [...activeDepts] : ALL_DEPTS
+  const allDepts = Object.keys(deptNames)
+  const depts    = activeDepts ? [...activeDepts] : allDepts
+
+  const startM = startDate.substring(0,7)
+  const endM   = endDate.substring(0,7)
 
   const cards = useMemo(()=>depts.map(code=>{
     const dActuals = inRange.filter(t=>t.department===code)
     const actual   = dActuals.reduce((s,t)=>s+t.amount,0)
-    // Budget: sum categories belonging to this dept
+    // Budget: sum rows for this dept (handles period-based and legacy shapes)
     const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code)
     const n = numMonthsInRange(startDate,endDate)
-    const budget = dBudgetRows.reduce((s,b)=>s+b.monthlyAmount*n,0)
+    const budget = dBudgetRows.reduce((s,b)=>{
+      if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
+      return s + (b.monthlyAmount||0) * n
+    }, 0)
     const pct = budget>0 ? Math.round(actual/budget*100) : null
     const delta = actual - budget
     return { code, actual, budget, pct, delta }
-  }),[depts,inRange,budgetFlat,scenario,startDate,endDate])
+  }),[depts,inRange,budgetFlat,scenario,startDate,endDate,startM,endM])
 
   return (
     <div className="flex gap-3 px-5 py-3 border-b border-gray-100 overflow-x-auto">
@@ -933,7 +946,7 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
         return (
           <div key={code} className="flex-shrink-0 bg-white rounded-xl border border-gray-100 px-4 py-3 min-w-[170px]"
             style={{borderLeftColor:color,borderLeftWidth:3,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
-            <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{color}}>{DEPT_NAMES[code]||code}</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{color}}>{deptNames[code]||code}</div>
             <div className="text-base font-bold text-gray-900">{formatCurrency(actual)}</div>
             <div className="text-[11px] text-gray-400">{budget>0?`of ${formatCurrency(budget)}`:'No budget'}</div>
             {pct!==null && (
@@ -1096,6 +1109,7 @@ function MasterTableHeader({ drillOrder, scenario, sortCol, sortDir, onSort }){
 }
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const { deptNames } = useApp()
   const [drillOrder, setDrillOrder] = useLocalStorage('master-drill-order',['department','category','account','vendor'])
   const [hidden,     setHidden]     = useLocalStorage('master-bd-hidden',[])
   const [viewMode,   setViewMode]   = useState('summary')
@@ -1162,7 +1176,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
       {viewMode==='calendar' && (
         <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
           <CalendarBreakdownView transactions={unhidden} budgetFlat={budgetFlat} selectedScenario={scenario}
-            drillOrder={drillOrder} dateRange={dateRange} deptNames={DEPT_NAMES}
+            drillOrder={drillOrder} dateRange={dateRange} deptNames={deptNames}
             activeDepts={activeDepts} onHide={hideRow}/>
         </div>
       )}
@@ -1190,7 +1204,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               <button onClick={()=>setSelectedTx(null)}><X size={16} className="text-gray-400"/></button>
             </div>
             <div className="space-y-2 text-sm">
-              {[['Amount',formatCurrency(selectedTx.amount,{compact:false})],['Date',selectedTx.date],['Department',DEPT_NAMES[selectedTx.department]||selectedTx.department],['Category',selectedTx.category],['Account',selectedTx.account],selectedTx.grant&&['Grant',selectedTx.grant],selectedTx.description&&['Note',selectedTx.description]].filter(Boolean).map(([k,v])=>(
+              {[['Amount',formatCurrency(selectedTx.amount,{compact:false})],['Date',selectedTx.date],['Department',deptNames[selectedTx.department]||selectedTx.department],['Category',selectedTx.category],['Account',selectedTx.account],selectedTx.grant&&['Grant',selectedTx.grant],selectedTx.description&&['Note',selectedTx.description]].filter(Boolean).map(([k,v])=>(
                 <div key={k} className="flex gap-3"><span className="text-gray-400 w-24 flex-shrink-0">{k}</span><span className="text-gray-800">{v}</span></div>
               ))}
             </div>
@@ -1258,7 +1272,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
   const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
   const deptRows = useMemo(()=>activeDepts ? inRange.filter(t=>activeDepts.has(t.department)) : inRange,[inRange,activeDepts])
 
-  const allTeams    = useMemo(()=>getUniqueValues(deptRows,'department').map(d=>DEPT_NAMES[d]||d),[deptRows])
+  const allTeams    = useMemo(()=>getUniqueValues(deptRows,'department').map(d=>deptNames[d]||d),[deptRows,deptNames])
   const allCats     = useMemo(()=>getUniqueValues(deptRows,'category'),[deptRows])
   const allVendors  = useMemo(()=>getUniqueValues(deptRows,'vendor'),[deptRows])
   const allGrants   = useMemo(()=>getUniqueValues(deptRows,'grant').filter(Boolean),[deptRows])
@@ -1267,7 +1281,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
     let rows = deptRows
     const q = search.trim().toLowerCase()
     if(q) rows = rows.filter(t=>[t.vendor,t.description,t.category,t.account,t.grant].some(v=>v?.toLowerCase().includes(q)))
-    if(teamFilter.length)   rows = rows.filter(t=>teamFilter.includes(DEPT_NAMES[t.department]||t.department))
+    if(teamFilter.length)   rows = rows.filter(t=>teamFilter.includes(deptNames[t.department]||t.department))
     if(catFilter.length)    rows = rows.filter(t=>catFilter.includes(t.category))
     if(vendorFilter.length) rows = rows.filter(t=>vendorFilter.includes(t.vendor))
     if(grantFilter.length)  rows = rows.filter(t=>grantFilter.includes(t.grant))
@@ -1338,7 +1352,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
                 <td className="px-4 py-2 font-medium text-gray-800 max-w-[180px] truncate">{t.vendor}</td>
                 <td className="px-4 py-2"><span className="text-xs px-2 py-0.5 rounded-full font-medium"
                   style={{backgroundColor:(DEPT_COLORS[t.department]||'#9BA8B5')+'20',color:DEPT_COLORS[t.department]||'#9BA8B5'}}>
-                  {DEPT_NAMES[t.department]||t.department}</span></td>
+                  {deptNames[t.department]||t.department}</span></td>
                 <td className="px-4 py-2 text-gray-600">{t.category}</td>
                 <td className="px-4 py-2 text-gray-400 text-xs">{t.account}</td>
                 <td className="px-4 py-2 text-right font-semibold text-gray-800 tabular-nums">{formatCurrency(t.amount,{compact:false})}</td>
@@ -1599,7 +1613,10 @@ export default function MasterDashboard(){
     incomeMonths, appendIncome, replaceIncome, previousIncome, restorePreviousIncome,
     availableScenarios, selectedScenario, setSelectedScenario,
     previousActuals, restorePreviousActuals,
+    deptNames,
   } = useApp()
+
+  const allDepts = useMemo(() => Object.keys(deptNames), [deptNames])
 
   // Load org settings for fiscal year config (used by MasterTransactionsEditor)
   const { settings: orgSettings } = useOrgSettings()
@@ -1616,7 +1633,7 @@ export default function MasterDashboard(){
 
   function toggleDept(code){
     setActiveDepts(prev=>{
-      const all = new Set(ALL_DEPTS)
+      const all = new Set(allDepts)
       const cur = prev || all
       const next = new Set(cur)
       if(next.has(code)) next.delete(code); else next.add(code)

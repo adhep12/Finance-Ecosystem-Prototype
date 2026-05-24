@@ -1,21 +1,6 @@
-import React, { createContext, useContext, useState, useMemo } from 'react'
-import { mockActuals, mockBudgetFlat, mockComments, DEPT_NAMES, DEPT_TEAM_GROUPS } from '../data/mockData'
+import React, { createContext, useContext, useState, useMemo, useEffect } from 'react'
+import { supabase, ORG_ID } from '../lib/supabase'
 import { getScenarios } from '../utils/dataProcessing'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Default monthly income data (Oct 2025 → May 2026 — 8-month fiscal window)
-// Importable via Financial Data CSV upload.
-// ─────────────────────────────────────────────────────────────────────────────
-export const DEFAULT_INCOME_MONTHS = [
-  { date:'2025-10-01', label:'Oct', contributions:220_000, merch:16_100, other:3_600 },
-  { date:'2025-11-01', label:'Nov', contributions:265_000, merch:19_500, other:4_200 },
-  { date:'2025-12-01', label:'Dec', contributions:310_000, merch:23_000, other:4_800 },
-  { date:'2026-01-01', label:'Jan', contributions:185_000, merch:13_500, other:2_800 },
-  { date:'2026-02-01', label:'Feb', contributions:198_000, merch:14_200, other:3_100 },
-  { date:'2026-03-01', label:'Mar', contributions:215_000, merch:16_000, other:3_500 },
-  { date:'2026-04-01', label:'Apr', contributions:245_000, merch:18_500, other:4_100 },
-  { date:'2026-05-01', label:'May', contributions:270_000, merch:20_000, other:4_600 },
-]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Default org configuration — replace with actual org data on import
@@ -99,25 +84,141 @@ function getPresetRange(preset, org) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Income keyword matchers — used to split income actuals into buckets
+// ─────────────────────────────────────────────────────────────────────────────
+const MERCH_WORDS = ['merch', 'merchandise', 'store', 'product', 'retail', 'wholesale']
+const OTHER_WORDS = ['other', 'misc', 'miscellaneous', 'licensing', 'royalt', 'speaking']
+
+// ─────────────────────────────────────────────────────────────────────────────
 const AppContext = createContext(null)
 
 export function AppProvider({ children }) {
   const [orgConfig, setOrgConfig] = useState(DEFAULT_ORG)
-  const [actuals, setActuals] = useState(mockActuals)
-  const [budgetFlat, setBudgetFlat] = useState(mockBudgetFlat)
-  const [comments, setComments] = useState(mockComments)
+
+  // ── Core data state (populated from Supabase on mount) ───────────────────
+  const [actuals,    setActuals]    = useState([])
+  const [budgetFlat, setBudgetFlat] = useState([])
+  const [comments,   setComments]   = useState([])
+
+  // Undo history
   const [previousActuals, setPreviousActuals] = useState(null)
   const [previousBudget,  setPreviousBudget]  = useState(null)
 
-  // Monthly income (contributions / merch / other) — importable via CSV
-  const [incomeMonths, setIncomeMonths] = useState(DEFAULT_INCOME_MONTHS)
+  // Loading / error flags
+  const [isLoading, setIsLoading] = useState(true)
+  const [dbError,   setDbError]   = useState(null)
+
+  // ── Manually-imported income months (legacy CSV upload flow) ─────────────
+  // Falls back to derived when empty (see derivedIncomeMonths below).
+  const [importedIncomeMonths, setImportedIncomeMonths] = useState([])
   const [previousIncome, setPreviousIncome] = useState(null)
 
-  // Selected budget scenario
+  // ── On mount: load actuals + budget from Supabase views ──────────────────
+  async function loadFromDB() {
+    setIsLoading(true)
+    setDbError(null)
+    try {
+      // v_transactions_enriched — already filters deleted=false via the view
+      const { data: txRows, error: txErr } = await supabase
+        .from('v_transactions_enriched')
+        .select('*')
+        .eq('org_id', ORG_ID)
+      if (txErr) throw txErr
+
+      // v_budget_enriched — same
+      const { data: budgetRows, error: bErr } = await supabase
+        .from('v_budget_enriched')
+        .select('*')
+        .eq('org_id', ORG_ID)
+      if (bErr) throw bErr
+
+      setActuals(mapActuals(txRows || []))
+      setBudgetFlat(mapBudget(budgetRows || []))
+    } catch (err) {
+      console.error('[AppContext] DB load error:', err)
+      setDbError(err.message || 'Failed to load data')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => { loadFromDB() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Field mapping — adds backward-compat aliases on each row ─────────────
+  //
+  // Utility functions (filterActualsByRange, groupByField, etc.) were written
+  // before Supabase and use field names like `.department`, `.account`,
+  // `.grant`.  The view returns `dept_code`, `account_name`, `grant_code`.
+  // We add the aliased fields here so callers don't need to change.
+  function mapActuals(rows) {
+    return rows.map(row => ({
+      ...row,
+      department: row.dept_code,    // filterActualsByRange, groupByField
+      account:    row.account_name,  // groupByField
+      grant:      row.grant_code,    // groupByField
+    }))
+  }
+
+  function mapBudget(rows) {
+    return rows.map(row => ({
+      ...row,
+      department: row.dept_code,    // calcBudgetByCategory
+    }))
+  }
+
+  // ── Derived: dept name map from loaded actuals ────────────────────────────
+  const deptNames = useMemo(() =>
+    actuals.reduce((map, t) => {
+      if (t.dept_code && t.dept_name) map[t.dept_code] = t.dept_name
+      return map
+    }, {})
+  , [actuals])
+
+  // ── Derived: income months from income-type actuals ───────────────────────
+  //
+  // Groups actuals where record_type = 'income' by calendar month,
+  // then splits each month's total into contributions / merch / other
+  // using keyword matching on category + account_name.
+  //
+  // Only used when no manual import has been performed (importedIncomeMonths).
+  const derivedIncomeMonths = useMemo(() => {
+    const byMonth = {}
+    for (const t of actuals) {
+      if (t.record_type !== 'income') continue
+      const ym = (t.date || '').substring(0, 7)
+      if (!ym) continue
+      if (!byMonth[ym]) byMonth[ym] = { contributions: 0, merch: 0, other: 0 }
+      const cat  = (t.category || '').toLowerCase()
+      const acct = (t.account  || '').toLowerCase()
+      const isMerch = MERCH_WORDS.some(w => cat.includes(w) || acct.includes(w))
+      const isOther = OTHER_WORDS.some(w => cat.includes(w) || acct.includes(w))
+      if (isMerch)      byMonth[ym].merch        += t.amount
+      else if (isOther) byMonth[ym].other         += t.amount
+      else              byMonth[ym].contributions += t.amount
+    }
+    return Object.entries(byMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([ym, vals]) => {
+        const [y, mo] = ym.split('-')
+        const d = new Date(parseInt(y), parseInt(mo) - 1, 1)
+        return {
+          date:  `${ym}-01`,
+          label: d.toLocaleString('en-US', { month: 'short' }),
+          ...vals,
+        }
+      })
+  }, [actuals])
+
+  // Prefer manual import; fall back to derived from actuals
+  const incomeMonths = importedIncomeMonths.length > 0
+    ? importedIncomeMonths
+    : derivedIncomeMonths
+
+  // ── Scenario selector ─────────────────────────────────────────────────────
   const availableScenarios = useMemo(() => getScenarios(budgetFlat), [budgetFlat])
   const [selectedScenario, setSelectedScenario] = useState('Planned Spend')
 
-  // Date range — default to full fiscal year
+  // ── Date range — default to full fiscal year ──────────────────────────────
   const defaultRange = getPresetRange('full-fiscal', DEFAULT_ORG)
   const [dateRange, setDateRange] = useState({
     preset: 'full-fiscal',
@@ -128,86 +229,69 @@ export function AppProvider({ children }) {
   // Briefing exclusions (category names to exclude from briefing only)
   const [briefingExclusions, setBriefingExclusions] = useState([])
 
-  // Apply a preset to date range
   function applyPreset(preset) {
-    const range = getPresetRange(preset, orgConfig)
-    setDateRange({ preset, ...range })
+    setDateRange({ preset, ...getPresetRange(preset, orgConfig) })
   }
-
   function applyCustomRange(startDate, endDate) {
     setDateRange({ preset: 'custom', startDate, endDate })
   }
 
-  // Append new rows to existing actuals
+  // ── Actuals mutations ─────────────────────────────────────────────────────
   function appendActuals(rows) {
-    setActuals(prev => [...prev, ...rows])
+    setActuals(prev => [...prev, ...mapActuals(rows)])
   }
-
-  // Replace all actuals (save previous first)
   function replaceActuals(rows) {
-    setActuals(prev => { setPreviousActuals(prev); return rows })
+    setActuals(prev => { setPreviousActuals(prev); return mapActuals(rows) })
   }
-
-  // Replace actuals only within a date range
   function replaceActualsByRange(rows, startDate, endDate) {
     setActuals(prev => {
       setPreviousActuals(prev)
       const outside = prev.filter(t => t.date < startDate || t.date > endDate)
-      return [...outside, ...rows]
+      return [...outside, ...mapActuals(rows)]
     })
   }
-
-  // Keep importActuals as alias for replaceActuals (backward compat)
   function importActuals(rows) { replaceActuals(rows) }
-
-  // Append new budget rows
-  function appendBudget(rows) {
-    setBudgetFlat(prev => [...prev, ...rows])
-  }
-
-  // Replace all budget
-  function replaceBudget(rows) {
-    setBudgetFlat(prev => { setPreviousBudget(prev); return rows })
-  }
-
-  // Replace budget by date range (on date field if present)
-  function replaceBudgetByRange(rows, startDate, endDate) {
-    setBudgetFlat(prev => {
-      setPreviousBudget(prev)
-      const outside = prev.filter(b => !b.date || b.date < startDate || b.date > endDate)
-      return [...outside, ...rows]
-    })
-  }
-
-  // Keep importBudget as alias for replaceBudget (backward compat)
-  function importBudget(rows) { replaceBudget(rows) }
-
-  // Income months — append / replace (saves undo history)
-  function appendIncome(rows) {
-    setIncomeMonths(prev => [...prev, ...rows])
-  }
-  function replaceIncome(rows) {
-    setIncomeMonths(prev => { setPreviousIncome(prev); return rows })
-  }
-  function restorePreviousIncome() {
-    if (!previousIncome) return
-    setIncomeMonths(previousIncome)
-    setPreviousIncome(null)
-  }
-
-  // Restore previous actuals
   function restorePreviousActuals() {
     if (!previousActuals) return
     setActuals(previousActuals)
     setPreviousActuals(null)
   }
+
+  // ── Budget mutations ──────────────────────────────────────────────────────
+  function appendBudget(rows) {
+    setBudgetFlat(prev => [...prev, ...mapBudget(rows)])
+  }
+  function replaceBudget(rows) {
+    setBudgetFlat(prev => { setPreviousBudget(prev); return mapBudget(rows) })
+  }
+  function replaceBudgetByRange(rows, startDate, endDate) {
+    setBudgetFlat(prev => {
+      setPreviousBudget(prev)
+      const outside = prev.filter(b => !b.date || b.date < startDate || b.date > endDate)
+      return [...outside, ...mapBudget(rows)]
+    })
+  }
+  function importBudget(rows) { replaceBudget(rows) }
   function restorePreviousBudget() {
     if (!previousBudget) return
     setBudgetFlat(previousBudget)
     setPreviousBudget(null)
   }
 
-  // Comments
+  // ── Income months mutations (manual import flow) ──────────────────────────
+  function appendIncome(rows) {
+    setImportedIncomeMonths(prev => [...prev, ...rows])
+  }
+  function replaceIncome(rows) {
+    setImportedIncomeMonths(prev => { setPreviousIncome(prev); return rows })
+  }
+  function restorePreviousIncome() {
+    if (!previousIncome) return
+    setImportedIncomeMonths(previousIncome)
+    setPreviousIncome(null)
+  }
+
+  // ── Comments ──────────────────────────────────────────────────────────────
   function addComment(comment) {
     setComments(prev => [...prev, {
       status: 'open',
@@ -230,22 +314,32 @@ export function AppProvider({ children }) {
 
   const value = {
     orgConfig, setOrgConfig,
-    deptNames: DEPT_NAMES,
-    deptTeamGroups: DEPT_TEAM_GROUPS,
+    // Dept maps — derived from real data; empty until actuals load
+    deptNames,
+    deptTeamGroups: {},
+    // Core data
     actuals, importActuals,
     budgetFlat, importBudget,
+    // Scenario + date range
     availableScenarios,
     selectedScenario, setSelectedScenario,
     dateRange, applyPreset, applyCustomRange,
+    // Briefing
     briefingExclusions, setBriefingExclusions,
+    // Comments
     comments, addComment, updateCommentStatus, updateComment, deleteComment,
+    // Undo history
     previousActuals, restorePreviousActuals,
-    previousBudget, restorePreviousBudget,
+    previousBudget,  restorePreviousBudget,
+    // Granular mutations
     appendActuals, replaceActuals, replaceActualsByRange,
     appendBudget, replaceBudget, replaceBudgetByRange,
-    // Income months (importable)
+    // Income months (manual import or derived from actuals)
     incomeMonths, appendIncome, replaceIncome,
     previousIncome, restorePreviousIncome,
+    // DB state
+    isLoading, dbError,
+    refreshFromDB: loadFromDB,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

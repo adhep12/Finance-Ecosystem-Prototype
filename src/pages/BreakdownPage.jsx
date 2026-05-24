@@ -5,7 +5,6 @@ import {
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { DEPT_NAMES } from '../data/mockData'
 import {
   filterActualsByRange,
   calcBudgetByCategory,
@@ -75,6 +74,7 @@ function fieldColor(field) { return FIELD_COLORS[field] || '#6B7280' }
 // ─────────────────────────────────────────────────────────────────────────────
 
 function DeptFilterBar({ allDepts, activeDepts, onToggle, onSelectAll }) {
+  const { deptNames } = useApp()
   return (
     <div className="flex items-center gap-2 flex-wrap px-5 py-3 border-b border-gray-100">
       <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mr-1">Departments</span>
@@ -91,7 +91,7 @@ function DeptFilterBar({ allDepts, activeDepts, onToggle, onSelectAll }) {
             }`}
           >
             <span className="opacity-60">{code}</span>
-            {DEPT_NAMES[code] || `Dept ${code}`}
+            {deptNames[code] || `Dept ${code}`}
           </button>
         )
       })}
@@ -552,7 +552,7 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
           {[
             { label: 'Date',        value: t.date,        icon: Calendar  },
             { label: 'Amount',      value: formatCurrency(t.amount), icon: null },
-            { label: 'Department',  value: DEPT_NAMES[t.department] || t.department, icon: Building2 },
+            { label: 'Department',  value: deptNames[t.department] || t.department, icon: Building2 },
             { label: 'Category',    value: t.category,    icon: Tag       },
             { label: 'Account',     value: t.account,     icon: null      },
             { label: 'Grant',       value: t.grant || '—', icon: null     },
@@ -630,7 +630,7 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function BreakdownPage() {
-  const { actuals, budgetFlat, selectedScenario, dateRange, addComment } = useApp()
+  const { actuals, budgetFlat, selectedScenario, dateRange, addComment, deptNames } = useApp()
 
   // ── Persistent state (survives navigation & reload) ───────────────────────
   const [drillOrder,      setDrillOrder]      = useLocalStorage('bd-drill-order',   ['category', 'account', 'grant', 'vendor'])
@@ -823,7 +823,7 @@ export default function BreakdownPage() {
               selectedScenario={selectedScenario}
               drillOrder={drillOrder}
               dateRange={dateRange}
-              deptNames={DEPT_NAMES}
+              deptNames={deptNames}
               activeDepts={activeDepts}
               onHide={hideRow}
             />

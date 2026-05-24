@@ -13,6 +13,7 @@ import {
   Download, Calendar, Trash2
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 
@@ -33,58 +34,10 @@ const ROLLING_QUOTES = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Initial Monthly Summaries Mock Data
+// Monthly Summaries — start empty; added via the Summary tab UI
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INITIAL_SUMMARIES = {
-  'April 2026': {
-    prepared: 'April 22, 2026',
-    title: "A steady month. Giving is strong, expenses disciplined, and we're ahead of plan.",
-    overallSummary: "Six months into the fiscal year, contributions are running 7.6% ahead of budget and expenses 4.2% under. That leaves us nearly $3.8M in net operating income — almost double the budgeted position at this point in the year. Supporter growth continues, though new acquisition deserves attention.",
-    monthlyNarrative: "April contributions came in at $3.2M, right on budget for the month. Our strength continues to come from a generous and growing supporter base — over 24,800 total active supporters giving this month — and the year-over-year increase continues its quiet compounding. Secondary revenue lines softened slightly in April, but not enough to move the overall picture.\n\nOn the expense side, every major category came in at or below budget for April. Staff costs are the single largest line at 51.5% of total income, and we remain disciplined there. Technology infrastructure spiked in March due to a planned refresh, but YTD stays within 2.4% of plan — a timing effect, not a new trend.",
-    financials: {
-      giving:   { actual: 3_200_000, budget: 3_180_000, priorYear: 2_950_000 },
-      expenses: { actual: 2_780_000, budget: 2_840_000, priorYear: 2_620_000 },
-    },
-    kpiCards: ['monthly-giving', 'monthly-expenses', 'monthly-net'],
-    keyTakeaways: [
-      { id: 'kt1', title: "Supporter base is the engine.", body: "24,800 total active supporters in April (recurring + one-time), up 11.3% year-over-year. Sustained growth in the recurring base is our most durable financial asset." },
-      { id: 'kt2', title: "We're running ahead of plan.", body: "YTD net operating income is $3.83M versus a budgeted $1.98M. We built the budget conservatively, and both sides of the ledger are moving in our favor." },
-      { id: 'kt3', title: "New supporter acquisition on the rise.", body: "April brought in 2,510 total new supporters — our highest April count in two years. Engagement campaigns and digital channels are driving the improvement." },
-      { id: 'kt4', title: "Reserves remain healthy.", body: "Estimated cash above the operating floor at month-end was $16.2M, up $1.0M from March. This reflects the final tranche of a planned grant receivable." },
-    ],
-    watchAreas: [
-      { id: 'wa1', status: 'needs-attention', title: "New supporter acquisition — monitoring closely.", body: "February and March 2026 both landed below prior-year pace. Reviewing marketing mix and digital conversion paths. Expect a deeper read in May." },
-      { id: 'wa2', status: 'needs-attention', title: "Secondary revenue under forecast.", body: "April secondary revenue was 37% of budget. YTD we're at 87% of plan. Q1 product mix underperformed; adjusting promotion timing and re-evaluating the catalog." },
-      { id: 'wa3', status: 'monitoring', title: "Staff cost growth vs. output velocity.", body: "Staff is on budget YTD but growing with the team. We're tracking output per FTE across all production categories to make sure cost growth tracks output growth." },
-      { id: 'wa4', status: 'on-track', title: "Cash Strategy", body: "Two months of operating cash in primary checking; three months in a money market account earning ~3%; $10M allocated across private credit and real estate earning ~9%; remaining cash in laddered CDs maturing every four weeks at ~3.65%." },
-    ],
-    reserves: "Operating reserves ended April at an estimated $21.4M — roughly eight months of operating expenses. We remain inside the board-approved band. A scheduled Q2 allocation to strategic initiatives will process in May.",
-    reservesNote: "Exact reserve totals are confirmed at the end of each quarter. Q2 close report drops May 15.",
-  },
-  'March 2026': {
-    prepared: 'March 21, 2026',
-    title: "March closes strong. Supporter growth on pace, expenses tight, reserves building.",
-    overallSummary: "Five months into the fiscal year, we're tracking well ahead of the net operating income plan. Contributions remain solid, secondary revenue picked up sequentially, and expenses remained disciplined across every category. The supporter base grew by 220 net new supporters in March.",
-    monthlyNarrative: "March giving came in at $3.1M, slightly ahead of the $3.0M budget for the month. Supporter growth continues to compound quietly — the recurring base is the foundation that gives us confidence in the forward outlook.\n\nExpenses were well-managed across the board. The planned technology refresh created a one-time spike in infrastructure costs, which is already reflected in the April actuals. Staff costs remain on plan.",
-    financials: {
-      giving:   { actual: 3_100_000, budget: 3_000_000, priorYear: 2_870_000 },
-      expenses: { actual: 2_690_000, budget: 2_750_000, priorYear: 2_540_000 },
-    },
-    kpiCards: ['monthly-giving', 'monthly-expenses', 'monthly-net'],
-    keyTakeaways: [
-      { id: 'kt1', title: "Giving ahead of monthly budget.", body: "March came in at $3.1M vs. $3.0M budgeted — a solid $100K beat driven by spontaneous giving and a late-month engagement push." },
-      { id: 'kt2', title: "Expenses under budget by $60K.", body: "Disciplined spend across all categories. The technology refresh timing shift means March looks elevated vs. plan but April will normalize." },
-      { id: 'kt3', title: "Net supporter count up 220.", body: "March added 220 net new supporters, in line with seasonal trends. The recurring base remains the primary growth lever." },
-    ],
-    watchAreas: [
-      { id: 'wa1', status: 'monitoring', title: "Technology refresh cost timing.", body: "The Q2 infrastructure refresh was planned but arrived in March. YTD total remains within 2.4% of annual plan." },
-      { id: 'wa2', status: 'on-track', title: "Staff and benefits on plan.", body: "No material variances. Headcount is stable and benefits enrollment is consistent with budget assumptions." },
-    ],
-    reserves: "Operating reserves ended March at an estimated $20.4M — roughly seven and a half months of operating expenses. This is within the board-approved range.",
-    reservesNote: "Q2 reserve allocation will be processed in May following the quarterly close.",
-  },
-}
+const INITIAL_SUMMARIES = {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generate available months (last 18 months before current)
@@ -103,40 +56,7 @@ function getAvailableMonths() {
 
 const ALL_MONTHS = getAvailableMonths()
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ELT Mock Dashboard Data
-// ─────────────────────────────────────────────────────────────────────────────
-
-const ELT_MOCK = {
-  giving: { contributions: 2_450_000, merchandiseRevenue: 185_430, otherIncome: 42_100 },
-  budget: { contributions: 2_380_000, merchandiseRevenue: 175_000, otherIncome: 38_000,
-            staff: 1_280_000, contract: 95_000, technology: 158_000, travel: 38_000, otherGenAdmin: 72_000 },
-  priorYear: { contributions: 2_210_000, merchandiseRevenue: 168_200, otherIncome: 37_500, expenses: 1_520_000 },
-  cash: { current: 3_240_000, priorMonth: 3_105_000, priorYear: 2_870_000 },
-  forecast: { contributions: 2_350_000, merchandiseRevenue: 178_000, otherIncome: 40_000 },
-  patrons: {
-    total: 24_810, priorMonth: 24_420, priorYear: 22_300,
-    newThisPeriod: 2_510, newPriorPeriod: 2_340,
-    avgGift: 98.72, avgGiftPriorYear: 94.30,
-    monthly: [
-      { month: 'Jun', newCY: 195, newPY: 175 }, { month: 'Jul', newCY: 210, newPY: 188 },
-      { month: 'Aug', newCY: 225, newPY: 195 }, { month: 'Sep', newCY: 198, newPY: 182 },
-      { month: 'Oct', newCY: 215, newPY: 200 }, { month: 'Nov', newCY: 242, newPY: 218 },
-      { month: 'Dec', newCY: 290, newPY: 260 }, { month: 'Jan', newCY: 185, newPY: 170 },
-      { month: 'Feb', newCY: 195, newPY: 178 }, { month: 'Mar', newCY: 220, newPY: 195 },
-      { month: 'Apr', newCY: 230, newPY: 205 }, { month: 'May', newCY: 305, newPY: 274 },
-    ],
-    base: [
-      { month: 'Jun', total: 22_600 }, { month: 'Jul', total: 22_800 },
-      { month: 'Aug', total: 23_020 }, { month: 'Sep', total: 23_215 },
-      { month: 'Oct', total: 23_420 }, { month: 'Nov', total: 23_660 },
-      { month: 'Dec', total: 23_945 }, { month: 'Jan', total: 24_130 },
-      { month: 'Feb', total: 24_320 }, { month: 'Mar', total: 24_540 },
-      { month: 'Apr', total: 24_770 }, { month: 'May', total: 24_810 },
-    ],
-  },
-  expenseLines: { staff: 1_245_800, contract: 87_250, technology: 154_320, travel: 33_870, otherGenAdmin: 65_940 },
-}
+// ELT_MOCK removed — all data now sourced from Supabase / AppContext
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fiscal month calendar for date-range filtering
@@ -171,164 +91,146 @@ const PL_ROW_COLORS = {
   'other-exp':'#9BA8B5',
 }
 
-// Monthly actual, budget, prior-year breakdowns (index 0=Jun…11=May)
-const ELT_MO_ACT = {
-  contributions:      [200_000,195_000,210_000,188_000,220_000,265_000,310_000,185_000,198_000,215_000,245_000,270_000],
-  merchandiseRevenue: [ 14_200, 13_800, 15_400, 13_200, 16_100, 19_500, 23_000, 13_500, 14_200, 16_000, 18_500, 20_000],
-  otherIncome:        [  3_100,  3_000,  3_400,  2_900,  3_600,  4_200,  4_800,  2_800,  3_100,  3_500,  4_100,  4_600],
-  staff:              [ 98_000,100_000,102_000,101_000,103_000,104_000,105_000, 99_000,101_000,103_000,104_000,125_800],
-  contract:           [  7_200,  6_800,  7_500,  7_000,  7_800,  7_200,  6_900,  7_100,  6_800,  7_500,  7_250,  8_200],
-  technology:         [ 11_800, 12_400, 13_200, 12_100, 12_800, 13_500, 14_200, 12_000, 13_100, 14_800, 15_420, 14_000],
-  travel:             [  2_400,  2_100,  3_200,  2_800,  3_100,  3_500,  2_100,  2_400,  2_900,  3_300,  3_870,  3_300],
-  otherGenAdmin:      [  5_200,  4_900,  5_600,  4_800,  5_500,  6_000,  5_800,  5_100,  5_400,  5_900,  5_940,  6_800],
-}
-const ELT_MO_BUD = {
-  contributions:      [198_000,193_000,208_000,185_000,218_000,262_000,308_000,182_000,195_000,213_000,242_000,268_000],
-  merchandiseRevenue: [ 13_500, 13_000, 14_600, 12_500, 15_200, 18_500, 21_800, 12_800, 13_500, 15_200, 17_500, 19_200],
-  otherIncome:        [  2_900,  2_800,  3_200,  2_700,  3_400,  4_000,  4_600,  2_600,  2_900,  3_300,  3_800,  4_300],
-  staff:              [ 99_000,101_000,103_000,102_000,104_000,105_000,106_000,100_000,102_000,105_000,106_000,147_000],
-  contract:           [  7_500,  7_100,  7_800,  7_200,  8_000,  7_500,  7_200,  7_400,  7_000,  7_800,  7_500,  8_500],
-  technology:         [ 12_200, 12_800, 13_600, 12_500, 13_200, 14_000, 14_600, 12_400, 13_600, 15_200, 16_000, 14_400],
-  travel:             [  2_600,  2_300,  3_500,  3_000,  3_300,  3_800,  2_300,  2_600,  3_100,  3_600,  4_200,  3_600],
-  otherGenAdmin:      [  5_500,  5_200,  5_900,  5_100,  5_800,  6_300,  6_100,  5_400,  5_700,  6_200,  6_300,  7_200],
-}
-const ELT_MO_PRI = {
-  contributions:      [185_000,178_000,192_000,171_000,198_000,240_000,285_000,168_000,180_000,198_000,221_000,250_000],
-  merchandiseRevenue: [ 13_200, 12_600, 14_200, 12_100, 14_800, 17_800, 21_200, 12_400, 13_100, 14_700, 16_800, 18_300],
-  otherIncome:        [  2_800,  2_700,  3_100,  2_600,  3_300,  3_900,  4_400,  2_500,  2_800,  3_200,  3_700,  4_200],
-  expenses:           [123_000,119_000,128_000,122_000,131_000,140_000,145_000,118_000,124_000,132_000,138_000,160_000],
-}
+// ELT_MO_ACT / ELT_MO_BUD / ELT_MO_PRI removed — data sourced from Supabase / AppContext
 
-function filterELTByRange(dateRange, incomeMonths, actuals) {
+/**
+ * Derive ELT dashboard data from real AppContext data + Supabase fetches.
+ *
+ * @param {object}   dateRange
+ * @param {Array}    incomeMonths  — from AppContext (derived or manually imported)
+ * @param {Array}    actuals       — from AppContext (mapped from v_transactions_enriched)
+ * @param {Array}    budgetFlat    — from AppContext (mapped from v_budget_enriched)
+ * @param {string}   scenario      — selected budget scenario
+ * @param {Array}    cashData      — rows from v_cash_flow_enriched (or [])
+ * @param {Array}    patronData    — rows from v_patron_trends (or [])
+ */
+function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData) {
   const s = dateRange?.startDate || '2025-06-01'
   const e = dateRange?.endDate   || '2026-05-31'
-  const idxs = FISCAL_MONTHS.reduce((acc,m,i) => (m.date >= s && m.date <= e ? [...acc,i] : acc), [])
-  function sum(arr) { return idxs.reduce((t,i) => t + (arr[i]||0), 0) }
 
-  // ── Income: from AppContext.incomeMonths (auto-updates on import) ──────────
+  // Build sorted YYYY-MM list for the range
+  const months = []
+  const cur = new Date(s.substring(0,4), parseInt(s.substring(5,7))-1, 1)
+  const end = new Date(e.substring(0,4), parseInt(e.substring(5,7))-1, 1)
+  while (cur <= end) {
+    const y = cur.getFullYear(), m = String(cur.getMonth()+1).padStart(2,'0')
+    months.push(`${y}-${m}`)
+    cur.setMonth(cur.getMonth()+1)
+  }
+  const monthSet = new Set(months)
+
+  // ── Income — from AppContext.incomeMonths ─────────────────────────────────
   const incInRange = (incomeMonths||[]).filter(m => m.date >= s && m.date <= e)
-  const contributions      = incInRange.reduce((t,m) => t + (m.contributions||0), 0) || sum(ELT_MO_ACT.contributions)
-  const merchandiseRevenue = incInRange.reduce((t,m) => t + (m.merch||0), 0)         || sum(ELT_MO_ACT.merchandiseRevenue)
-  const otherIncome        = incInRange.reduce((t,m) => t + (m.other||0), 0)         || sum(ELT_MO_ACT.otherIncome)
+  const contributions      = incInRange.reduce((t,m) => t + (m.contributions||0), 0)
+  const merchandiseRevenue = incInRange.reduce((t,m) => t + (m.merch||0), 0)
+  const otherIncome        = incInRange.reduce((t,m) => t + (m.other||0), 0)
 
-  // ── Expenses: from AppContext.actuals (auto-updates on import) ────────────
-  const actInRange = (actuals||[]).filter(t => t.date >= s && t.date <= e)
-  const sumCat = (...cats) => actInRange.filter(t => cats.includes(t.category)).reduce((t,r) => t + r.amount, 0)
-  const contract    = sumCat('Contract')    || sum(ELT_MO_ACT.contract)
-  const technology  = sumCat('Software','Computers') || sum(ELT_MO_ACT.technology)
-  const travel      = sumCat('Travel')      || sum(ELT_MO_ACT.travel)
-  const otherGenAdmin = actInRange.filter(t => !['Contract','Software','Computers','Travel'].includes(t.category)).reduce((t,r)=>t+r.amount,0) || sum(ELT_MO_ACT.otherGenAdmin)
-  // Staff stays from hardcoded arrays (payroll not in transaction actuals)
-  const staff = sum(ELT_MO_ACT.staff)
-  const months = idxs.map(i => FISCAL_MONTHS[i])
-  const rangeLabel = months.length === 0 ? 'No data' : months.length === 1
-    ? months[0].label
-    : `${months[0].label} – ${months[months.length-1].label}`
+  // ── Expenses — from AppContext.actuals ────────────────────────────────────
+  const actInRange = (actuals||[]).filter(t => t.date >= s && t.date <= e && t.record_type !== 'income')
+  const sumCat = (...cats) => actInRange.filter(t => cats.some(c => (t.category||'').toLowerCase().includes(c.toLowerCase()))).reduce((t,r) => t + (r.amount||0), 0)
+  const staff         = sumCat('Staff','Payroll','Salaries','Compensation')
+  const contract      = sumCat('Contract','Professional Services','Consulting','Legal')
+  const technology    = sumCat('Software','Computers','Technology','Infrastructure','Hosting')
+  const travel        = sumCat('Travel','Lodging','Meals','Transportation')
+  const otherGenAdmin = actInRange
+    .filter(t => !['Staff','Payroll','Salaries','Compensation','Contract','Professional Services','Consulting','Legal',
+                    'Software','Computers','Technology','Infrastructure','Hosting','Travel','Lodging','Meals','Transportation']
+               .some(c => (t.category||'').toLowerCase().includes(c.toLowerCase())))
+    .reduce((t,r) => t + (r.amount||0), 0)
+
+  // ── Budget — from AppContext.budgetFlat ───────────────────────────────────
+  const budInRange = (budgetFlat||[]).filter(b => b.scenario === scenario && b.period && monthSet.has(b.period))
+  const budSumCat = (rt, ...cats) => budInRange
+    .filter(b => (!rt || b.record_type === rt) && cats.some(c => (b.category||'').toLowerCase().includes(c.toLowerCase())))
+    .reduce((s,b) => s + (b.amount||0), 0)
+  const budTotalIncome = budInRange.filter(b => b.record_type === 'income').reduce((s,b) => s+(b.amount||0), 0)
+  const budMerch       = budSumCat('income','merch','merchandise','store')
+  const budOther       = budSumCat('income','other','misc','licensing','royalt','speaking')
+  const budContrib     = Math.max(0, budTotalIncome - budMerch - budOther)
+  const budStaff       = budSumCat('expense','staff','payroll','salaries','compensation')
+  const budContract    = budSumCat('expense','contract','professional','consulting','legal')
+  const budTech        = budSumCat('expense','software','computers','technology','infrastructure','hosting')
+  const budTravel      = budSumCat('expense','travel','lodging','meals','transportation')
+  const budOtherExp    = budInRange.filter(b => b.record_type === 'expense').reduce((s,b) => s+(b.amount||0), 0)
+    - budStaff - budContract - budTech - budTravel
+
+  // ── Cash — from v_cash_flow_enriched ─────────────────────────────────────
+  const cashRows   = (cashData||[]).filter(r => r.period >= s.substring(0,7) && r.period <= e.substring(0,7))
+  const latestCash = cashRows.length > 0
+    ? cashRows.reduce((l,r) => !l || r.period > l.period ? r : l, null)
+    : null
+  const cash = latestCash
+    ? { current: latestCash.cash_balance||0, priorMonth: latestCash.prior_month_balance||0, priorYear: latestCash.prior_year_balance||0 }
+    : { current: 0, priorMonth: 0, priorYear: 0 }
+
+  // ── Patron data — from v_patron_trends ───────────────────────────────────
+  const patronRows  = (patronData||[]).filter(p => p.period >= s.substring(0,7) && p.period <= e.substring(0,7))
+  const latestPat   = patronRows.length > 0
+    ? patronRows.reduce((l,p) => !l || p.period > l.period ? p : l, null)
+    : null
+  const patrons = latestPat
+    ? {
+        total:            latestPat.total_active_patrons    || 0,
+        priorMonth:       0,
+        priorYear:        0,
+        newThisPeriod:    patronRows.reduce((s,p) => s + (p.new_patrons_total||0), 0),
+        newPriorPeriod:   0,
+        avgGift:          latestPat.avg_gift_size           || 0,
+        avgGiftPriorYear: 0,
+        monthly: patronRows.map(p => {
+          const [y,m] = p.period.split('-')
+          return { month: new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'}), newCY: p.new_patrons_total||0, newPY: 0 }
+        }),
+        base: patronRows.map(p => {
+          const [y,m] = p.period.split('-')
+          return { month: new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'}), total: p.total_active_patrons||0 }
+        }),
+      }
+    : { total:0, priorMonth:0, priorYear:0, newThisPeriod:0, newPriorPeriod:0, avgGift:0, avgGiftPriorYear:0, monthly:[], base:[] }
+
+  // ── Range label ───────────────────────────────────────────────────────────
+  const labels = months.map(ym => {
+    const [y,m] = ym.split('-')
+    return new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'})
+  })
+  const rangeLabel = labels.length === 0 ? 'No data'
+    : labels.length === 1 ? labels[0]
+    : `${labels[0]} – ${labels[labels.length-1]}`
+
   return {
-    giving: { contributions, merchandiseRevenue, otherIncome },
-    budget: {
-      contributions: sum(ELT_MO_BUD.contributions),
-      merchandiseRevenue: sum(ELT_MO_BUD.merchandiseRevenue),
-      otherIncome: sum(ELT_MO_BUD.otherIncome),
-      staff: sum(ELT_MO_BUD.staff), contract: sum(ELT_MO_BUD.contract),
-      technology: sum(ELT_MO_BUD.technology), travel: sum(ELT_MO_BUD.travel),
-      otherGenAdmin: sum(ELT_MO_BUD.otherGenAdmin),
-    },
-    priorYear: {
-      contributions: sum(ELT_MO_PRI.contributions),
-      merchandiseRevenue: sum(ELT_MO_PRI.merchandiseRevenue),
-      otherIncome: sum(ELT_MO_PRI.otherIncome),
-      expenses: sum(ELT_MO_PRI.expenses),
-    },
-    expenseLines: { staff, contract, technology, travel, otherGenAdmin },
-    cash: ELT_MOCK.cash,
-    forecast: {
-      contributions: sum(ELT_MO_BUD.contributions),
-      merchandiseRevenue: sum(ELT_MO_BUD.merchandiseRevenue),
-      otherIncome: sum(ELT_MO_BUD.otherIncome),
-    },
-    patrons: ELT_MOCK.patrons,
-    monthsInRange: idxs.length,
+    giving:      { contributions, merchandiseRevenue, otherIncome },
+    budget:      { contributions: budContrib, merchandiseRevenue: budMerch, otherIncome: budOther, staff: budStaff, contract: budContract, technology: budTech, travel: budTravel, otherGenAdmin: Math.max(0,budOtherExp) },
+    priorYear:   { contributions: 0, merchandiseRevenue: 0, otherIncome: 0, expenses: 0 },
+    expenseLines:{ staff, contract, technology, travel, otherGenAdmin },
+    cash,
+    forecast:    { contributions: budContrib, merchandiseRevenue: budMerch, otherIncome: budOther },
+    patrons,
+    monthsInRange: months.length,
     rangeLabel,
   }
 }
 
-// Multi-year patron monthly data (index 0=Jun…11=May, null = not yet)
-const PATRON_MONTHLY_YEARS = {
-  '2026': [195,210,225,198,215,242,290,185,195,220,230,null],
-  '2025': [175,188,195,182,200,218,260,170,178,195,205,274],
-  '2024': [158,172,178,165,183,199,240,155,162,178,188,252],
-  '2023': [142,155,161,149,167,182,220,140,147,162,172,231],
-  '2022': [128,140,146,135,152,166,202,127,133,148,157,212],
-}
-const PATRON_MONTHLY_DATA = FISCAL_MONTHS.map((m,i) => {
-  const obj = { month: m.label }
-  Object.entries(PATRON_MONTHLY_YEARS).forEach(([yr,data]) => { obj[`y${yr}`] = data[i] })
-  return obj
-})
+// PATRON_MONTHLY_YEARS / PATRON_BASE_YEARLY removed — populated from v_patron_trends
+// Placeholder empty arrays used until real data loads
+const PATRON_MONTHLY_DATA = []
+const PATRON_BASE_YEARLY  = []
 
-// Yearly patron base: recurring giving $ per fiscal year
-const PATRON_BASE_YEARLY = [
-  { year:'2022', total:5_470_000 },
-  { year:'2023', total:5_980_000 },
-  { year:'2024', total:6_830_000 },
-  { year:'2025', total:7_600_000 },
-  { year:'2026', total:7_970_000 },
-]
-
-// Budget scenarios (for selector)
-const BUDGET_SCENARIOS = [
-  { id:'original', name:'Original Budget (FY26)' },
-  { id:'revised-q1', name:'Revised Budget — Q1' },
-  { id:'conservative', name:'Conservative Scenario' },
-]
+// BUDGET_SCENARIOS removed — populated from AppContext.availableScenarios
 
 // ─────────────────────────────────────────────────────────────────────────────
-// P&L Account-level drill-down data
+// P&L Account-level drill-down — populated dynamically from actuals/budget
 // ─────────────────────────────────────────────────────────────────────────────
 
+// PL_ACCOUNTS: keys kept for component compatibility; data cleared — derived from actuals/budget
 const PL_ACCOUNTS = {
-  'contributions': [
-    { label: 'Recurring Giving',          actual: 1_980_000, budget: 1_950_000 },
-    { label: 'One-Time / Spontaneous',    actual: 380_000,   budget: 340_000 },
-    { label: 'Corporate & Grants',        actual: 90_000,    budget: 90_000 },
-  ],
-  'merch': [
-    { label: 'Online Store',              actual: 112_500,   budget: 105_000 },
-    { label: 'Event Sales',               actual: 42_930,    budget: 40_000 },
-    { label: 'Wholesale / Reseller',      actual: 30_000,    budget: 30_000 },
-  ],
-  'other-inc': [
-    { label: 'Licensing & Royalties',     actual: 24_600,    budget: 22_000 },
-    { label: 'Speaking & Events',         actual: 10_500,    budget: 10_000 },
-    { label: 'Miscellaneous',             actual: 7_000,     budget: 6_000 },
-  ],
-  'staff': [
-    { label: 'Salaries & Wages',          actual: 1_012_400, budget: 1_040_000 },
-    { label: 'Benefits & Payroll Tax',    actual: 180_800,   budget: 185_000 },
-    { label: 'Contractors (Staff Aug)',   actual: 52_600,    budget: 55_000 },
-  ],
-  'contract': [
-    { label: 'Creative & Production',     actual: 42_800,    budget: 45_000 },
-    { label: 'Legal & Professional',      actual: 28_450,    budget: 30_000 },
-    { label: 'Consulting',                actual: 16_000,    budget: 20_000 },
-  ],
-  'technology': [
-    { label: 'Software Subscriptions',    actual: 68_200,    budget: 70_000 },
-    { label: 'Infrastructure & Hosting',  actual: 52_400,    budget: 58_000 },
-    { label: 'Hardware & Equipment',      actual: 33_720,    budget: 30_000 },
-  ],
-  'travel': [
-    { label: 'Domestic Travel',           actual: 21_300,    budget: 22_000 },
-    { label: 'International Travel',      actual: 8_570,     budget: 10_000 },
-    { label: 'Lodging & Meals',           actual: 4_000,     budget: 6_000 },
-  ],
-  'other-exp': [
-    { label: 'Office Supplies',           actual: 12_400,    budget: 14_000 },
-    { label: 'Facility Costs',            actual: 28_600,    budget: 28_000 },
-    { label: 'Insurance',                 actual: 14_940,    budget: 15_000 },
-    { label: 'Miscellaneous',             actual: 10_000,    budget: 15_000 },
-  ],
+  'contributions': [],
+  'merch':         [],
+  'other-inc':     [],
+  'staff':         [],
+  'contract':      [],
+  'technology':    [],
+  'travel':        [],
+  'other-exp':     [],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -590,6 +492,7 @@ const ELT_TABS = [
 ]
 
 function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom, activeBudget, onSetBudget }) {
+  const { availableScenarios } = useApp()
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showBudgetPicker, setShowBudgetPicker] = useState(false)
   const pickerRef = useRef(null)
@@ -646,7 +549,7 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
           <button onClick={() => setShowBudgetPicker(v=>!v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
             <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET SCENARIO</span>
-            <span className="max-w-[120px] truncate">{activeBudget?.name || 'Original Budget'}</span>
+            <span className="max-w-[120px] truncate">{activeBudget || 'Budget'}</span>
             <ChevronDown size={12} className="text-gray-400"/>
           </button>
           {showBudgetPicker && (
@@ -654,14 +557,15 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
               <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Budget Scenario</div>
               <p className="text-xs text-gray-500 mb-3 leading-relaxed">Select which budget to compare actuals against. Import additional budgets in the Finance dashboard.</p>
               <div className="space-y-1">
-                {BUDGET_SCENARIOS.map((s,i) => (
-                  <button key={s.id} onClick={()=>{ onSetBudget(s); setShowBudgetPicker(false) }}
-                    disabled={i>0}
-                    className={`w-full text-left px-3 py-2 rounded-lg border transition-all text-sm ${activeBudget?.id===s.id ? 'bg-gray-900 text-white border-gray-900' : i>0 ? 'text-gray-300 border-gray-100 bg-gray-50 cursor-not-allowed' : 'text-gray-800 border-gray-200 bg-white hover:border-gray-400'}`}>
-                    {s.name}
-                    {i>0 && <span className="ml-2 text-[9px] uppercase tracking-widest opacity-60">import to enable</span>}
-                  </button>
-                ))}
+                {availableScenarios.length === 0
+                  ? <p className="text-xs text-gray-400 italic">No budget imported yet.</p>
+                  : availableScenarios.map(s => (
+                    <button key={s} onClick={()=>{ onSetBudget(s); setShowBudgetPicker(false) }}
+                      className={`w-full text-left px-3 py-2 rounded-lg border transition-all text-sm ${activeBudget===s ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-800 border-gray-200 bg-white hover:border-gray-400'}`}>
+                      {s}
+                    </button>
+                  ))
+                }
               </div>
             </div>
           )}
@@ -1944,6 +1848,10 @@ const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 const DEFAULT_PATRON_CHARTS  = ['new-patron-chart','patron-base-chart']
 
 function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
+  const { budgetFlat, availableScenarios } = useApp()
+  // activeBudget is a scenario string from AppContext.availableScenarios
+  const scenario = activeBudget || availableScenarios[0] || ''
+
   const now = new Date()
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -1959,7 +1867,17 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   const [showAddPatronChart, setShowAddPatronChart] = useState(false)
   const [manualCards,        setManualCards]        = useState({})
 
-  const d = filterELTByRange(dateRange, incomeMonths, actuals)
+  // Supabase: cash flow + patron trends
+  const [cashData,   setCashData]   = useState([])
+  const [patronData, setPatronData] = useState([])
+  useEffect(() => {
+    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
+      .then(({ data }) => setCashData(data || []))
+    supabase.from('v_patron_trends').select('*').eq('org_id', ORG_ID)
+      .then(({ data }) => setPatronData(data || []))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const d = filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData)
   const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
@@ -3145,8 +3063,17 @@ function DocumentsTab({ orgConfig }) {
 // PDF Export
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateReportHTML({ sections, dateRange, orgConfig, summaries, summaryMonth }) {
-  const d           = ELT_MOCK
+function generateReportHTML({ sections, dateRange, orgConfig, summaries, summaryMonth, eltData }) {
+  // Use real data passed in; fall back to zero-filled stubs so the report always renders
+  const EMPTY_ELT = {
+    giving:      { contributions:0, merchandiseRevenue:0, otherIncome:0 },
+    budget:      { contributions:0, merchandiseRevenue:0, otherIncome:0, staff:0, contract:0, technology:0, travel:0, otherGenAdmin:0 },
+    priorYear:   { contributions:0, merchandiseRevenue:0, otherIncome:0, expenses:0 },
+    expenseLines:{ staff:0, contract:0, technology:0, travel:0, otherGenAdmin:0 },
+    forecast:    { contributions:0, merchandiseRevenue:0, otherIncome:0 },
+    cash:        { current:0, priorMonth:0, priorYear:0 },
+  }
+  const d           = eltData || EMPTY_ELT
   const accentColor = orgConfig?.accentColor || '#00B3E5'
   const orgName     = orgConfig?.name || 'Organization'
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
@@ -3792,9 +3719,10 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals } = useApp()
+  const { orgConfig, incomeMonths, actuals, availableScenarios, selectedScenario } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
-  const [activeBudget, setActiveBudget] = useState(BUDGET_SCENARIOS[0])
+  // activeBudget is the selected scenario string (e.g. 'Planned Spend')
+  const [activeBudget, setActiveBudget] = useState(selectedScenario)
 
   const defaultRange = getELTPresetRange('fiscal-ytd', orgConfig)
   const [dateRange, setDateRange] = useState({ preset:'fiscal-ytd', ...defaultRange })

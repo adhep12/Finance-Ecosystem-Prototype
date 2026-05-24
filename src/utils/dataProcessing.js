@@ -20,10 +20,14 @@ export function filterActualsByRange(actuals, startDate, endDate, depts = null) 
 
 /**
  * Calculate total budget per category for a scenario + date range.
- * Counts the number of calendar months overlapping the range and multiplies
- * monthly amounts. Optionally restrict to specific department codes.
  *
- * @param {Array}    budgetFlat  [{ department, category, scenario, monthlyAmount }]
+ * Supports two budget row shapes:
+ *   • New (Supabase) shape: { period, amount, category, scenario, department }
+ *     — period is YYYY-MM; rows outside the date range are excluded.
+ *   • Legacy (in-memory import) shape: { monthlyAmount, category, scenario, department }
+ *     — multiplied by the number of calendar months in the range.
+ *
+ * @param {Array}    budgetFlat
  * @param {string}   scenario
  * @param {string}   startDate  YYYY-MM-DD
  * @param {string}   endDate    YYYY-MM-DD
@@ -32,20 +36,34 @@ export function filterActualsByRange(actuals, startDate, endDate, depts = null) 
 export function calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, depts = null) {
   if (!budgetFlat || !startDate || !endDate) return {}
 
-  // Count calendar months overlapping the range
-  const start = new Date(startDate)
-  const end   = new Date(endDate)
-  let months = 0
-  const cur = new Date(start.getFullYear(), start.getMonth(), 1)
-  const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
-  while (cur <= endMonth) { months++; cur.setMonth(cur.getMonth() + 1) }
+  // Build set of YYYY-MM values in range + count months (for legacy shape)
+  const monthSet = new Set()
+  let legacyMonthCount = 0
+  const cur      = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth(), 1)
+  const endMonth = new Date(new Date(endDate).getFullYear(),   new Date(endDate).getMonth(),   1)
+  while (cur <= endMonth) {
+    const y = cur.getFullYear()
+    const m = String(cur.getMonth() + 1).padStart(2, '0')
+    monthSet.add(`${y}-${m}`)
+    legacyMonthCount++
+    cur.setMonth(cur.getMonth() + 1)
+  }
 
   const result = {}
   for (const entry of budgetFlat) {
     if (entry.scenario !== scenario) continue
     if (depts && depts.length > 0 && !depts.includes(entry.department)) continue
     const key = entry.category
-    result[key] = (result[key] || 0) + entry.monthlyAmount * months
+    if (!key) continue
+
+    if (entry.period != null) {
+      // New period-based shape — only count if period falls within range
+      if (!monthSet.has(entry.period)) continue
+      result[key] = (result[key] || 0) + (entry.amount || 0)
+    } else {
+      // Legacy shape — monthly amount × number of months in range
+      result[key] = (result[key] || 0) + (entry.monthlyAmount || 0) * legacyMonthCount
+    }
   }
   return result
 }
@@ -126,7 +144,18 @@ export function buildChartSeries(
     if (depts && depts.length > 0 && !depts.includes(b.department)) return false
     return true
   })
-  const monthlyBudgetTotal = relevantBudget.reduce((s, b) => s + b.monthlyAmount, 0)
+
+  // Build per-month budget map (new shape) and legacy flat total (old shape)
+  const budgetByMonth  = {}
+  let legacyMonthlyTotal = 0
+  for (const b of relevantBudget) {
+    if (b.period != null) {
+      budgetByMonth[b.period] = (budgetByMonth[b.period] || 0) + (b.amount || 0)
+    } else {
+      legacyMonthlyTotal += (b.monthlyAmount || 0)
+    }
+  }
+  const hasPeriodBudget = Object.keys(budgetByMonth).length > 0
 
   // Aggregate actuals by month (with optional category filter)
   const filteredActuals = categoryFilter
@@ -138,7 +167,7 @@ export function buildChartSeries(
   let cumActual = 0, cumBudget = 0
   return months.map(m => {
     const actual = byMonthMap[m] || 0
-    const budget = monthlyBudgetTotal
+    const budget = hasPeriodBudget ? (budgetByMonth[m] || 0) : legacyMonthlyTotal
     cumActual += actual
     cumBudget += budget
     const [y, mo] = m.split('-')
