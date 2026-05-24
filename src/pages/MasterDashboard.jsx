@@ -17,6 +17,8 @@ import CommentsPage from './CommentsPage'
 import SetupPage from './SetupPage'
 import TransactionImportFlow from './TransactionImportFlow'
 import BudgetImportFlow from './BudgetImportFlow'
+import MasterTransactionsEditor from './MasterTransactionsEditor'
+import { useOrgSettings } from '../hooks/useRegistry'
 import { formatCurrency, formatOverUnder } from '../utils/formatters'
 import {
   filterActualsByRange, calcBudgetByCategory,
@@ -1589,6 +1591,9 @@ export default function MasterDashboard(){
     previousActuals, restorePreviousActuals,
   } = useApp()
 
+  // Load org settings for fiscal year config (used by MasterTransactionsEditor)
+  const { settings: orgSettings } = useOrgSettings()
+
   const [activeTab,   setActiveTab]   = useState('overview')
   const [activeDepts, setActiveDepts] = useState(null) // null = all
 
@@ -1627,7 +1632,7 @@ export default function MasterDashboard(){
 
       {activeTab==='overview'      && <OverviewTab {...tabProps}/>}
       {activeTab==='breakdown'     && <BreakdownTab {...tabProps}/>}
-      {activeTab==='transactions'  && <MasterTransactionsTab {...tabProps}/>}
+      {activeTab==='transactions'  && <MasterTransactionsEditor orgSettings={orgSettings}/>}
       {activeTab==='comments'      && <div className="flex-1"><CommentsPage/></div>}
       {activeTab==='import'        && (
         <MasterImportTab
