@@ -1,28 +1,6 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider } from './context/AppContext'
-
-// ── Temporary error boundary to catch blank-screen render errors ─────────────
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { error: null } }
-  static getDerivedStateFromError(error) { return { error } }
-  componentDidCatch(error, info) { console.error('[ErrorBoundary]', error, info) }
-  render() {
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 40, fontFamily: 'monospace', background: '#fff1f0', minHeight: '100vh' }}>
-          <h2 style={{ color: '#c0392b', marginBottom: 12 }}>⚠ React render error</h2>
-          <pre style={{ whiteSpace: 'pre-wrap', color: '#333', background: '#fff', padding: 16, borderRadius: 8, border: '1px solid #fbb' }}>
-            {this.state.error.toString()}
-            {'\n\nStack:\n'}
-            {this.state.error.stack}
-          </pre>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
 import BriefingPage      from './pages/BriefingPage'
 import BreakdownPage     from './pages/BreakdownPage'
 import CommentsPage      from './pages/CommentsPage'
@@ -68,14 +46,10 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <BrowserRouter>
-        <AppProvider>
-          <ErrorBoundary>
-            <AppRoutes />
-          </ErrorBoundary>
-        </AppProvider>
-      </BrowserRouter>
-    </ErrorBoundary>
+    <BrowserRouter>
+      <AppProvider>
+        <AppRoutes />
+      </AppProvider>
+    </BrowserRouter>
   )
 }

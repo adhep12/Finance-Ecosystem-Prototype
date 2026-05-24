@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react'
-import { supabase, ORG_ID } from '../lib/supabase'
+import { supabase, ORG_ID, SUPABASE_CONFIGURED } from '../lib/supabase'
 import { getScenarios } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -340,6 +340,26 @@ export function AppProvider({ children }) {
     // DB state
     isLoading, dbError,
     refreshFromDB: loadFromDB,
+  }
+
+  // If Supabase env vars are missing, show a clear config error banner
+  if (!SUPABASE_CONFIGURED) {
+    return (
+      <div style={{ padding: 40, fontFamily: 'monospace', background: '#fff1f0', minHeight: '100vh' }}>
+        <h2 style={{ color: '#c0392b', marginBottom: 12 }}>⚠ Missing Supabase configuration</h2>
+        <p style={{ color: '#333', marginBottom: 16, fontFamily: 'sans-serif' }}>
+          The app needs <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> to be set.
+        </p>
+        <p style={{ color: '#333', fontFamily: 'sans-serif', marginBottom: 8 }}><strong>For Netlify:</strong></p>
+        <p style={{ color: '#555', fontFamily: 'sans-serif' }}>
+          Go to <em>Site Settings → Environment Variables</em> and add both keys, then redeploy.
+        </p>
+        <p style={{ color: '#333', fontFamily: 'sans-serif', marginTop: 16 }}><strong>For local dev:</strong></p>
+        <p style={{ color: '#555', fontFamily: 'sans-serif' }}>
+          Create a <code>.env.local</code> file in the project root with the two variables.
+        </p>
+      </div>
+    )
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

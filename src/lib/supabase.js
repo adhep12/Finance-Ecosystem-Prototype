@@ -3,20 +3,35 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-if (!supabaseUrl || !supabaseAnon) {
-  throw new Error(
-    'Missing Supabase environment variables.\n' +
-    'Create a .env.local file with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
-  )
+// ── Guard: don't throw at module load time — let React mount and show the error ──
+// Missing env vars = deployment config problem; AppContext will surface a banner.
+export const SUPABASE_CONFIGURED = !!(supabaseUrl && supabaseAnon)
+
+// Provide a no-op stub if vars are missing so imports don't crash at module level.
+// The stub returns empty data for every query so the app renders (empty) without exploding.
+const noopClient = {
+  from: () => ({
+    select:  () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }),
+    insert:  () => Promise.resolve({ data: [], error: null }),
+    update:  () => ({ eq: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [], error: null }) }) }) }),
+    eq:      function(){ return this },
+    order:   function(){ return this },
+    limit:   function(){ return this },
+    single:  () => Promise.resolve({ data: null, error: null }),
+  }),
+  channel: () => ({ on: () => ({ subscribe: () => {} }) }),
+  removeChannel: () => {},
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnon, {
-  auth: {
-    // No auth yet — wire up in a later step
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-})
+export const supabase = SUPABASE_CONFIGURED
+  ? createClient(supabaseUrl, supabaseAnon, {
+      auth: {
+        // No auth yet — wire up in a later step
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    })
+  : noopClient
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Typed table helpers — thin wrappers that enforce soft-delete filtering
