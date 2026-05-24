@@ -146,14 +146,22 @@ function presetLabel(preset) {
 
 export default function Header() {
   const { orgConfig, availableScenarios, selectedScenario, setSelectedScenario, dateRange } = useApp()
-  const [showDatePicker, setShowDatePicker] = useState(false)
-  const pickerRef = useRef(null)
-  // Close picker on outside click
+  const [showDatePicker,     setShowDatePicker]     = useState(false)
+  const [showScenarioPicker, setShowScenarioPicker] = useState(false)
+  const pickerRef   = useRef(null)
+  const scenarioRef = useRef(null)
+
   useEffect(() => {
     function handle(e) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
-        setShowDatePicker(false)
-      }
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowDatePicker(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  useEffect(() => {
+    function handle(e) {
+      if (scenarioRef.current && !scenarioRef.current.contains(e.target)) setShowScenarioPicker(false)
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
@@ -207,21 +215,34 @@ export default function Header() {
 
         {/* Right: scenario selector + date range */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Scenario buttons */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-full px-1 py-1">
-            {availableScenarios.map(s => (
-              <button
-                key={s}
-                onClick={() => setSelectedScenario(s)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                  selectedScenario === s
-                    ? 'bg-gray-900 text-white shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {s}
-              </button>
-            ))}
+          {/* Budget Scenario dropdown */}
+          <div className="relative" ref={scenarioRef}>
+            <button
+              onClick={() => setShowScenarioPicker(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET SCENARIO</span>
+              <span className="max-w-[120px] truncate">{selectedScenario || 'Select…'}</span>
+              <ChevronDown size={12} className="text-gray-400"/>
+            </button>
+            {showScenarioPicker && (
+              <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Budget Scenario</div>
+                <p className="text-xs text-gray-500 mb-3 leading-relaxed">Select which budget to compare actuals against. Import additional budgets in the Import tab.</p>
+                <div className="space-y-1">
+                  {availableScenarios.map(s => (
+                    <button key={s} onClick={() => { setSelectedScenario(s); setShowScenarioPicker(false) }}
+                      className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-all ${
+                        selectedScenario === s
+                          ? 'bg-gray-900 text-white border-gray-900'
+                          : 'text-gray-800 border-gray-200 bg-white hover:border-gray-400'
+                      }`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Date range picker */}

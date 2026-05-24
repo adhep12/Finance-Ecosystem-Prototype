@@ -15,6 +15,7 @@ import {
 import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
 import KPIPanel from '../components/KPIPanel'
 import CommentPinFAB from '../components/CommentPinFAB'
+import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useLocation } from 'react-router-dom'
 import FloatingNav from '../components/FloatingNav'
@@ -154,6 +155,7 @@ function AddFieldMenu({ inactive, onAdd }) {
 function DrillOrderBar({
   drillOrder, setDrillOrder, openPath, setOpenPath,
   searchQuery, setSearchQuery,
+  viewMode, setViewMode,
 }) {
   const [dragIdx, setDragIdx] = useState(null)
   const [dropIdx, setDropIdx] = useState(null)
@@ -199,6 +201,22 @@ function DrillOrderBar({
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100 bg-white">
+      {/* View mode toggle */}
+      {setViewMode && (
+        <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
+          {[{id:'summary',label:'Summary'},{id:'calendar',label:'Calendar'}].map(({id, label}) => (
+            <button key={id} onClick={() => setViewMode(id)}
+              className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+
       {/* Search */}
       <div className="flex items-center gap-2 flex-shrink-0 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-56">
         <Search size={13} className="text-gray-400 flex-shrink-0" />
@@ -615,6 +633,7 @@ export default function BreakdownPage() {
   const [breakdownHidden, setBreakdownHidden] = useLocalStorage('bd-hidden',        [])
 
   // ── Transient state ───────────────────────────────────────────────────────
+  const [viewMode,      setViewMode]      = useState('summary')  // 'summary' | 'calendar'
   const [activeDepts,   setActiveDepts]   = useState(null)  // null = all active
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
@@ -758,7 +777,7 @@ export default function BreakdownPage() {
           onSelectAll={() => setActiveDepts(null)}
         />
 
-        {/* Drill order + search */}
+        {/* Drill order + search + view toggle */}
         <DrillOrderBar
           drillOrder={drillOrder}
           setDrillOrder={setDrillOrder}
@@ -766,6 +785,8 @@ export default function BreakdownPage() {
           setOpenPath={setOpenPath}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
         />
 
         {/* Hidden bar */}
@@ -775,8 +796,8 @@ export default function BreakdownPage() {
           onShowAll={() => setBreakdownHidden([])}
         />
 
-        {/* Open path breadcrumb */}
-        {openPath.length > 0 && (
+        {/* Open path breadcrumb — summary mode only */}
+        {viewMode === 'summary' && openPath.length > 0 && (
           <div className="flex items-center gap-2 px-5 py-2 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
             <span className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Drilled into</span>
             <ChevronRight size={11} className="text-gray-300" />
@@ -790,61 +811,79 @@ export default function BreakdownPage() {
           </div>
         )}
 
-        {/* Table */}
-        <div className="flex-1 overflow-y-auto">
-          <TableHeader
-            drillOrder={drillOrder}
-            selectedScenario={selectedScenario}
-            sortCol={sortCol}
-            sortDir={sortDir}
-            onSort={handleSort}
-          />
+        {/* ── Calendar view ────────────────────────────────────────────────── */}
+        {viewMode === 'calendar' && (
+          <div className="flex-1 overflow-y-auto p-4" style={{ backgroundColor: 'var(--color-primary-bg)' }}>
+            <CalendarBreakdownView
+              transactions={unhidden}
+              budgetFlat={budgetFlat}
+              selectedScenario={selectedScenario}
+              drillOrder={drillOrder}
+              dateRange={dateRange}
+              deptNames={DEPT_NAMES}
+            />
+          </div>
+        )}
 
-          {visibleRows.length === 0 && (
-            <div className="text-center py-16 text-gray-400 text-sm">
-              {searchQuery ? `No results for "${searchQuery}"` : 'No data in this date range'}
-            </div>
-          )}
+        {/* ── Summary table ─────────────────────────────────────────────────── */}
+        {viewMode === 'summary' && (
+          <div className="flex-1 overflow-y-auto">
+            <TableHeader
+              drillOrder={drillOrder}
+              selectedScenario={selectedScenario}
+              sortCol={sortCol}
+              sortDir={sortDir}
+              onSort={handleSort}
+            />
 
-          {visibleRows.map((row, i) => {
-            if (row.type === 'transaction') {
+            {visibleRows.length === 0 && (
+              <div className="text-center py-16 text-gray-400 text-sm">
+                {searchQuery ? `No results for "${searchQuery}"` : 'No data in this date range'}
+              </div>
+            )}
+
+            {visibleRows.map((row, i) => {
+              if (row.type === 'transaction') {
+                return (
+                  <TransactionRow
+                    key={`tx-${i}-${row.item.date}-${row.item.vendor}-${row.item.amount}`}
+                    row={row}
+                    onSelect={setSelectedTx}
+                  />
+                )
+              }
               return (
-                <TransactionRow
-                  key={`tx-${i}-${row.item.date}-${row.item.vendor}-${row.item.amount}`}
+                <GroupRow
+                  key={`grp-${i}-${row.field}-${row.value}`}
                   row={row}
-                  onSelect={setSelectedTx}
+                  onToggle={toggleRow}
+                  onHide={hideRow}
                 />
               )
-            }
-            return (
-              <GroupRow
-                key={`grp-${i}-${row.field}-${row.value}`}
-                row={row}
-                onToggle={toggleRow}
-                onHide={hideRow}
-              />
-            )
-          })}
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Right panel: KPI — summary mode only ─────────────────────────── */}
+      {viewMode === 'summary' && (
+        <div
+          className="w-72 flex-shrink-0 border-l border-gray-200 overflow-y-auto p-4"
+          style={{ backgroundColor: 'var(--color-primary-bg)' }}
+        >
+          <KPIPanel
+            actual={totalActual}
+            budget={totalBudget}
+            transactions={unhidden.length}
+            selectedScenario={selectedScenario}
+            actuals={unhidden}
+            budgetByCat={budgetByCat}
+          />
         </div>
-      </div>
+      )}
 
-      {/* ── Right panel: KPI ─────────────────────────────────────────────── */}
-      <div
-        className="w-72 flex-shrink-0 border-l border-gray-200 overflow-y-auto p-4"
-        style={{ backgroundColor: 'var(--color-primary-bg)' }}
-      >
-        <KPIPanel
-          actual={totalActual}
-          budget={totalBudget}
-          transactions={unhidden.length}
-          selectedScenario={selectedScenario}
-          actuals={unhidden}
-          budgetByCat={budgetByCat}
-        />
-      </div>
-
-      {/* Comment pin FAB — offset from KPI panel */}
-      <CommentPinFAB page="breakdown" rightClassName="right-[296px]" />
+      {/* Comment pin FAB */}
+      <CommentPinFAB page="breakdown" rightClassName={viewMode === 'summary' ? 'right-[296px]' : 'right-4'} />
 
       {/* Transaction modal */}
       {selectedTx && (
