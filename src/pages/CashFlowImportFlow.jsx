@@ -201,21 +201,32 @@ function computePriorBalances(rows) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Template download
+// Template & sample download
 // ─────────────────────────────────────────────────────────────────────────────
 
 function downloadTemplateSafe() {
   const content = [
     'period,cash_balance,prior_month_balance,prior_year_balance,reserve_floor',
-    '2025-10,2450000,,',
-    '2025-11,2680000,2450000,,',
-    '2025-12,3100000,2680000,,',
-    '2026-01,2920000,3100000,2450000,',
+    '2025-10,2450000,,,',
   ].join('\n')
   const blob = new Blob([content], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a'); a.href = url
   a.download = 'cashflow_import_template.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadCashFlowSample() {
+  const content = [
+    'period,cash_balance,prior_month_balance,prior_year_balance,reserve_floor',
+    '2025-10,2450000,,,',
+    '2025-11,2680000,2450000,,',
+    '2025-12,3100000,2680000,,',
+  ].join('\n')
+  const blob = new Blob([content], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = 'cashflow_import_sample.csv'; a.click()
   URL.revokeObjectURL(url)
 }
 
@@ -272,8 +283,11 @@ function DropZone({ onFile }) {
       >
         Choose File
       </button>
-      <button onClick={downloadTemplateSafe} className="px-4 py-2 text-xs font-medium border border-cyan-300 text-cyan-600 rounded-lg hover:bg-cyan-50">
-        Download Template
+      <button onClick={downloadTemplateSafe} className="px-4 py-2 text-xs font-medium border border-cyan-300 text-cyan-600 rounded-lg hover:bg-cyan-50 mr-2">
+        Blank Template
+      </button>
+      <button onClick={downloadCashFlowSample} className="px-4 py-2 text-xs font-medium border border-cyan-300 text-cyan-600 rounded-lg hover:bg-cyan-50">
+        Sample Data
       </button>
     </div>
   )
@@ -630,9 +644,14 @@ export default function CashFlowImportFlow() {
           </button>
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-gray-600">Upload your monthly cash balance export.</p>
-            <button onClick={downloadTemplateSafe} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
-              <Download size={12}/> Template
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={downloadTemplateSafe} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
+                <Download size={12}/> Blank Template
+              </button>
+              <button onClick={downloadCashFlowSample} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
+                <Download size={12}/> Sample Data
+              </button>
+            </div>
           </div>
           <DropZone onFile={handleFile}/>
         </div>

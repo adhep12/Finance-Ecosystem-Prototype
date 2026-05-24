@@ -150,7 +150,7 @@ function detectMapping(headers, savedMappings) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Template download
+// Template & sample download
 // ─────────────────────────────────────────────────────────────────────────────
 
 function downloadTemplate() {
@@ -160,6 +160,20 @@ function downloadTemplate() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a'); a.href = url
   a.download = 'patron_import_template.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
+function downloadSample() {
+  const headers = 'period,total_active_patrons,new_patrons_total,new_patrons_recurring,new_patrons_spontaneous,recurring_patron_count,recurring_giving_total,spontaneous_giving_total,avg_gift_size,retention_rate'
+  const rows = [
+    '2025-10,4821,142,98,44,3102,187432.00,24318.00,47.23,0.82',
+    '2025-11,4896,143,101,42,3156,191240.00,22875.00,46.88,0.83',
+    '2025-12,4973,158,112,46,3224,197810.00,28140.00,48.51,0.84',
+  ]
+  const blob = new Blob([headers + '\n' + rows.join('\n') + '\n'], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url
+  a.download = 'patron_import_sample.csv'; a.click()
   URL.revokeObjectURL(url)
 }
 
@@ -211,8 +225,11 @@ function DropZone({ onFile }) {
       >
         Choose File
       </button>
-      <button onClick={downloadTemplate} className="px-4 py-2 text-xs font-medium border border-pink-300 text-pink-600 rounded-lg hover:bg-pink-50">
-        Download Template
+      <button onClick={downloadTemplate} className="px-4 py-2 text-xs font-medium border border-pink-300 text-pink-600 rounded-lg hover:bg-pink-50 mr-2">
+        Blank Template
+      </button>
+      <button onClick={downloadSample} className="px-4 py-2 text-xs font-medium border border-pink-300 text-pink-600 rounded-lg hover:bg-pink-50">
+        Sample Data
       </button>
     </div>
   )
@@ -557,9 +574,14 @@ export default function PatronImportFlow() {
           </button>
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-gray-600">Upload your monthly patron summary CSV.</p>
-            <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs text-pink-600 border border-pink-300 rounded-lg px-3 py-1.5 hover:bg-pink-50">
-              <Download size={12}/> Template
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs text-pink-600 border border-pink-300 rounded-lg px-3 py-1.5 hover:bg-pink-50">
+                <Download size={12}/> Blank Template
+              </button>
+              <button onClick={downloadSample} className="flex items-center gap-1.5 text-xs text-pink-600 border border-pink-300 rounded-lg px-3 py-1.5 hover:bg-pink-50">
+                <Download size={12}/> Sample Data
+              </button>
+            </div>
           </div>
           <DropZone onFile={(name, text) => { setStep(STEPS.upload); handleFile(name, text) }}/>
         </div>
@@ -639,13 +661,13 @@ export default function PatronImportFlow() {
           <div className="flex items-center gap-3">
             <button
               onClick={runValidation}
-              disabled={!mappingDraft.date || !mappingDraft.amount}
+              disabled={!mappingDraft.period || !mappingDraft.total_active_patrons || !mappingDraft.new_patrons_total}
               className="px-5 py-2 bg-pink-600 text-white text-sm font-medium rounded-lg hover:bg-pink-700 disabled:opacity-40 flex items-center gap-2"
             >
               Validate <ChevronRight size={16}/>
             </button>
-            {(!mappingDraft.date || !mappingDraft.amount) && (
-              <p className="text-xs text-red-500">Map Date and Amount fields to continue</p>
+            {(!mappingDraft.period || !mappingDraft.total_active_patrons || !mappingDraft.new_patrons_total) && (
+              <p className="text-xs text-red-500">Map Period, Total Active Patrons, and New Patrons Total fields to continue</p>
             )}
           </div>
         </div>
@@ -727,10 +749,13 @@ export default function PatronImportFlow() {
               <p className="text-sm font-medium text-red-700 mb-1">{validationResults.errorRows.length} rows skipped due to errors</p>
               <button
                 onClick={() => {
-                  const csv = 'row,date,amount,error\n' +
-                    validationResults.errorRows.map(e =>
-                      `${e.rowNum},"${e.dateStr}","${e.amtStr}","${!e.parsedDate?'bad date':'bad amount'}"`
-                    ).join('\n')
+                  const csv = 'row,period,total_active_patrons,new_patrons_total,error\n' +
+                    validationResults.errorRows.map(e => {
+                      const err = !e.parsedPeriod ? 'bad period (must be YYYY-MM)'
+                        : e.parsedTap === null ? 'bad total_active_patrons (must be whole number)'
+                        : 'bad new_patrons_total (must be whole number)'
+                      return `${e.rowNum},"${e.periodStr ?? ''}","${e.tapStr ?? ''}","${e.nptStr ?? ''}","${err}"`
+                    }).join('\n')
                   const blob = new Blob([csv], { type:'text/csv' })
                   const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
                   a.download = 'patron_import_errors.csv'; a.click()
