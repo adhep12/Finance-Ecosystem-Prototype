@@ -757,7 +757,7 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
               {breakdown.lines.map((line,i) => (
                 <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
                   <span className="text-xs">{line.label}</span>
-                  <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(Math.abs(line.value))}</span>
+                  <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(line.value)}</span>
                 </div>
               ))}
               <div className="flex justify-between py-1.5 border-t-2 border-gray-800 mt-2 pt-2">

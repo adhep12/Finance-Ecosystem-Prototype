@@ -216,7 +216,17 @@ export function AppProvider({ children }) {
 
   // ── Scenario selector ─────────────────────────────────────────────────────
   const availableScenarios = useMemo(() => getScenarios(budgetFlat), [budgetFlat])
-  const [selectedScenario, setSelectedScenario] = useState('Planned Spend')
+  // Start with no selection; auto-select the first real scenario once budget data loads.
+  // 'Planned Spend' was a legacy default that never matched real data ('Budget'/'Budget 2').
+  const [selectedScenario, setSelectedScenario] = useState('')
+
+  // When availableScenarios populates (or changes), keep selectedScenario valid.
+  // If current selection is empty or no longer in the list, pick the first option.
+  useEffect(() => {
+    if (availableScenarios.length > 0 && !availableScenarios.includes(selectedScenario)) {
+      setSelectedScenario(availableScenarios[0])
+    }
+  }, [availableScenarios]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Date range — default to full fiscal year ──────────────────────────────
   const defaultRange = getPresetRange('full-fiscal', DEFAULT_ORG)
