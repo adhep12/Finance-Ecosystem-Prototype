@@ -1,17 +1,20 @@
 /**
  * PatronImportFlow.jsx — Step 7: Patron Data Import
  *
- * Accepts individual gift-level CSV exports from a CRM (date, amount,
- * patron_id, patron_name, campaign, gift_type), applies saved field mappings,
- * validates rows, aggregates to monthly metrics, and writes to patron_data.
+ * Accepts pre-aggregated monthly patron summary CSVs (one row per month),
+ * applies saved field mappings, validates rows, and writes directly to
+ * patron_data — no individual gift aggregation needed.
+ *
+ * Required fields: period (YYYY-MM), total_active_patrons, new_patrons_total
+ * Optional fields: new_patrons_recurring, new_patrons_spontaneous,
+ *   recurring_patron_count, recurring_giving_total, spontaneous_giving_total,
+ *   avg_gift_size, retention_rate
  *
  * Spec rules enforced:
  *  - Validation step runs ENTIRELY before any data is written to Supabase
  *  - All deletes are soft (deleted=true, never hard delete)
  *  - Field mapping saved per data source, reused on every future upload
  *  - import_log entry written for every import run
- *  - Metrics that require multi-period history (new_patrons, retention_rate)
- *    default to NULL and are noted in the UI
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react'
@@ -48,60 +51,53 @@ const IMPORT_MODES = [
 ]
 
 const CANONICAL_FIELDS = [
-  { field: 'date',        label: 'Date',        required: true,  description: 'Gift date (YYYY-MM-DD or MM/DD/YYYY)' },
-  { field: 'amount',      label: 'Amount',       required: true,  description: 'Gift amount in USD' },
-  { field: 'patron_id',   label: 'Patron ID',   required: false, description: 'Unique patron/donor identifier' },
-  { field: 'patron_name', label: 'Patron Name', required: false, description: 'Full donor name' },
-  { field: 'campaign',    label: 'Campaign',    required: false, description: 'Campaign or fund code' },
-  { field: 'gift_type',   label: 'Gift Type',   required: false, description: 'e.g. Recurring, One-time, Grant' },
+  { field: 'period',                   label: 'Period',                   required: true,  description: 'Month in YYYY-MM format, e.g. 2025-10' },
+  { field: 'total_active_patrons',     label: 'Total Active Patrons',     required: true,  description: 'Total active patron count for the month' },
+  { field: 'new_patrons_total',        label: 'New Patrons Total',        required: true,  description: 'Total new patrons this month' },
+  { field: 'new_patrons_recurring',    label: 'New Patrons Recurring',    required: false, description: 'New recurring patrons this month' },
+  { field: 'new_patrons_spontaneous',  label: 'New Patrons Spontaneous',  required: false, description: 'New spontaneous patrons this month' },
+  { field: 'recurring_patron_count',   label: 'Recurring Patron Count',   required: false, description: 'Total recurring patrons active this month' },
+  { field: 'recurring_giving_total',   label: 'Recurring Giving Total',   required: false, description: 'Total recurring giving this month (no $ symbol)' },
+  { field: 'spontaneous_giving_total', label: 'Spontaneous Giving Total', required: false, description: 'Total spontaneous giving this month (no $ symbol)' },
+  { field: 'avg_gift_size',            label: 'Avg Gift Size',            required: false, description: 'Average gift size this month (no $ symbol)' },
+  { field: 'retention_rate',           label: 'Retention Rate',           required: false, description: 'Patron retention rate as decimal, e.g. 0.82' },
 ]
-
-const RECURRING_KEYWORDS = ['recurring', 'sustaining', 'monthly', 'subscription', 'regular', 'pledge']
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Parsing helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function parseCalendarDate(str) {
+/** Validates and returns a YYYY-MM period string, or null if invalid. */
+function parsePeriod(str) {
   if (!str) return null
   const s = String(str).trim()
-  // YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  // MM/DD/YYYY
-  const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (mdy) return `${mdy[3]}-${mdy[1].padStart(2,'0')}-${mdy[2].padStart(2,'0')}`
-  // DD-Mon-YYYY (e.g. 15-Jan-2026)
-  const dmy = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/)
-  if (dmy) {
-    const months = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
-                     jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' }
-    const m = months[dmy[2].toLowerCase()]
-    if (m) return `${dmy[3]}-${m}-${dmy[1].padStart(2,'0')}`
-  }
-  // MM-DD-YYYY
-  const mdy2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
-  if (mdy2) return `${mdy2[3]}-${mdy2[1].padStart(2,'0')}-${mdy2[2].padStart(2,'0')}`
+  if (/^\d{4}-\d{2}$/.test(s)) return s
   return null
 }
 
-function parseAmount(str) {
-  if (str == null || str === '') return null
-  const s = String(str).trim()
-  const negative = s.startsWith('(') && s.endsWith(')')
-  const cleaned = s.replace(/[()$,\s]/g, '')
+/** Parses a whole number (patron counts). Returns null if empty or invalid. */
+function parseWholeNumber(str) {
+  if (str == null || String(str).trim() === '') return null
+  const n = parseInt(String(str).trim(), 10)
+  if (isNaN(n) || n < 0) return null
+  return n
+}
+
+/** Parses a dollar amount with optional symbols/commas. Returns null if empty or invalid. */
+function parseDollarAmount(str) {
+  if (str == null || String(str).trim() === '') return null
+  const cleaned = String(str).trim().replace(/[$,\s]/g, '')
   const n = parseFloat(cleaned)
   if (isNaN(n)) return null
-  return negative ? -n : n
+  return Math.round(n * 100) / 100
 }
 
-function toYYYYMM(isoDate) {
-  return isoDate ? isoDate.slice(0, 7) : null
-}
-
-function isRecurring(giftType) {
-  if (!giftType) return false
-  const lower = String(giftType).toLowerCase()
-  return RECURRING_KEYWORDS.some(k => lower.includes(k))
+/** Parses a retention rate decimal (0–1). Returns null if empty or out of range. */
+function parseRetentionRate(str) {
+  if (str == null || String(str).trim() === '') return null
+  const n = parseFloat(String(str).trim())
+  if (isNaN(n) || n < 0 || n > 1) return null
+  return n
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,62 +150,12 @@ function detectMapping(headers, savedMappings) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Aggregation: individual gifts → monthly patron_data rows
-// ─────────────────────────────────────────────────────────────────────────────
-
-function aggregateToMonthly(validRows) {
-  const byPeriod = {}
-
-  for (const row of validRows) {
-    const period = toYYYYMM(row._parsedDate)
-    if (!period) continue
-    if (!byPeriod[period]) {
-      byPeriod[period] = {
-        period,
-        gifts: [],
-        patronIds: new Set(),
-        recurringPatronIds: new Set(),
-      }
-    }
-    const bucket = byPeriod[period]
-    const amt = row._parsedAmount
-    const rec = isRecurring(row.gift_type)
-    bucket.gifts.push({ amount: amt, recurring: rec, patronId: row.patron_id })
-    if (row.patron_id) {
-      bucket.patronIds.add(row.patron_id)
-      if (rec) bucket.recurringPatronIds.add(row.patron_id)
-    }
-  }
-
-  return Object.values(byPeriod).sort((a, b) => a.period.localeCompare(b.period)).map(bucket => {
-    const totalAmt  = bucket.gifts.reduce((s, g) => s + (g.amount || 0), 0)
-    const recAmt    = bucket.gifts.filter(g => g.recurring).reduce((s, g) => s + (g.amount || 0), 0)
-    const spontAmt  = totalAmt - recAmt
-    const avgGift   = bucket.gifts.length ? Math.round((totalAmt / bucket.gifts.length) * 100) / 100 : null
-    const hasPatronIds = bucket.patronIds.size > 0
-
-    return {
-      period: bucket.period,
-      total_active_patrons:     hasPatronIds ? bucket.patronIds.size : null,
-      new_patrons_total:        null,   // requires historical data
-      new_patrons_recurring:    null,   // requires historical data
-      new_patrons_spontaneous:  null,   // requires historical data
-      recurring_patron_count:   hasPatronIds ? bucket.recurringPatronIds.size : null,
-      recurring_giving_total:   Math.round(recAmt * 100) / 100,
-      spontaneous_giving_total: Math.round(spontAmt * 100) / 100,
-      avg_gift_size:            avgGift,
-      retention_rate:           null,   // requires multi-period history
-    }
-  })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Template download
 // ─────────────────────────────────────────────────────────────────────────────
 
 function downloadTemplate() {
-  const headers = 'date,amount,patron_id,patron_name,campaign,gift_type'
-  const example = '2026-01-15,250.00,PAT-001,Jane Smith,Annual Fund,Recurring'
+  const headers = 'period,total_active_patrons,new_patrons_total,new_patrons_recurring,new_patrons_spontaneous,recurring_patron_count,recurring_giving_total,spontaneous_giving_total,avg_gift_size,retention_rate'
+  const example = '2025-10,4821,142,98,44,3102,187432.00,24318.00,47.23,0.82'
   const blob = new Blob([headers + '\n' + example + '\n'], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a'); a.href = url
@@ -257,7 +203,7 @@ function DropZone({ onFile }) {
         drag ? 'border-pink-400 bg-pink-50' : 'border-gray-200 hover:border-pink-300'}`}>
       <Upload size={28} className="mx-auto mb-3 text-gray-400"/>
       <p className="text-sm font-medium text-gray-700 mb-1">Drop your CSV here or click to browse</p>
-      <p className="text-xs text-gray-400 mb-4">Individual gift records from your CRM, one row per gift</p>
+      <p className="text-xs text-gray-400 mb-4">Pre-aggregated monthly patron summary, one row per month</p>
       <input type="file" accept=".csv" className="hidden" ref={ref} onChange={e => handle(e.target.files[0])}/>
       <button
         onClick={() => ref.current?.click?.() || document.querySelector('input[type=file]')?.click()}
@@ -302,8 +248,7 @@ export default function PatronImportFlow() {
   const [validationResults, setValidationResults] = useState(null)
   const [validRows, setValidRows]                 = useState([])
 
-  // ── Monthly aggregates (computed from validRows) ─────────────────────────────
-  const [monthlyRows, setMonthlyRows] = useState([])
+  // (monthlyRows removed — CSV is already monthly summaries, no aggregation needed)
 
   // ── Import result ────────────────────────────────────────────────────────────
   const [importResult, setImportResult] = useState(null)
@@ -359,81 +304,67 @@ export default function PatronImportFlow() {
     const valid  = []
     const errors = []
 
-    let missingDate   = 0
-    let badDate       = 0
-    let missingAmount = 0
-    let badAmount     = 0
-    let missingPatronId = 0
-    let unknownGiftTypes = new Set()
-    let campaigns = new Set()
-    let giftTypes = new Set()
-    let totalAmount = 0
-    let rowsWithPatronId = 0
+    let missingPeriod      = 0
+    let badPeriod          = 0
+    let missingActivePat   = 0
+    let badActivePat       = 0
+    let missingNewPatrons  = 0
+    let badNewPatrons      = 0
 
     rawRows.forEach((raw, idx) => {
       const mapped = applyMapping(raw, mappingDraft)
       const rowNum = idx + 2
 
-      // Parse date
-      const dateStr = mapped.date || ''
-      const parsedDate = parseCalendarDate(dateStr)
-      if (!dateStr.trim()) missingDate++
-      else if (!parsedDate) badDate++
+      // Required: period (YYYY-MM)
+      const periodStr = String(mapped.period || '').trim()
+      const parsedPeriod = parsePeriod(periodStr)
+      if (!periodStr) missingPeriod++
+      else if (!parsedPeriod) badPeriod++
 
-      // Parse amount
-      const amtStr = mapped.amount ?? ''
-      const parsedAmount = parseAmount(String(amtStr))
-      if (amtStr === '' || amtStr == null) missingAmount++
-      else if (parsedAmount === null) badAmount++
+      // Required: total_active_patrons
+      const tapStr = mapped.total_active_patrons ?? ''
+      const parsedTap = parseWholeNumber(String(tapStr))
+      if (String(tapStr).trim() === '') missingActivePat++
+      else if (parsedTap === null) badActivePat++
 
-      const hasHardError = (!parsedDate && (missingDate + badDate > 0)) || parsedAmount === null
+      // Required: new_patrons_total
+      const nptStr = mapped.new_patrons_total ?? ''
+      const parsedNpt = parseWholeNumber(String(nptStr))
+      if (String(nptStr).trim() === '') missingNewPatrons++
+      else if (parsedNpt === null) badNewPatrons++
 
-      if (parsedDate && parsedAmount !== null) {
-        valid.push({ ...mapped, _parsedDate: parsedDate, _parsedAmount: parsedAmount, _rowNum: rowNum })
-        totalAmount += parsedAmount
-        if (mapped.patron_id) rowsWithPatronId++
-        else missingPatronId++
-        if (mapped.campaign) campaigns.add(mapped.campaign)
-        if (mapped.gift_type) {
-          giftTypes.add(mapped.gift_type)
-          const lower = mapped.gift_type.toLowerCase()
-          const recognized = RECURRING_KEYWORDS.some(k => lower.includes(k)) || lower.includes('one') || lower.includes('single') || lower.includes('spontan')
-          if (!recognized) unknownGiftTypes.add(mapped.gift_type)
-        }
+      if (parsedPeriod && parsedTap !== null && parsedNpt !== null) {
+        valid.push({
+          period:                   parsedPeriod,
+          total_active_patrons:     parsedTap,
+          new_patrons_total:        parsedNpt,
+          new_patrons_recurring:    parseWholeNumber(mapped.new_patrons_recurring),
+          new_patrons_spontaneous:  parseWholeNumber(mapped.new_patrons_spontaneous),
+          recurring_patron_count:   parseWholeNumber(mapped.recurring_patron_count),
+          recurring_giving_total:   parseDollarAmount(mapped.recurring_giving_total),
+          spontaneous_giving_total: parseDollarAmount(mapped.spontaneous_giving_total),
+          avg_gift_size:            parseDollarAmount(mapped.avg_gift_size),
+          retention_rate:           parseRetentionRate(mapped.retention_rate),
+          _rowNum:                  rowNum,
+        })
       } else {
-        errors.push({ rowNum, dateStr, parsedDate, amtStr, parsedAmount })
+        errors.push({ rowNum, periodStr, parsedPeriod, tapStr, parsedTap, nptStr, parsedNpt })
       }
     })
 
     // Hard checks
-    if (missingDate > 0) checks.push({ level:'hard', msg:`${missingDate} row(s) missing date (required)` })
-    if (badDate > 0)     checks.push({ level:'hard', msg:`${badDate} row(s) have unparseable date values` })
-    if (missingAmount > 0) checks.push({ level:'hard', msg:`${missingAmount} row(s) missing amount (required)` })
-    if (badAmount > 0)     checks.push({ level:'hard', msg:`${badAmount} row(s) have non-numeric amounts` })
+    if (missingPeriod > 0)    checks.push({ level:'hard', msg:`${missingPeriod} row(s) missing period (required, format: YYYY-MM)` })
+    if (badPeriod > 0)        checks.push({ level:'hard', msg:`${badPeriod} row(s) have invalid period — must be YYYY-MM (e.g. 2025-10)` })
+    if (missingActivePat > 0) checks.push({ level:'hard', msg:`${missingActivePat} row(s) missing total_active_patrons (required)` })
+    if (badActivePat > 0)     checks.push({ level:'hard', msg:`${badActivePat} row(s) have non-numeric total_active_patrons` })
+    if (missingNewPatrons > 0) checks.push({ level:'hard', msg:`${missingNewPatrons} row(s) missing new_patrons_total (required)` })
+    if (badNewPatrons > 0)    checks.push({ level:'hard', msg:`${badNewPatrons} row(s) have non-numeric new_patrons_total` })
 
-    // Warning checks
-    if (missingPatronId > 0)
-      checks.push({ level:'warning', msg:`${missingPatronId} row(s) missing patron_id — active patron counts will be omitted for those gifts` })
-    if (unknownGiftTypes.size > 0)
-      checks.push({ level:'warning', msg:`Unrecognized gift_type values: ${[...unknownGiftTypes].join(', ')} — will be treated as spontaneous/one-time` })
-
-    // Info checks
-    const periodSet = new Set(valid.map(r => toYYYYMM(r._parsedDate)).filter(Boolean))
-    checks.push({ level:'info', msg:`${valid.length.toLocaleString()} valid gift rows across ${periodSet.size} month(s)` })
-    checks.push({ level:'info', msg:`Total gift volume: $${totalAmount.toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })}` })
-    if (giftTypes.size > 0)
-      checks.push({ level:'info', msg:`Gift types detected: ${[...giftTypes].join(', ')}` })
-    if (campaigns.size > 0)
-      checks.push({ level:'info', msg:`Campaigns/funds: ${[...campaigns].join(', ')}` })
-    checks.push({ level:'info', msg:`Note: new_patrons_total and retention_rate require multi-period history and will be blank on first import` })
+    // Info
+    checks.push({ level:'info', msg:`${valid.length.toLocaleString()} valid row(s) covering ${valid.length} month(s)` })
 
     setValidationResults({ checks, errorRows: errors, totalRows: rawRows.length, validCount: valid.length })
     setValidRows(valid)
-
-    // Compute monthly aggregates
-    const monthly = aggregateToMonthly(valid)
-    setMonthlyRows(monthly)
-
     setStep(STEPS.validate)
   }
 
@@ -446,7 +377,9 @@ export default function PatronImportFlow() {
       const now = new Date().toISOString()
 
       // 1. Determine periods in file
-      const periodsInFile = [...new Set(monthlyRows.map(r => r.period))]
+      // Strip internal _rowNum before writing to DB
+      const dbRows = validRows.map(({ _rowNum, ...r }) => r)
+      const periodsInFile = [...new Set(dbRows.map(r => r.period))]
 
       // 2. Soft-delete based on mode
       if (importMode === 'replace_full') {
@@ -470,14 +403,14 @@ export default function PatronImportFlow() {
           .eq('deleted', false)
           .in('period', periodsInFile)
         const existingPeriods = new Set((existing || []).map(r => r.period))
-        const newMonthlyRows = monthlyRows.filter(r => !existingPeriods.has(r.period))
-        if (newMonthlyRows.length === 0) {
-          setImportResult({ skipped: monthlyRows.length, inserted: 0, mode: importMode })
+        const newDbRows = dbRows.filter(r => !existingPeriods.has(r.period))
+        if (newDbRows.length === 0) {
+          setImportResult({ skipped: dbRows.length, inserted: 0, mode: importMode })
           setStep(STEPS.done)
           return
         }
         // Continue with only new rows
-        const rows = newMonthlyRows.map(r => ({
+        const rows = newDbRows.map(r => ({
           ...r,
           org_id:      ORG_ID,
           deleted:     false,
@@ -487,7 +420,7 @@ export default function PatronImportFlow() {
         const { error } = await supabase.from('patron_data').insert(rows)
         if (error) throw error
 
-        // Write import_log (columns aligned to import_log schema)
+        // Write import_log
         const sortedPeriods = [...periodsInFile].sort()
         const logEntry = {
           org_id:        ORG_ID,
@@ -495,8 +428,8 @@ export default function PatronImportFlow() {
           mode:          importMode,
           filename:      fileName,
           row_count:     rawRows.length,
-          rows_inserted: newMonthlyRows.length,
-          rows_skipped:  monthlyRows.length - newMonthlyRows.length,
+          rows_inserted: newDbRows.length,
+          rows_skipped:  dbRows.length - newDbRows.length,
           period_start:  sortedPeriods[0] || null,
           period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
           status:        'success',
@@ -504,14 +437,14 @@ export default function PatronImportFlow() {
         }
         await supabase.from('import_log').insert([logEntry])
 
-        setImportResult({ inserted: newMonthlyRows.length, skipped: existingPeriods.size, mode: importMode })
+        setImportResult({ inserted: newDbRows.length, skipped: existingPeriods.size, mode: importMode })
         setImportLog(logEntry)
         setStep(STEPS.done)
         return
       }
 
-      // Insert monthly rows (replace_full / replace_period)
-      const rows = monthlyRows.map(r => ({
+      // Insert rows (replace_full / replace_period)
+      const rows = dbRows.map(r => ({
         ...r,
         org_id:      ORG_ID,
         deleted:     false,
@@ -534,7 +467,7 @@ export default function PatronImportFlow() {
         filename:      fileName,
         row_count:     rawRows.length,
         rows_inserted: rows.length,
-        rows_skipped:  rawRows.length - validRows.length,
+        rows_skipped:  rawRows.length - dbRows.length,
         period_start:  sortedPeriods[0] || null,
         period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
         status:        'success',
@@ -563,7 +496,6 @@ export default function PatronImportFlow() {
     setMappingDraft({})
     setValidationResults(null)
     setValidRows([])
-    setMonthlyRows([])
     setImportResult(null)
     setImportError(null)
     setImportLog(null)
@@ -580,7 +512,7 @@ export default function PatronImportFlow() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Import Patron Data</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Gift-level CSV from CRM → aggregated monthly metrics</p>
+          <p className="text-sm text-gray-500 mt-0.5">Pre-aggregated monthly patron summary CSV</p>
         </div>
         <StepIndicator current={step > STEPS.confirm ? 4 : step}/>
       </div>
@@ -624,7 +556,7 @@ export default function PatronImportFlow() {
             <ChevronLeft size={12}/> Back
           </button>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-gray-600">Upload your CRM gift export CSV.</p>
+            <p className="text-sm text-gray-600">Upload your monthly patron summary CSV.</p>
             <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs text-pink-600 border border-pink-300 rounded-lg px-3 py-1.5 hover:bg-pink-50">
               <Download size={12}/> Template
             </button>
