@@ -9,10 +9,12 @@ import {
   ChevronUp, TrendingUp, TrendingDown, Minus, Info, Upload,
   FileText, Users, BarChart2, LayoutDashboard, Settings,
   GripVertical, AlertCircle, Eye, CheckCircle, Quote,
-  ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen
+  ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen,
+  Download, Calendar, Trash2
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
+import FloatingNav from '../components/FloatingNav'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -457,9 +459,6 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="flex items-center h-12 px-6 gap-4">
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button onClick={() => navigate('/briefing')} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors mr-1">
-            <ChevronLeft size={13}/><span className="hidden sm:inline">Team</span>
-          </button>
           <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{backgroundColor:'var(--color-accent)'}}>
             {orgConfig.logoInitial}
           </div>
@@ -2541,72 +2540,566 @@ function TeamsTab({ dateRange }) {
 // Documents Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-function DocumentsTab() {
-  const [docs] = useState([
-    {id:1,name:'Statement of Activity – April 2026.pdf',month:'Apr 2026',type:'Statement of Activity',size:'245 KB'},
-    {id:2,name:'Balance Sheet – Q2 FY2026.pdf',month:'Mar 2026',type:'Balance Sheet',size:'189 KB'},
-    {id:3,name:'Cash Flow Statement – YTD.xlsx',month:'May 2026',type:'Cash Flow',size:'312 KB'},
+const DOC_TYPES = ['Statement of Activity','Balance Sheet','Cash Flow Statement','P&L Summary','Budget vs Actual','Board Report','Audit Report','Other']
+const DOC_FILE_TYPES = ['pdf','xlsx','png','jpg','csv']
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function docIcon(fileType) {
+  if (fileType==='xlsx'||fileType==='csv') return { bg:'bg-emerald-50', fg:'text-emerald-600' }
+  if (fileType==='png'||fileType==='jpg') return { bg:'bg-blue-50',    fg:'text-blue-600' }
+  return { bg:'bg-red-50', fg:'text-red-600' }
+}
+
+function docMonthToDate(month, year) {
+  const idx = MONTH_NAMES.indexOf(month)
+  return new Date(year, idx < 0 ? 0 : idx, 1)
+}
+
+function DocumentsTab({ orgConfig }) {
+  const pickerRef = useRef(null)
+  const fileInputRef = useRef(null)
+
+  const [docs, setDocs] = useState([
+    { id:1, displayName:'Statement of Activity – April 2026', fileType:'pdf', type:'Statement of Activity', month:'April', year:2026, size:'245 KB', uploadedAt:'2026-04-22' },
+    { id:2, displayName:'Balance Sheet – Q2 FY2026',          fileType:'pdf', type:'Balance Sheet',         month:'March', year:2026, size:'189 KB', uploadedAt:'2026-03-21' },
+    { id:3, displayName:'Cash Flow Statement – YTD',          fileType:'xlsx',type:'Cash Flow Statement',   month:'April', year:2026, size:'312 KB', uploadedAt:'2026-04-30' },
   ])
+
+  // Upload modal state
+  const [showUpload, setShowUpload] = useState(false)
+  const [upName,     setUpName]     = useState('')
+  const [upType,     setUpType]     = useState(DOC_TYPES[0])
+  const [upMonth,    setUpMonth]    = useState('April')
+  const [upYear,     setUpYear]     = useState(new Date().getFullYear())
+  const [upFileType, setUpFileType] = useState('pdf')
+  const [upFileName, setUpFileName] = useState('')
+
+  // Date range filter (local to documents)
+  const [showPicker,   setShowPicker]   = useState(false)
+  const [filterPreset, setFilterPreset] = useState('all')
+  const [filterRange,  setFilterRange]  = useState(null)
+
+  useEffect(() => {
+    function handle(e) { if (pickerRef.current && !pickerRef.current.contains(e.target)) setShowPicker(false) }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  function applyDocPreset(preset) {
+    const range = getELTPresetRange(preset, orgConfig)
+    setFilterPreset(preset)
+    setFilterRange(range)
+    setShowPicker(false)
+  }
+  function applyDocCustom(s, e) {
+    setFilterPreset('custom')
+    setFilterRange({ startDate: s, endDate: e })
+    setShowPicker(false)
+  }
+
+  const filteredDocs = (filterPreset === 'all' || !filterRange) ? docs : docs.filter(doc => {
+    const d = docMonthToDate(doc.month, doc.year)
+    return d >= new Date(filterRange.startDate) && d <= new Date(filterRange.endDate)
+  })
+
+  function handleUpload() {
+    if (!upName.trim()) return
+    const newDoc = {
+      id: Date.now(),
+      displayName: upName.trim(),
+      fileType: upFileType,
+      type: upType,
+      month: upMonth,
+      year: Number(upYear),
+      size: upFileName ? `${Math.round(Math.random()*400+50)} KB` : 'Unknown',
+      uploadedAt: new Date().toISOString().slice(0,10),
+    }
+    setDocs(prev => [newDoc, ...prev])
+    setShowUpload(false)
+    setUpName(''); setUpType(DOC_TYPES[0]); setUpFileName('')
+  }
+
+  function removeDoc(id) {
+    setDocs(prev => prev.filter(d => d.id !== id))
+  }
+
+  const filterLabel = filterPreset === 'all' ? 'All time' : presetLabel(filterPreset)
+
   return (
     <div className="p-6 max-w-screen-lg mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Financial Documents</span>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}><Upload size={12}/> Upload document</button>
-      </div>
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
-        {docs.map((doc,i)=>(
-          <div key={doc.id} className={`flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors cursor-pointer ${i>0?'border-t border-gray-50':''}`}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{backgroundColor:'var(--color-accent-light)'}}>
-              <FileText size={14} style={{color:'var(--color-accent)'}}/>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-gray-800 truncate">{doc.name}</div>
-              <div className="text-xs text-gray-400 mt-0.5">{doc.type} · {doc.month} · {doc.size}</div>
-            </div>
-            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-medium flex-shrink-0">{doc.month}</span>
+
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--color-accent)'}}>Financial Documents</p>
+          <p className="text-xs text-gray-400">{filteredDocs.length} of {docs.length} documents{filterPreset!=='all'?' in selected period':''}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Date range filter */}
+          <div className="relative" ref={pickerRef}>
+            <button onClick={() => setShowPicker(v=>!v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${filterPreset!=='all'?'bg-gray-900 text-white border-gray-900':'bg-white text-gray-600 border-gray-200 hover:border-gray-400'}`}>
+              <Calendar size={11}/>
+              <span>{filterLabel}</span>
+              <ChevronDown size={11}/>
+            </button>
+            {showPicker && (
+              <div className="absolute right-0 top-full mt-2 z-50">
+                <div className="bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Filter Documents by Period</div>
+                  <button onClick={() => { setFilterPreset('all'); setFilterRange(null); setShowPicker(false) }}
+                    className={`w-full text-left px-3 py-2 rounded-lg border text-sm font-medium mb-3 transition-all ${filterPreset==='all'?'bg-gray-900 text-white border-gray-900':'bg-white text-gray-700 border-gray-200 hover:border-gray-400'}`}>
+                    All time
+                  </button>
+                  <ELTDateRangePicker
+                    dateRange={{ preset: filterPreset, startDate: filterRange?.startDate||'', endDate: filterRange?.endDate||'' }}
+                    org={orgConfig}
+                    onApplyPreset={applyDocPreset}
+                    onApplyCustom={applyDocCustom}
+                    onClose={() => setShowPicker(false)}/>
+                </div>
+              </div>
+            )}
           </div>
-        ))}
+          <button onClick={() => setShowUpload(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+            <Upload size={11}/> Upload document
+          </button>
+        </div>
       </div>
-      <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-gray-400 transition-all cursor-pointer">
-        <Upload size={24} className="text-gray-300 mx-auto mb-2"/>
+
+      {/* Document list */}
+      {filteredDocs.length > 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+          {filteredDocs.map((doc, i) => {
+            const ic = docIcon(doc.fileType)
+            return (
+              <div key={doc.id}
+                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''}`}>
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ic.bg}`}>
+                  <FileText size={15} className={ic.fg}/>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-800 truncate">{doc.displayName}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {doc.type} · {doc.month} {doc.year} · {doc.size}
+                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.fileType}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploadedAt}</span>
+                  <button onClick={() => removeDoc(doc.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all">
+                    <Trash2 size={13}/>
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center mb-4">
+          <FileText size={32} className="mx-auto mb-3 text-gray-200"/>
+          <p className="text-sm font-medium text-gray-500 mb-1">
+            {filterPreset==='all' ? 'No documents yet' : `No documents for ${filterLabel}`}
+          </p>
+          <p className="text-xs text-gray-400">
+            {filterPreset==='all' ? 'Upload a document to get started.' : 'Try a wider date range or upload a new document.'}
+          </p>
+        </div>
+      )}
+
+      {/* Drop zone */}
+      <div onClick={() => setShowUpload(true)}
+        className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-gray-400 hover:bg-gray-50/50 transition-all cursor-pointer">
+        <Upload size={22} className="text-gray-300 mx-auto mb-2"/>
         <p className="text-sm text-gray-400">Drop files here or click to upload</p>
-        <p className="text-xs text-gray-300 mt-1">PDF, Excel, PNG, JPG — tied to a specific month</p>
+        <p className="text-xs text-gray-300 mt-1">PDF, Excel, PNG, JPG, CSV — attached to a specific month</p>
       </div>
+
+      {/* Upload modal */}
+      {showUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[440px] p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-sm font-semibold text-gray-900">Upload Document</h3>
+              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+            </div>
+            <div className="space-y-4">
+              {/* File picker (cosmetic) */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">File</label>
+                <div onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:border-gray-400 transition-colors">
+                  <Upload size={16} className="text-gray-300 flex-shrink-0"/>
+                  <span className="text-sm text-gray-400">{upFileName || 'Click to choose a file…'}</span>
+                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.csv" className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      setUpFileName(f.name)
+                      const ext = f.name.split('.').pop()?.toLowerCase()
+                      if (DOC_FILE_TYPES.includes(ext)) setUpFileType(ext)
+                      if (!upName) setUpName(f.name.replace(/\.[^.]+$/,''))
+                    }}/>
+                </div>
+              </div>
+              {/* Document name */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Document Name</label>
+                <input type="text" value={upName} onChange={e=>setUpName(e.target.value)}
+                  placeholder="e.g. Statement of Activity – April 2026"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400"/>
+              </div>
+              {/* Document type */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Document Type</label>
+                <select value={upType} onChange={e=>setUpType(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white">
+                  {DOC_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              {/* Month / Year */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Month</label>
+                  <select value={upMonth} onChange={e=>setUpMonth(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white">
+                    {MONTH_NAMES.map(m=><option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">Year</label>
+                  <select value={upYear} onChange={e=>setUpYear(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white">
+                    {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+              {/* File type override */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">File Format</label>
+                <div className="flex gap-2">
+                  {DOC_FILE_TYPES.map(ft=>(
+                    <button key={ft} onClick={()=>setUpFileType(ft)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${upFileType===ft?'bg-gray-900 text-white':'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                      {ft}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Actions */}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowUpload(false)}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleUpload} disabled={!upName.trim()}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
+                  style={{backgroundColor:'var(--color-accent)'}}>
+                  Add Document
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ELT Import Tab — includes Monthly Summary narrative import
+// Import Tab — CSV templates + append / replace logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-const EMPTY_SUMMARY_TEMPLATE = () => ({
-  prepared: new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
-  title: '',
-  overallSummary: '',
-  monthlyNarrative: '',
-  financials: {
-    giving:   {actual:0,budget:0,priorYear:0},
-    expenses: {actual:0,budget:0,priorYear:0},
+// Generate and trigger a CSV download
+function downloadCSV(filename, rows) {
+  const content = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g,'""')}"`).join(',')).join('\n')
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename })
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// ── Template definitions (headers + description rows)
+const IMPORT_TEMPLATES = {
+  financial: {
+    label: 'Financial Data',
+    subtitle: 'Giving, Revenue & P&L (single import)',
+    description: 'One template covers all income lines (contributions, merchandise, other income) and all expense categories. Import monthly or annual actuals, budgets, and prior-year figures. Required for Dashboard KPI cards and P&L table.',
+    columns: ['Period','Record Type','Category','Account','Actual','Budget','Prior Year'],
+    notes: [
+      'Period: YYYY-MM format (e.g. 2026-04)',
+      'Record Type: "income" or "expense"',
+      'Category: contributions | merchandise | other-income | staff | contract | technology | travel | other-ga',
+      'Account: sub-account label (e.g. "Salaries & Wages")',
+      'Monetary values: whole numbers, no symbols or commas',
+    ],
+    template: [
+      ['Period','Record Type','Category','Account','Actual','Budget','Prior Year'],
+    ],
+    sample: [
+      ['Period','Record Type','Category','Account','Actual','Budget','Prior Year'],
+      ['2026-04','income','contributions','Recurring Giving','1980000','1950000','1750000'],
+      ['2026-04','income','contributions','One-Time / Spontaneous','380000','340000','310000'],
+      ['2026-04','income','contributions','Corporate & Grants','90000','90000','85000'],
+      ['2026-04','income','merchandise','Online Store','112500','105000','98000'],
+      ['2026-04','income','merchandise','Event Sales','42930','40000','38000'],
+      ['2026-04','income','merchandise','Wholesale / Reseller','30000','30000','28000'],
+      ['2026-04','income','other-income','Licensing & Royalties','24600','22000','20000'],
+      ['2026-04','income','other-income','Speaking & Events','10500','10000','9500'],
+      ['2026-04','income','other-income','Miscellaneous','7000','6000','5500'],
+      ['2026-04','expense','staff','Salaries & Wages','1012400','1040000','950000'],
+      ['2026-04','expense','staff','Benefits & Payroll Tax','180800','185000','170000'],
+      ['2026-04','expense','staff','Contract Staff (Aug)','52600','55000','50000'],
+      ['2026-04','expense','contract','Creative & Production','42800','45000','40000'],
+      ['2026-04','expense','contract','Legal & Professional','28450','30000','27000'],
+      ['2026-04','expense','contract','Consulting','16000','20000','15000'],
+      ['2026-04','expense','technology','Software Subscriptions','68200','70000','62000'],
+      ['2026-04','expense','technology','Infrastructure & Hosting','52400','58000','48000'],
+      ['2026-04','expense','technology','Hardware & Equipment','33720','30000','28000'],
+      ['2026-04','expense','travel','Domestic Travel','21300','22000','20000'],
+      ['2026-04','expense','travel','International Travel','8570','10000','9000'],
+      ['2026-04','expense','travel','Lodging & Meals','4000','6000','5500'],
+      ['2026-04','expense','other-ga','Office Supplies','12400','14000','13000'],
+      ['2026-04','expense','other-ga','Facility Costs','28600','28000','26000'],
+      ['2026-04','expense','other-ga','Insurance','14940','15000','14500'],
+      ['2026-04','expense','other-ga','Miscellaneous','10000','15000','14000'],
+    ],
   },
-  kpiCards: ['monthly-giving','monthly-expenses','monthly-net'],
-  keyTakeaways: [],
-  watchAreas: [],
-  reserves: '',
-  reservesNote: '',
-})
+  patrons: {
+    label: 'Patron / Supporter Data',
+    subtitle: 'Supporter counts, gift sizes, retention',
+    description: 'Monthly supporter metrics used by Supporter Metrics KPI cards and trend charts. Each row represents one period.',
+    columns: ['Period','Total Active','New Supporters','Prior Period New','Avg Gift USD','Avg Gift Prior Year USD','Recurring Mix Pct','Retention Rate Pct'],
+    notes: [
+      'Period: YYYY-MM format',
+      'Pct columns: enter as decimal percentage, e.g. 82.4 (not 0.824)',
+      'Avg Gift: monthly average gift amount in USD',
+    ],
+    template: [
+      ['Period','Total Active','New Supporters','Prior Period New','Avg Gift USD','Avg Gift Prior Year USD','Recurring Mix Pct','Retention Rate Pct'],
+    ],
+    sample: [
+      ['Period','Total Active','New Supporters','Prior Period New','Avg Gift USD','Avg Gift Prior Year USD','Recurring Mix Pct','Retention Rate Pct'],
+      ['2026-04','24810','2510','2340','98.72','94.30','82.4','94.2'],
+      ['2026-03','24540','2380','2210','97.85','94.30','81.9','93.8'],
+      ['2026-02','24320','2280','2100','97.12','93.50','81.5','93.5'],
+      ['2026-01','24130','2150','2050','96.50','93.50','81.2','93.1'],
+    ],
+  },
+  cashflow: {
+    label: 'Cash Flow',
+    subtitle: 'Cash position by period',
+    description: 'End-of-period cash balances used by the Cash Position KPI card. Supports month-end snapshots.',
+    columns: ['Period','Cash Balance USD','Prior Month Balance USD','Prior Year Balance USD'],
+    notes: [
+      'Period: YYYY-MM format',
+      'All amounts in USD whole numbers',
+      'Use end-of-period (last day of month) balances',
+    ],
+    template: [
+      ['Period','Cash Balance USD','Prior Month Balance USD','Prior Year Balance USD'],
+    ],
+    sample: [
+      ['Period','Cash Balance USD','Prior Month Balance USD','Prior Year Balance USD'],
+      ['2026-04','3240000','3105000','2870000'],
+      ['2026-03','3105000','2980000','2750000'],
+      ['2026-02','2980000','2840000','2620000'],
+      ['2026-01','2840000','2710000','2510000'],
+    ],
+  },
+}
+
+// Period selector for targeted replace
+function PeriodRangeSelect({ startPeriod, endPeriod, onChange }) {
+  const periodOptions = (() => {
+    const opts = []
+    for (let y = 2024; y <= 2027; y++) {
+      for (let m = 1; m <= 12; m++) {
+        opts.push(`${y}-${String(m).padStart(2,'0')}`)
+      }
+    }
+    return opts
+  })()
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">From Period</label>
+        <select value={startPeriod} onChange={e=>onChange('start',e.target.value)}
+          className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-gray-400 bg-white">
+          {periodOptions.map(p=><option key={p} value={p}>{p}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">To Period</label>
+        <select value={endPeriod} onChange={e=>onChange('end',e.target.value)}
+          className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-gray-400 bg-white">
+          {periodOptions.map(p=><option key={p} value={p}>{p}</option>)}
+        </select>
+      </div>
+    </div>
+  )
+}
+
+function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
+  const tpl = IMPORT_TEMPLATES[typeKey]
+  const [mode, setMode]               = useState('append') // 'append' | 'replace'
+  const [replaceScope, setReplaceScope] = useState('all')   // 'all' | 'period'
+  const [startPeriod, setStartPeriod] = useState('2026-01')
+  const [endPeriod,   setEndPeriod]   = useState('2026-04')
+  const [fileName,    setFileName]    = useState('')
+  const [status,      setStatus]      = useState(null) // 'success' | null
+  const fileRef = useRef(null)
+
+  function handleFileChange(e) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setFileName(f.name)
+    setStatus(null)
+  }
+
+  function handleImport() {
+    if (!fileName) return
+    // Simulated import — real backend would process the file
+    setTimeout(() => setStatus('success'), 600)
+  }
+
+  function handlePeriodChange(which, val) {
+    if (which === 'start') setStartPeriod(val)
+    else setEndPeriod(val)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Description */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="text-xs font-semibold text-gray-700 mb-0.5">{tpl.label}</div>
+        <div className="text-xs text-gray-400 mb-4">{tpl.description}</div>
+
+        {/* Column reference */}
+        <div className="bg-gray-50 rounded-xl px-4 py-3 mb-4">
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expected Columns</div>
+          <div className="flex flex-wrap gap-1.5">
+            {tpl.columns.map(col => (
+              <span key={col} className="px-2 py-0.5 rounded-md bg-white border border-gray-200 text-[10px] font-medium text-gray-600">{col}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* Notes */}
+        <ul className="space-y-1">
+          {tpl.notes.map((n,i) => (
+            <li key={i} className="text-[10px] text-gray-400 flex items-start gap-1.5">
+              <span className="mt-0.5 text-gray-300">·</span>{n}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Download templates */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Download Templates</div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => downloadCSV(`${typeKey}-template.csv`, tpl.template)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-400 hover:bg-gray-50 transition-colors">
+            <Download size={12}/> Blank Template
+          </button>
+          <button
+            onClick={() => downloadCSV(`${typeKey}-sample.csv`, tpl.sample)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-400 hover:bg-gray-50 transition-colors">
+            <Download size={12}/> Sample with Data
+          </button>
+        </div>
+      </div>
+
+      {/* Import mode */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Import Mode</div>
+        <div className="flex gap-2 mb-4">
+          {[{id:'append',label:'Append',desc:'Add new periods without touching existing data'},
+            {id:'replace',label:'Replace',desc:'Overwrite existing data with imported records'}].map(m => (
+            <button key={m.id} onClick={() => setMode(m.id)}
+              className={`flex-1 text-left px-4 py-3 rounded-xl border transition-all ${mode===m.id?'bg-gray-900 text-white border-gray-900':'bg-white border-gray-200 hover:border-gray-400'}`}>
+              <div className={`text-xs font-bold mb-0.5 ${mode===m.id?'text-white':'text-gray-800'}`}>{m.label}</div>
+              <div className={`text-[10px] ${mode===m.id?'text-gray-300':'text-gray-400'}`}>{m.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* Replace scope */}
+        {mode === 'replace' && (
+          <div className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">What to replace</div>
+            {[{id:'all',label:'Replace all data',desc:'Clear everything and replace with import file'},
+              {id:'period',label:'Replace by period',desc:'Only overwrite records for the specified period range'}].map(s => (
+              <button key={s.id} onClick={() => setReplaceScope(s.id)}
+                className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${replaceScope===s.id?'bg-white border-gray-800':'bg-white border-gray-200 hover:border-gray-400'}`}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${replaceScope===s.id?'border-gray-800 bg-gray-800':'border-gray-300'}`}/>
+                  <div>
+                    <div className="text-xs font-medium text-gray-800">{s.label}</div>
+                    <div className="text-[10px] text-gray-400">{s.desc}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+            {replaceScope === 'period' && (
+              <div className="pt-1">
+                <PeriodRangeSelect startPeriod={startPeriod} endPeriod={endPeriod} onChange={handlePeriodChange}/>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* File upload + import */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Upload File</div>
+        <div onClick={() => fileRef.current?.click()}
+          className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-4 cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors mb-4">
+          <Upload size={18} className="text-gray-300 flex-shrink-0"/>
+          <div>
+            <div className="text-sm text-gray-500">{fileName || 'Choose CSV or Excel file…'}</div>
+            <div className="text-[10px] text-gray-300 mt-0.5">.csv · .xlsx · .xls</div>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileChange}/>
+        </div>
+
+        {status === 'success' && (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-100 mb-4">
+            <CheckCircle size={14} className="text-emerald-600 flex-shrink-0"/>
+            <p className="text-xs font-medium text-emerald-700">
+              {mode === 'append' ? 'Data appended successfully.' : `Data replaced${replaceScope==='period'?` for ${startPeriod} → ${endPeriod}`:' (all periods)'}.`}
+            </p>
+          </div>
+        )}
+
+        <button onClick={handleImport} disabled={!fileName}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
+          style={{backgroundColor:'var(--color-accent)'}}>
+          {mode === 'append' ? 'Append Data' : 'Replace Data'}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
-  const [activeImport, setActiveImport] = useState('giving')
+  const [activeImport, setActiveImport] = useState('financial')
   const [summaryMonth, setSummaryMonth] = useState(ALL_MONTHS[0])
-  const importTypes = [
-    {id:'giving',label:'Giving & Revenue'},{id:'patrons',label:'Patron Data'},
-    {id:'cash',label:'Cash Flow'},{id:'pnl',label:'P&L Data'},{id:'narrative',label:'Monthly Summary'},
+
+  const importTabs = [
+    { id:'financial', label:'Financial Data' },
+    { id:'patrons',   label:'Patron Data' },
+    { id:'cashflow',  label:'Cash Flow' },
+    { id:'narrative', label:'Monthly Summary' },
   ]
 
-  // Monthly summary quick-add form
   const existingMonths = Object.keys(summaries)
-  const targetSummary = summaries[summaryMonth]
+  const targetSummary  = summaries[summaryMonth]
 
   function handleQuickAdd() {
     if (!summaries[summaryMonth]) onAddSummary(summaryMonth)
@@ -2614,20 +3107,29 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <div className="mb-4"><span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>ELT Data Import</span></div>
-      <div className="flex items-center gap-1 bg-gray-100 rounded-full p-1 mb-6 w-fit flex-wrap">
-        {importTypes.map(t=>(
-          <button key={t.id} onClick={()=>setActiveImport(t.id)} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${activeImport===t.id?'bg-gray-900 text-white shadow-sm':'text-gray-600 hover:text-gray-900'}`}>{t.label}</button>
+      <div className="mb-5">
+        <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--color-accent)'}}>Data Import</p>
+        <p className="text-xs text-gray-400">Download templates, upload actuals, budgets, and prior-year data. All templates are designed to feed into the master dashboard build.</p>
+      </div>
+
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1 bg-gray-100 rounded-full p-1 mb-6 w-fit">
+        {importTabs.map(t => (
+          <button key={t.id} onClick={() => setActiveImport(t.id)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${activeImport===t.id?'bg-gray-900 text-white shadow-sm':'text-gray-600 hover:text-gray-900'}`}>
+            {t.label}
+          </button>
         ))}
       </div>
 
       {activeImport === 'narrative' ? (
+        /* Monthly Summary sub-tab (existing behavior) */
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Select Month</div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Create or Link Monthly Summary</div>
             <div className="flex gap-3">
               <select value={summaryMonth} onChange={e=>setSummaryMonth(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400">
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white">
                 {ALL_MONTHS.map(m=><option key={m} value={m}>{m}{summaries[m]?' ✓':''}</option>)}
               </select>
               {!targetSummary && (
@@ -2640,7 +3142,6 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
               <p className="text-xs mt-2" style={{color:'var(--color-accent)'}}>✓ Summary exists for {summaryMonth}. Switch to the Summary tab to edit it.</p>
             )}
           </div>
-
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Existing Summaries</div>
             {existingMonths.length === 0 ? (
@@ -2661,20 +3162,31 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary }) {
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center">
-          <Upload size={32} className="text-gray-200 mx-auto mb-3"/>
-          <div className="text-sm font-medium text-gray-600 mb-1">
-            Import {importTypes.find(t=>t.id===activeImport)?.label}
-          </div>
-          <div className="text-xs text-gray-400 mb-5">
-            Upload a CSV or Excel file with {activeImport==='giving'?'giving/revenue':activeImport==='patrons'?'patron':activeImport==='cash'?'cash flow':'P&L'} data
-          </div>
-          <button className="px-4 py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>Choose file</button>
-        </div>
+        <ImportTypePanel typeKey={activeImport} summaries={summaries} onAddSummary={onAddSummary}/>
       )}
     </div>
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared empty summary template
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EMPTY_SUMMARY_TEMPLATE = () => ({
+  prepared: new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
+  title: '',
+  overallSummary: '',
+  monthlyNarrative: '',
+  financials: {
+    giving:   {actual:0,budget:0,priorYear:0},
+    expenses: {actual:0,budget:0,priorYear:0},
+  },
+  kpiCards: ['monthly-giving','monthly-expenses','monthly-net'],
+  keyTakeaways: [],
+  watchAreas: [],
+  reserves: '',
+  reservesNote: '',
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main ELT Dashboard
@@ -2702,13 +3214,14 @@ export default function ELTDashboard() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{backgroundColor:'var(--color-primary-bg)'}}>
+      <FloatingNav currentPage="executive"/>
       <ELTNav orgConfig={orgConfig} activeTab={activeTab} setActiveTab={setActiveTab}
         dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}/>
       <main className="flex-1 overflow-auto">
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange}/>}
-        {activeTab==='documents' && <DocumentsTab/>}
+        {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
         {activeTab==='import'    && <ELTImportTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
       </main>
     </div>
