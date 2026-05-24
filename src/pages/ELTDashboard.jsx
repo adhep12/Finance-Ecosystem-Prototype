@@ -522,7 +522,7 @@ function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2L
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{title}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{title}</div>
       <div className="text-3xl font-bold text-gray-900 mb-4">{value}</div>
       <div className="space-y-2.5">
         {cmp1Label && <div>
@@ -584,7 +584,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
     return (
       <div className="relative bg-white rounded-2xl border-2 shadow-sm p-5 flex-1 min-w-[240px] space-y-2.5" style={{borderColor:'var(--color-accent)'}}>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider" style={{color:'var(--color-accent)'}}>Editing Card</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{color:'var(--neutral-60)'}}>Editing Card</span>
           <button onClick={cancel} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
         </div>
         {fields.map(([lbl, key]) => (
@@ -634,7 +634,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
           </button>
         </div>
       )}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{card.label || 'Custom KPI'}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label || 'Custom KPI'}</div>
       <div className="text-3xl font-bold text-gray-900 mb-4">{card.value || '—'}</div>
       {(card.cmp1Label || card.cmp2Label) && (
         <div className="space-y-2.5">
@@ -652,18 +652,28 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
 
 function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2Pct, cmp2Value, breakdown, editMode, onRemove }) {
   const [showBreakdown, setShowBreakdown] = useState(false)
+  function deltaColor(d) { return d > 0 ? '#6ECF8C' : d < 0 ? '#F0876A' : 'rgba(255,255,255,0.5)' }
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
-      {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
+    <div className="relative rounded-2xl p-5 flex-1 min-w-[220px]"
+      style={{backgroundColor:'var(--ink-900)',border:'1px solid var(--ink-800)'}}>
+      {editMode && onRemove && (
+        <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+          style={{backgroundColor:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.4)'}}>
+          <X size={11}/>
+        </button>
+      )}
+      {/* Label + info */}
       <div className="flex items-center gap-1.5 mb-1">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-accent)'}}>Net Position YTD</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-accent)'}}>
+          Net Position YTD
+        </div>
         <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
-          <Info size={12} className="text-gray-300 hover:text-gray-500 cursor-help"/>
+          <Info size={12} style={{color:'rgba(255,255,255,0.25)'}} className="cursor-help"/>
           {showBreakdown && (
             <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
               <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Breakdown</div>
               {breakdown.lines.map((line,i) => (
-                <div key={i} className={`flex justify-between py-1 text-sm ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
+                <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
                   <span className="text-xs">{line.label}</span>
                   <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(Math.abs(line.value))}</span>
                 </div>
@@ -676,15 +686,29 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
           )}
         </div>
       </div>
-      <div className="text-3xl font-bold text-gray-900 mb-4">{formatCurrency(value)}</div>
+      {/* Big value */}
+      <div className="text-3xl font-bold text-white mb-4">{formatCurrency(value)}</div>
+      {/* Comparisons */}
       <div className="space-y-2.5">
-        {[{label:'vs Forecast',delta:cmp1Delta,pct:cmp1Pct,base:cmp1Value},{label:'vs Prior Year',delta:cmp2Delta,pct:cmp2Pct,base:cmp2Value}].map(({label,delta,pct,base})=>(
+        {[
+          {label:'vs Forecast',   delta:cmp1Delta, pct:cmp1Pct, base:cmp1Value},
+          {label:'vs Prior Year', delta:cmp2Delta, pct:cmp2Pct, base:cmp2Value},
+        ].map(({label,delta,pct,base})=>(
           <div key={label}>
-            <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{label}</div>
+            <div className="text-[10px] uppercase tracking-wider font-semibold mb-1"
+              style={{color:'rgba(255,255,255,0.45)'}}>{label}</div>
             <div className="flex items-center gap-2 flex-wrap">
-              <TrendBadge delta={delta} label={pct}/>
-              <span className={`text-sm font-semibold ${varColor(delta)}`}>{delta>0?'+':''}{formatCurrency(delta)}</span>
-              <span className="text-xs text-gray-400">vs {formatCurrency(base)}</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                style={{backgroundColor:'rgba(255,255,255,0.10)',color:deltaColor(delta)}}>
+                {delta>0?<TrendingUp size={11}/>:delta<0?<TrendingDown size={11}/>:<Minus size={11}/>}
+                {pct}
+              </span>
+              <span className="text-sm font-semibold" style={{color:deltaColor(delta)}}>
+                {delta>0?'+':''}{formatCurrency(delta)}
+              </span>
+              <span className="text-xs" style={{color:'rgba(255,255,255,0.3)'}}>
+                vs {formatCurrency(base)}
+              </span>
             </div>
           </div>
         ))}
@@ -710,7 +734,7 @@ function MonthlyKPICard({ title, actual, budget, priorYear, inverse=false, editM
           <X size={11}/>
         </button>
       )}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{title}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{title}</div>
 
       {editMode ? (
         <div className="space-y-2.5 mt-2">
@@ -868,7 +892,7 @@ function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onCl
               if (groupAvailable.length === 0) return null
               return (
                 <div key={group.group}>
-                  <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{color:'var(--color-accent)'}}>{group.group}</div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{color:'var(--neutral-60)'}}>{group.group}</div>
                   <div className="space-y-1.5">
                     {groupAvailable.map(card=>{
                       const hasData = KPI_DATA_AVAILABLE.has(card.id)
@@ -974,7 +998,7 @@ function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onCl
 function SectionLabel({ children }) {
   return (
     <div className="flex items-center gap-4 mb-4">
-      <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>{children}</span>
+      <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--ink-900)'}}>{children}</span>
       <div className="flex-1 border-t border-gray-200"/>
     </div>
   )
@@ -983,7 +1007,7 @@ function SectionLabel({ children }) {
 function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
   return (
     <div className="flex items-center justify-between mb-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--color-accent)'}}>{title}</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>{title}</h2>
       <div className="flex items-center gap-2">
         {editMode && showAdd && (
           <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
@@ -1179,7 +1203,7 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{label}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{label}</div>
       <div className="text-3xl font-bold text-gray-900 mb-4">{mainValue}</div>
       <div className="space-y-2.5">
         {sub1Label && (
@@ -1343,7 +1367,7 @@ function RollingQuoteSection() {
     <div className="py-10 px-6 text-center rounded-2xl my-4" style={{backgroundColor:'var(--color-primary-light,#F2D5C8)'}}>
       <div style={{ transition: 'opacity 0.5s ease', opacity: visible ? 1 : 0 }}>
         <p className="text-lg font-medium text-gray-800 italic leading-relaxed">"{q.text}"</p>
-        <p className="mt-3 text-xs font-semibold uppercase tracking-widest" style={{color:'var(--color-accent)'}}>{q.author}</p>
+        <p className="mt-3 text-xs font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>{q.author}</p>
       </div>
     </div>
   )
@@ -1466,11 +1490,11 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
                  style={{backgroundColor:'var(--color-accent-light)'}}>
-              <FileText size={18} style={{color:'var(--color-accent)'}}/>
+              <FileText size={18} style={{color:'var(--neutral-60)'}}/>
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5"
-                 style={{color:'var(--color-accent)'}}>
+                 style={{color:'var(--neutral-60)'}}>
                 Financial Summary
               </p>
               <div className="flex items-center gap-2 flex-wrap">
@@ -1553,7 +1577,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
           {/* ── KEY TAKEAWAYS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Key Takeaways</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--ink-900)'}}>Key Takeaways</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
           </div>
@@ -1561,7 +1585,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
             {(summary.keyTakeaways||[]).map((kt, idx) => (
               <div key={kt.id} className="py-5 border-b border-gray-100 last:border-0">
                 <div className="flex items-start gap-4">
-                  <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-accent)'}}>{String(idx+1).padStart(2,'0')}</span>
+                  <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--ink-900)'}}>{String(idx+1).padStart(2,'0')}</span>
                   <div className="flex-1 min-w-0">
                     {editMode ? (
                       <>
@@ -1599,7 +1623,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
           {/* ── WATCH AREAS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Watch Areas</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--ink-900)'}}>Watch Areas</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
           </div>
@@ -1797,7 +1821,7 @@ function DashboardTab({ dateRange, orgConfig }) {
     if(cardId==='retention') return (
       <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
-        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>Retention Rate</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Retention Rate</div>
         <div className="text-3xl font-bold text-gray-900 mb-2">94.2%</div>
         <div className="text-xs text-gray-500">vs 93.1% prior year <span className="text-emerald-600 font-medium">+1.1 pts</span></div>
       </div>
@@ -1805,7 +1829,7 @@ function DashboardTab({ dateRange, orgConfig }) {
     if(cardId==='recurring-ratio') return (
       <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
-        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>Recurring Mix</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Recurring Mix</div>
         <div className="text-3xl font-bold text-gray-900 mb-2">82.4%</div>
         <div className="text-xs text-gray-500">of total supporters are recurring givers</div>
       </div>
@@ -1857,7 +1881,7 @@ function DashboardTab({ dateRange, orgConfig }) {
         </div>
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1"
-             style={{color:'var(--color-accent)'}}>
+             style={{color:'var(--neutral-60)'}}>
             Financial Summary
           </p>
           <div className="flex items-baseline gap-3 flex-wrap">
@@ -2097,7 +2121,7 @@ function TeamDetailDrawer({ team, onClose }) {
         {/* ── Modal header ── */}
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--color-accent)'}}>Team Detail</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Team Detail</p>
             <h2 className="text-xl font-bold text-gray-900">{team.name}</h2>
             <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
           </div>
@@ -2421,10 +2445,10 @@ function TeamsTab({ dateRange }) {
       {/* Page header */}
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{backgroundColor:'var(--color-accent-light)'}}>
-          <Users size={18} style={{color:'var(--color-accent)'}}/>
+          <Users size={18} style={{color:'var(--neutral-60)'}}/>
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--color-accent)'}}>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--neutral-60)'}}>
             Financial Summary / Team Breakdown
           </p>
           <div className="flex items-baseline gap-3 flex-wrap">
@@ -2448,7 +2472,7 @@ function TeamsTab({ dateRange }) {
             positive: overBudget === 0 },
         ].map((card,i) => (
           <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>{card.label}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
             <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>
               {card.value}
             </div>
@@ -2647,7 +2671,7 @@ function DocumentsTab({ orgConfig }) {
       {/* Header row */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--color-accent)'}}>Financial Documents</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Financial Documents</p>
           <p className="text-xs text-gray-400">{filteredDocs.length} of {docs.length} documents{filterPreset!=='all'?' in selected period':''}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -3002,7 +3026,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
 
       {/* Sections */}
       <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
-        <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>Sections to Include</div>
+        <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Sections to Include</div>
         <p className="text-[10px] mb-3" style={{color:'var(--fg-3)'}}>Choose which pages appear in the exported PDF.</p>
         <div className="space-y-2">
           {sectionOpts.map(opt => {
@@ -3041,7 +3065,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
 
       {/* Reporting period */}
       <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
-        <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--color-accent)'}}>Reporting Period</div>
+        <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Reporting Period</div>
         <p className="text-[10px] mb-3" style={{color:'var(--fg-3)'}}>Shown on the report cover. Defaults to the dashboard's current date range — edit it here without changing the main view.</p>
 
         {/* Trigger button */}
@@ -3389,7 +3413,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <div className="mb-5">
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--color-accent)'}}>Data Import</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Data Import</p>
         <p className="text-xs text-gray-400">Download templates, upload actuals, budgets, and prior-year data. All templates are designed to feed into the master dashboard build.</p>
       </div>
 
@@ -3422,7 +3446,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
               )}
             </div>
             {targetSummary && (
-              <p className="text-xs mt-2" style={{color:'var(--color-accent)'}}>✓ Summary exists for {summaryMonth}. Switch to the Summary tab to edit it.</p>
+              <p className="text-xs mt-2" style={{color:'var(--neutral-60)'}}>✓ Summary exists for {summaryMonth}. Switch to the Summary tab to edit it.</p>
             )}
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
