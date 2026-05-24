@@ -495,6 +495,7 @@ const PIN_TYPES = [
 ]
 
 function TransactionModal({ transaction: t, onClose, onAddComment }) {
+  const { deptNames } = useApp()
   const [text,   setText]   = useState('')
   const [type,   setType]   = useState('question')
   const [author, setAuthor] = useState('')

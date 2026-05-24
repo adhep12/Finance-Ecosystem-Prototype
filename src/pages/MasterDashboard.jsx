@@ -1257,6 +1257,7 @@ function MultiSelectFilter({ label, options, selected, onToggle, onClear }){
 }
 
 function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const { deptNames } = useApp()
   const [search,       setSearch]       = useState('')
   const [teamFilter,   setTeamFilter]   = useState([])
   const [catFilter,    setCatFilter]    = useState([])
