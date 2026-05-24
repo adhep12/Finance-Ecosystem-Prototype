@@ -201,94 +201,99 @@ function DrillOrderBar({
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100 bg-white">
-      {/* View mode toggle */}
-      {setViewMode && (
-        <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
-          {[{id:'summary',label:'Summary'},{id:'calendar',label:'Calendar'}].map(({id, label}) => (
-            <button key={id} onClick={() => setViewMode(id)}
-              className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}>
-              {label}
+
+      {/* ── Left section: Search + Drill Order + Reset ── */}
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Search — far left */}
+        <div className="flex items-center gap-2 flex-shrink-0 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-56">
+          <Search size={13} className="text-gray-400 flex-shrink-0" />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search vendor, category..."
+            className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600">
+              <X size={11} />
             </button>
-          ))}
+          )}
         </div>
-      )}
 
-      <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+        <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
 
-      {/* Search */}
-      <div className="flex items-center gap-2 flex-shrink-0 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-56">
-        <Search size={13} className="text-gray-400 flex-shrink-0" />
-        <input
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder="Search vendor, category..."
-          className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"
-        />
-        {searchQuery && (
-          <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600">
-            <X size={11} />
-          </button>
-        )}
-      </div>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 flex-shrink-0">
+          Drill Order
+        </span>
 
-      <div className="w-px h-5 bg-gray-200" />
-
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 flex-shrink-0">
-        Drill Order
-      </span>
-
-      {/* Draggable pills */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {drillOrder.map((field, idx) => (
-          <div
-            key={field}
-            draggable
-            onDragStart={e => handleDragStart(e, idx)}
-            onDragOver={e => handleDragOver(e, idx)}
-            onDrop={e => handleDrop(e, idx)}
-            onDragEnd={handleDragEnd}
-            className="relative"
-          >
-            {/* Drop indicator */}
-            {dropIdx === idx && dragIdx !== null && dragIdx !== idx && (
-              <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full" />
-            )}
+        {/* Draggable pills — flex-1 so Reset stays snug against them */}
+        <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+          {drillOrder.map((field, idx) => (
             <div
-              className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border transition-all cursor-grab active:cursor-grabbing ${
-                dragIdx === idx ? 'opacity-40' : 'opacity-100'
-              }`}
-              style={{
-                backgroundColor: FIELD_COLORS[field] + '20',
-                borderColor: FIELD_COLORS[field] + '60',
-                color: FIELD_COLORS[field],
-              }}
+              key={field}
+              draggable
+              onDragStart={e => handleDragStart(e, idx)}
+              onDragOver={e => handleDragOver(e, idx)}
+              onDrop={e => handleDrop(e, idx)}
+              onDragEnd={handleDragEnd}
+              className="relative"
             >
-              <GripVertical size={10} className="opacity-50" />
-              {FIELD_LABELS[field]}
-              <button
-                onMouseDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); removeField(field) }}
-                className="ml-0.5 hover:opacity-70"
+              {/* Drop indicator */}
+              {dropIdx === idx && dragIdx !== null && dragIdx !== idx && (
+                <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full" />
+              )}
+              <div
+                className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border transition-all cursor-grab active:cursor-grabbing ${
+                  dragIdx === idx ? 'opacity-40' : 'opacity-100'
+                }`}
+                style={{
+                  backgroundColor: FIELD_COLORS[field] + '20',
+                  borderColor: FIELD_COLORS[field] + '60',
+                  color: FIELD_COLORS[field],
+                }}
               >
-                <X size={9} />
-              </button>
+                <GripVertical size={10} className="opacity-50" />
+                {FIELD_LABELS[field]}
+                <button
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); removeField(field) }}
+                  className="ml-0.5 hover:opacity-70"
+                >
+                  <X size={9} />
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        <AddFieldMenu inactive={inactive} onAdd={addField} />
+          <AddFieldMenu inactive={inactive} onAdd={addField} />
+        </div>
+
+        {/* Reset — right next to pills */}
+        <button
+          onClick={reset}
+          className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 font-medium"
+        >
+          <RotateCcw size={11} />
+          Reset
+        </button>
       </div>
 
-      {/* Reset */}
-      <button
-        onClick={reset}
-        className="ml-auto flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 font-medium"
-      >
-        <RotateCcw size={11} />
-        Reset
-      </button>
+      {/* ── Right section: view toggle — far right ── */}
+      {setViewMode && (
+        <>
+          <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+          <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
+            {[{id:'summary',label:'Summary'},{id:'calendar',label:'Calendar'}].map(({id, label}) => (
+              <button key={id} onClick={() => setViewMode(id)}
+                className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                  viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -821,6 +826,8 @@ export default function BreakdownPage() {
               drillOrder={drillOrder}
               dateRange={dateRange}
               deptNames={DEPT_NAMES}
+              activeDepts={activeDepts}
+              onHide={hideRow}
             />
           </div>
         )}
