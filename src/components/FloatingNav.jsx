@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { BarChart2, Users, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
+import { BarChart2, Users, LayoutDashboard, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 
 const NAV_ITEMS = [
-  { id: 'executive', label: 'Executive', icon: BarChart2, path: '/elt' },
-  { id: 'teams',     label: 'Teams',     icon: Users,     path: '/briefing' },
+  { id: 'executive', label: 'Executive', icon: BarChart2,       path: '/elt' },
+  { id: 'teams',     label: 'Teams',     icon: Users,           path: '/briefing' },
+  { id: 'finance',   label: 'Finance',   icon: LayoutDashboard, path: '/master' },
 ]
 
 function readLS(key, fallback) {
@@ -22,7 +23,9 @@ export default function FloatingNav() {
   const navigate  = useNavigate()
   const location  = useLocation()
 
-  const currentPage = location.pathname.startsWith('/elt') ? 'executive' : 'teams'
+  const currentPage = location.pathname.startsWith('/elt') ? 'executive'
+    : location.pathname.startsWith('/master') ? 'finance'
+    : 'teams'
 
   function setOpen(v) {
     setOpenState(v)

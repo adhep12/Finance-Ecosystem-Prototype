@@ -7,6 +7,7 @@ import CommentsPage      from './pages/CommentsPage'
 import ImportPage        from './pages/ImportPage'
 import TransactionsPage  from './pages/TransactionsPage'
 import ELTDashboard      from './pages/ELTDashboard'
+import MasterDashboard    from './pages/MasterDashboard'
 import Header            from './components/Header'
 import FloatingNav       from './components/FloatingNav'
 
@@ -35,8 +36,9 @@ function AppRoutes() {
     <>
       <FloatingNav />
       <Routes>
-        <Route path="/elt" element={<ELTDashboard />} />
-        <Route path="/*"   element={<AppShell />} />
+        <Route path="/elt"    element={<ELTDashboard />} />
+        <Route path="/master" element={<MasterDashboard />} />
+        <Route path="/*"      element={<AppShell />} />
       </Routes>
     </>
   )

@@ -172,7 +172,6 @@ export default function Header() {
     { to: '/breakdown',     label: 'Breakdown' },
     { to: '/transactions',  label: 'Transactions' },
     { to: '/comments',      label: 'Comments & Requests' },
-    { to: '/import',        label: 'Import' },
   ]
 
   return (

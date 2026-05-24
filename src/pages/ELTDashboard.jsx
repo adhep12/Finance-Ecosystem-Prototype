@@ -13,6 +13,7 @@ import {
   Download, Calendar, Trash2
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import CommentsPage from './CommentsPage'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -577,7 +578,7 @@ function ELTDateRangePicker({ dateRange, org, onApplyPreset, onApplyCustom, onCl
 
 const ELT_TABS = [
   {id:'dashboard',label:'Dashboard'},{id:'summary',label:'Summary'},
-  {id:'teams',label:'Teams'},{id:'documents',label:'Documents'},{id:'import',label:'Import'},
+  {id:'teams',label:'Teams'},{id:'documents',label:'Documents'},{id:'comments',label:'Comments & Requests'},
 ]
 
 function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom, activeBudget, onSetBudget }) {
@@ -643,7 +644,7 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
           {showBudgetPicker && (
             <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
               <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Budget Scenario</div>
-              <p className="text-xs text-gray-500 mb-3 leading-relaxed">Select which budget to compare actuals against. Import additional budgets in the Import tab.</p>
+              <p className="text-xs text-gray-500 mb-3 leading-relaxed">Select which budget to compare actuals against. Import additional budgets in the Finance dashboard.</p>
               <div className="space-y-1">
                 {BUDGET_SCENARIOS.map((s,i) => (
                   <button key={s.id} onClick={()=>{ onSetBudget(s); setShowBudgetPicker(false) }}
@@ -3813,7 +3814,7 @@ export default function ELTDashboard() {
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
-        {activeTab==='import'    && <ELTImportTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} dateRange={dateRange} orgConfig={orgConfig}/>}
+        {activeTab==='comments'  && <CommentsPage />}
       </main>
     </div>
   )
