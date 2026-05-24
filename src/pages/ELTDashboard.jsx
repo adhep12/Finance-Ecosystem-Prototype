@@ -580,13 +580,21 @@ const ELT_TABS = [
   {id:'teams',label:'Teams'},{id:'documents',label:'Documents'},{id:'import',label:'Import'},
 ]
 
-function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom }) {
+function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom, activeBudget, onSetBudget }) {
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [showBudgetPicker, setShowBudgetPicker] = useState(false)
   const pickerRef = useRef(null)
+  const budgetPickerRef = useRef(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     function handle(e) { if(pickerRef.current&&!pickerRef.current.contains(e.target)) setShowDatePicker(false) }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  useEffect(() => {
+    function handle(e) { if(budgetPickerRef.current&&!budgetPickerRef.current.contains(e.target)) setShowBudgetPicker(false) }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
   }, [])
@@ -621,6 +629,31 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
           {showDatePicker && (
             <div className="absolute right-0 top-full mt-2 z-50">
               <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
+            </div>
+          )}
+        </div>
+        {/* Budget Scenario Selector */}
+        <div className="relative flex-shrink-0 ml-2" ref={budgetPickerRef}>
+          <button onClick={() => setShowBudgetPicker(v=>!v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
+            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET SCENARIO</span>
+            <span className="max-w-[120px] truncate">{activeBudget?.name || 'Original Budget'}</span>
+            <ChevronDown size={12} className="text-gray-400"/>
+          </button>
+          {showBudgetPicker && (
+            <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Budget Scenario</div>
+              <p className="text-xs text-gray-500 mb-3 leading-relaxed">Select which budget to compare actuals against. Import additional budgets in the Import tab.</p>
+              <div className="space-y-1">
+                {BUDGET_SCENARIOS.map((s,i) => (
+                  <button key={s.id} onClick={()=>{ onSetBudget(s); setShowBudgetPicker(false) }}
+                    disabled={i>0}
+                    className={`w-full text-left px-3 py-2 rounded-lg border transition-all text-sm ${activeBudget?.id===s.id ? 'bg-gray-900 text-white border-gray-900' : i>0 ? 'text-gray-300 border-gray-100 bg-gray-50 cursor-not-allowed' : 'text-gray-800 border-gray-200 bg-white hover:border-gray-400'}`}>
+                    {s.name}
+                    {i>0 && <span className="ml-2 text-[9px] uppercase tracking-widest opacity-60">import to enable</span>}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -1131,10 +1164,10 @@ function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onCl
 // Section label with BibleProject styling
 // ─────────────────────────────────────────────────────────────────────────────
 
-function SectionLabel({ children }) {
+function SectionLabel({ children, color }) {
   return (
     <div className="flex items-center gap-4 mb-4">
-      <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--ink-900)'}}>{children}</span>
+      <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color: color || 'var(--ink-900)'}}>{children}</span>
       <div className="flex-1 border-t border-gray-200"/>
     </div>
   )
@@ -1179,7 +1212,7 @@ function ChartTypeToggle({ type, onChange }) {
 // P&L Table
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PLTable({ data, accounts = PL_ACCOUNTS }) {
+function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date' }) {
   const [expanded, setExpanded] = useState(new Set())
   function toggle(id) { setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n }) }
 
@@ -1216,11 +1249,10 @@ function PLTable({ data, accounts = PL_ACCOUNTS }) {
           ${hasAccts ? 'cursor-pointer hover:bg-gray-50' : ''}`}
         onClick={hasAccts ? ()=>toggle(row.id) : undefined}>
         <td className={`px-6 py-2.5
-          ${isSection  ? 'text-[10px] font-bold uppercase tracking-widest' : ''}
+          ${isSection  ? 'text-[10px] font-semibold uppercase tracking-widest text-gray-400' : ''}
           ${isSubtotal ? 'font-semibold text-gray-700 pl-6' : ''}
           ${isTotal    ? 'font-bold text-white' : ''}
-          ${!isSection&&!isSubtotal&&!isTotal ? 'text-gray-700 pl-10' : ''}`}
-          style={isSection ? {color:'var(--color-accent)'} : {}}>
+          ${!isSection&&!isSubtotal&&!isTotal ? 'text-gray-700 pl-10' : ''}`}>
           <div className="flex items-center gap-1.5">
             {hasAccts && (
               <span className={`transition-transform duration-150 text-gray-400 ${isExpanded?'rotate-90':''}`}>
@@ -1243,7 +1275,19 @@ function PLTable({ data, accounts = PL_ACCOUNTS }) {
             </td>
             <VarCell actual={row.actual} budget={row.budget} isExpense={isExpense} isTotal={isTotal}/>
             <td className={`px-6 py-2.5 text-right tabular-nums text-xs ${isTotal?'text-gray-300':'text-gray-400'}`}>
-              {row.actual!==undefined && !isSection ? formatPercent(row.actual/totalIncome*100,{decimals:1}) : ''}
+              {row.actual!==undefined && !isSection && !isTotal && !isSubtotal ? (
+                <div className="flex items-center justify-end gap-2">
+                  <div className="w-24 bg-gray-100 rounded-full h-1.5 overflow-hidden flex-shrink-0">
+                    <div className="h-full rounded-full transition-all" style={{
+                      width: `${Math.min((row.actual/totalIncome*100)/100*100, 100)}%`,
+                      backgroundColor: PL_ROW_COLORS[row.id] || 'var(--neutral-40)',
+                    }}/>
+                  </div>
+                  <span className="text-gray-400 tabular-nums w-10 text-right">{formatPercent(row.actual/totalIncome*100,{decimals:1})}</span>
+                </div>
+              ) : isTotal ? (
+                <span className="text-xs text-gray-300 italic">{formatPercent((totalIncome - (data.find(r=>r.id==='total-expenses')?.actual||0))/totalIncome*100,{decimals:1})} margin</span>
+              ) : ''}
             </td>
           </>
         )}
@@ -1282,7 +1326,7 @@ function PLTable({ data, accounts = PL_ACCOUNTS }) {
       <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Year-to-date actual vs. budget · Click a category row to expand accounts</p>
+          <p className="text-xs text-gray-400 mt-0.5">{rangeLabel} · Actual vs. budget · Click a category row to expand accounts</p>
         </div>
         <button onClick={()=>setExpanded(prev=>prev.size>0?new Set():new Set(Object.keys(accounts)))}
           className="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
@@ -1381,14 +1425,37 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
 
 const TOOLTIP_STYLE = { backgroundColor:'#fff', border:'1px solid var(--neutral-10)', borderRadius:'10px', fontSize:'12px', boxShadow:'0 4px 16px rgba(24,20,14,0.10)' }
 
-function NewPatronChartCard({ data, editMode, onRemove }) {
+function NewPatronChartCard({ editMode, onRemove }) {
   const [chartType, setChartType] = useState('line')
-  const sharedProps = { data, margin:{top:5,right:5,left:-20,bottom:0} }
+  const years = ['2026','2025','2024','2023','2022']
+  const sharedProps = { data: PATRON_MONTHLY_DATA, margin:{top:5,right:5,left:-20,bottom:0} }
   const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
   const yAxis = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
   const grid  = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)"/>
   const tip   = <Tooltip contentStyle={TOOLTIP_STYLE}/>
   const leg   = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+
+  function renderSeries(type) {
+    return years.map((yr,i) => {
+      const color = yearColor(yr)
+      const isCurrent = yr === String(CURRENT_FY)
+      const strokeW = isCurrent ? 2.5 : 1.8
+      const opacity = isCurrent ? 1 : 0.7
+      if (type === 'bar') return (
+        <Bar key={yr} dataKey={`y${yr}`} name={yr} fill={color} radius={[3,3,0,0]} opacity={opacity}/>
+      )
+      if (type === 'area') return (
+        <Area key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color} fill={color}
+          strokeWidth={strokeW} fillOpacity={isCurrent ? 0.15 : 0.05} connectNulls={false}/>
+      )
+      return (
+        <Line key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color}
+          strokeWidth={strokeW} dot={false} activeDot={isCurrent?{r:4}:false}
+          strokeDasharray={isCurrent ? undefined : i===1?undefined:'5 3'}
+          opacity={opacity} connectNulls={false}/>
+      )
+    })
+  }
 
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
@@ -1402,34 +1469,31 @@ function NewPatronChartCard({ data, editMode, onRemove }) {
       </div>
       <ResponsiveContainer width="100%" height={200}>
         {chartType==='bar' ? (
-          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
-            <Bar dataKey="newCY" name="This Year"  fill="var(--ill-1)" radius={[3,3,0,0]} opacity={0.9}/>
-            <Bar dataKey="newPY" name="Prior Year" fill="var(--ill-2)" radius={[3,3,0,0]} opacity={0.7}/>
-          </BarChart>
+          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}{renderSeries('bar')}</BarChart>
         ) : chartType==='area' ? (
-          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
-            <Area type="monotone" dataKey="newCY" name="This Year"  stroke="var(--ill-1)" fill="var(--ill-1)" strokeWidth={2.5} fillOpacity={0.15}/>
-            <Area type="monotone" dataKey="newPY" name="Prior Year" stroke="var(--ill-2)" fill="var(--ill-2)" strokeWidth={2}   fillOpacity={0.12}/>
-          </AreaChart>
+          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}{renderSeries('area')}</AreaChart>
         ) : (
-          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
-            <Line type="monotone" dataKey="newCY" name="This Year"  stroke="var(--ill-1)" strokeWidth={2.5} dot={false} activeDot={{r:4}}/>
-            <Line type="monotone" dataKey="newPY" name="Prior Year" stroke="var(--ill-2)" strokeWidth={2}   dot={false} strokeDasharray="5 3" opacity={0.75}/>
-          </LineChart>
+          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}{renderSeries('line')}</LineChart>
         )}
       </ResponsiveContainer>
     </div>
   )
 }
 
-function PatronBaseChartCard({ data, editMode, onRemove }) {
+function PatronBaseChartCard({ editMode, onRemove }) {
   const [chartType, setChartType] = useState('bar')
-  const sharedProps = { data, margin:{top:5,right:5,left:-20,bottom:0} }
-  const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
-  const yAxis = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false} domain={[20000,'auto']} tickFormatter={v=>v>=1000?`${(v/1000).toFixed(0)}K`:v}/>
+  const sharedProps = { data: PATRON_BASE_YEARLY, margin:{top:5,right:5,left:-20,bottom:0} }
+  const xAxis = <XAxis dataKey="year" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
+  const yAxis = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}
+    tickFormatter={v=>v>=1000000?`$${(v/1000000).toFixed(1)}M`:v>=1000?`$${(v/1000).toFixed(0)}K`:v}/>
   const grid  = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false}/>
-  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>v.toLocaleString()}/>
-  const leg   = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>formatCurrency(v,{compact:true})}/>
+
+  // Custom bar shape — each bar gets its own year color
+  function ColoredBar(props) {
+    const { x, y, width, height, year } = props
+    return <rect x={x} y={y} width={width} height={height} fill={yearColor(year)} rx={4} ry={4}/>
+  }
 
   return (
     <div className="relative bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
@@ -1437,22 +1501,26 @@ function PatronBaseChartCard({ data, editMode, onRemove }) {
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
-          <div className="text-[10px] text-gray-400">Total active supporters per month</div>
+          <div className="text-[10px] text-gray-400">Recurring giving $ per fiscal year</div>
         </div>
         <ChartTypeToggle type={chartType} onChange={setChartType}/>
       </div>
       <ResponsiveContainer width="100%" height={200}>
         {chartType==='line' ? (
-          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
-            <Line type="monotone" dataKey="total" name="Total Supporters" stroke="var(--ill-1)" strokeWidth={2.5} dot={false} activeDot={{r:4}}/>
+          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}
+            <Line type="monotone" dataKey="total" name="Recurring $" stroke="var(--color-accent)" strokeWidth={2.5} dot={{fill:'var(--color-accent)',r:4}} activeDot={{r:5}}/>
           </LineChart>
         ) : chartType==='area' ? (
-          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
-            <Area type="monotone" dataKey="total" name="Total Supporters" stroke="var(--ill-1)" fill="var(--ill-1)" strokeWidth={2.5} fillOpacity={0.15}/>
+          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}
+            <Area type="monotone" dataKey="total" name="Recurring $" stroke="var(--color-accent)" fill="var(--color-accent)" strokeWidth={2.5} fillOpacity={0.15}/>
           </AreaChart>
         ) : (
-          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}
-            <Bar dataKey="total" name="Total Supporters" fill="var(--ill-1)" radius={[4,4,0,0]} opacity={0.88}/>
+          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}
+            <Bar dataKey="total" name="Recurring $" radius={[4,4,0,0]} label={{position:'top',fontSize:10,fill:'var(--chart-tick)',formatter:v=>formatCurrency(v,{compact:true})}}>
+              {PATRON_BASE_YEARLY.map(d => (
+                <Cell key={d.year} fill={yearColor(d.year)}/>
+              ))}
+            </Bar>
           </BarChart>
         )}
       </ResponsiveContainer>
@@ -1507,6 +1575,13 @@ function RollingQuoteSection() {
       </div>
     </div>
   )
+}
+
+function highlightNumbers(text) {
+  if (!text) return text
+  const parts = text.split(/(\$[\d,]+(?:\.\d+)?[MKB]?|\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)/g)
+  return parts.map((p,i) => /^(\$[\d,]+(?:\.\d+)?[MKB]?|\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)$/.test(p)
+    ? <span key={i} style={{color:'var(--color-accent)'}}>{p}</span> : p)
 }
 
 function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
@@ -1713,15 +1788,15 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
           {/* ── KEY TAKEAWAYS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--ink-900)'}}>Key Takeaways</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Key Takeaways</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
           </div>
           <div className="space-y-0">
             {(summary.keyTakeaways||[]).map((kt, idx) => (
-              <div key={kt.id} className="py-5 border-b border-gray-100 last:border-0">
+              <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
                 <div className="flex items-start gap-4">
-                  <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--ink-900)'}}>{String(idx+1).padStart(2,'0')}</span>
+                  <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-accent)'}}>{String(idx+1).padStart(2,'0')}</span>
                   <div className="flex-1 min-w-0">
                     {editMode ? (
                       <>
@@ -1733,7 +1808,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
                     ) : (
                       <>
                         <p className="font-semibold text-gray-900 mb-1">{kt.title}</p>
-                        <p className="text-sm text-gray-600 leading-relaxed">{kt.body}</p>
+                        <p className="text-sm text-gray-600 leading-relaxed">{highlightNumbers(kt.body)}</p>
                       </>
                     )}
                   </div>
@@ -1759,7 +1834,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
           {/* ── WATCH AREAS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--ink-900)'}}>Watch Areas</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Watch Areas</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
           </div>
@@ -1801,7 +1876,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── RESERVES ── */}
-          <SectionLabel>Reserves</SectionLabel>
+          <SectionLabel color="var(--color-accent)">Reserves</SectionLabel>
           <EditableArea value={summary.reserves} onChange={v=>update('reserves',v)} editMode={editMode}
             className="text-sm text-gray-700 leading-relaxed mb-4" rows={4} placeholder="Describe the reserves position, rationale, and outlook..."/>
           {(editMode || summary.reservesNote) && (
@@ -1859,7 +1934,7 @@ const DEFAULT_KPI_CARDS     = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 const DEFAULT_PATRON_CHARTS  = ['new-patron-chart','patron-base-chart']
 
-function DashboardTab({ dateRange, orgConfig }) {
+function DashboardTab({ dateRange, orgConfig, activeBudget }) {
   const now = new Date()
   const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -1875,7 +1950,8 @@ function DashboardTab({ dateRange, orgConfig }) {
   const [showAddPatronChart, setShowAddPatronChart] = useState(false)
   const [manualCards,        setManualCards]        = useState({})
 
-  const d = ELT_MOCK
+  const d = filterELTByRange(dateRange)
+  const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
   const totalPriorGiv = d.priorYear.contributions + d.priorYear.merchandiseRevenue + d.priorYear.otherIncome
@@ -1907,14 +1983,14 @@ function DashboardTab({ dateRange, orgConfig }) {
   function renderKPICard(cardId) {
     if(cardId==='giving') {
       const d1=totalGiving-totalForecast,d2=totalGiving-totalPriorGiv
-      return <KPICard key={cardId} title="Total Giving YTD" value={formatCurrency(totalGiving)}
+      return <KPICard key={cardId} title={`Total Giving · ${rangeLabel}`} value={formatCurrency(totalGiving)}
         cmp1Label="vs Forecast" cmp1Value={totalForecast} cmp1Delta={d1} cmp1Pct={formatPercent(d1/totalForecast*100,{showSign:true})}
         cmp2Label="vs Prior Year" cmp2Value={totalPriorGiv} cmp2Delta={d2} cmp2Pct={formatPercent(d2/totalPriorGiv*100,{showSign:true})}
         editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
     }
     if(cardId==='expenses') {
       const d1=totalExpenses-totalBudgetExp,d2=totalExpenses-totalPriorExp
-      return <KPICard key={cardId} title="Expenses YTD" value={formatCurrency(totalExpenses)}
+      return <KPICard key={cardId} title={`Expenses · ${rangeLabel}`} value={formatCurrency(totalExpenses)}
         cmp1Label="vs Budget" cmp1Value={totalBudgetExp} cmp1Delta={d1} cmp1Pct={formatPercent(d1/totalBudgetExp*100,{showSign:true})}
         cmp2Label="vs Prior Year" cmp2Value={totalPriorExp} cmp2Delta={d2} cmp2Pct={formatPercent(d2/totalPriorExp*100,{showSign:true})}
         inverse editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
@@ -1983,8 +2059,8 @@ function DashboardTab({ dateRange, orgConfig }) {
   function renderPatronChartCard(cardId) {
     const p = d.patrons
     const removeChart = () => setPatronChartCards(c=>c.filter(x=>x!==cardId))
-    if(cardId==='new-patron-chart') return <NewPatronChartCard key={cardId} data={p.monthly} editMode={editPatronCharts} onRemove={removeChart}/>
-    if(cardId==='patron-base-chart') return <PatronBaseChartCard key={cardId} data={p.base} editMode={editPatronCharts} onRemove={removeChart}/>
+    if(cardId==='new-patron-chart') return <NewPatronChartCard key={cardId} editMode={editPatronCharts} onRemove={removeChart}/>
+    if(cardId==='patron-base-chart') return <PatronBaseChartCard key={cardId} editMode={editPatronCharts} onRemove={removeChart}/>
     // Catalog chart not yet implemented — show placeholder
     const chartDef = CHART_CATALOG.flatMap(g=>g.items).find(c=>c.id===cardId)
     return (
@@ -2064,7 +2140,7 @@ function DashboardTab({ dateRange, orgConfig }) {
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData}/></section>
+      <section><PLTable data={plData} rangeLabel={rangeLabel}/></section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
@@ -2083,24 +2159,55 @@ function DashboardTab({ dateRange, orgConfig }) {
 // Team Detail Modal — centered, with category→account drill-down
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TeamDetailDrawer({ team, onClose }) {
+function TeamDetailDrawer({ team, globalDateRange, onClose }) {
   // selectedCat: null = all categories view; string = a category key
   // selectedAcct: null = category total view; string = an account key
   const [selectedCat,  setSelectedCat]  = useState(null)
   const [selectedAcct, setSelectedAcct] = useState(null)
   const [chartType,    setChartType]    = useState('bar')
   const [notes,        setNotes]        = useState('')
+  const [localDateRange, setLocalDateRange] = useState(globalDateRange || { preset:'fiscal-ytd', startDate:'2025-06-01', endDate:'2026-05-31' })
+  const [showLocalPicker, setShowLocalPicker] = useState(false)
+  const localPickerRef = useRef(null)
+
+  useEffect(() => {
+    function handle(e) { if(localPickerRef.current&&!localPickerRef.current.contains(e.target)) setShowLocalPicker(false) }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
 
   const catKeys    = Object.keys(team.cats)
   const variance   = team.actual - team.budget
   const varPct     = team.budget > 0 ? (variance / team.budget * 100) : 0
 
+  // Scale team data to local date range
+  const localMonths = (() => {
+    const s = localDateRange?.startDate || '2025-06-01'
+    const e = localDateRange?.endDate   || '2026-05-31'
+    return FISCAL_MONTHS.filter(m => m.date >= s && m.date <= e).length
+  })()
+  const localFraction = localMonths / 12
+  const scaledTeam = {
+    ...team,
+    actual:  Math.round(team.actual  * localFraction),
+    budget:  Math.round(team.budget  * localFraction),
+    cats: Object.fromEntries(
+      Object.entries(team.cats).map(([k,v]) => [k, {
+        budget:    Math.round(v.budget    * localFraction),
+        actual:    Math.round(v.actual    * localFraction),
+        priorYear: Math.round(v.priorYear * localFraction),
+      }])
+    ),
+  }
+  const scaledVariance   = scaledTeam.actual - scaledTeam.budget
+  const scaledVarPct     = scaledTeam.budget > 0 ? (scaledVariance / scaledTeam.budget * 100) : 0
+
   // ── chart data based on drill-down level
-  const allMonthly = teamMonthly(team.cats, team.spreadKey)
+  const allMonthly = teamMonthly(scaledTeam.cats, team.spreadKey)
 
   // Category-level: stacked accounts for the selected category
   const catAccounts = selectedCat ? (TEAM_CAT_ACCOUNTS[selectedCat] || []) : []
-  const catActual   = selectedCat ? team.cats[selectedCat]?.actual || 0 : 0
+  const catActual   = selectedCat ? scaledTeam.cats[selectedCat]?.actual || 0 : 0
 
   const catAcctMonthly = catAccounts.length > 0
     ? TEAM_MONTHS.map((month, i) => {
@@ -2262,6 +2369,26 @@ function TeamDetailDrawer({ team, onClose }) {
             <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Local date range control */}
+            <div className="relative" ref={localPickerRef}>
+              <button onClick={() => setShowLocalPicker(v=>!v)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-600 transition-colors">
+                <Calendar size={11} className="text-gray-400"/>
+                <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Period</span>
+                <span>{presetLabel(localDateRange.preset)}</span>
+                <ChevronDown size={11} className="text-gray-400"/>
+              </button>
+              {showLocalPicker && (
+                <div className="absolute right-0 top-full mt-2 z-50">
+                  <ELTDateRangePicker
+                    dateRange={localDateRange}
+                    org={{ fiscalYearStartMonth:6, fiscalYearStartYear:2025, operatingYearStartMonth:1, operatingYearStartYear:2026 }}
+                    onApplyPreset={p => { const r = getELTPresetRange(p, {fiscalYearStartMonth:6,fiscalYearStartYear:2025,operatingYearStartMonth:1,operatingYearStartYear:2026}); setLocalDateRange({preset:p,...r}) }}
+                    onApplyCustom={(s,e) => setLocalDateRange({preset:'custom',startDate:s,endDate:e})}
+                    onClose={() => setShowLocalPicker(false)}/>
+                </div>
+              )}
+            </div>
             <button disabled title="Dashboard not yet created"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed opacity-60">
               <LayoutDashboard size={12}/> Open Dashboard
@@ -2278,20 +2405,20 @@ function TeamDetailDrawer({ team, onClose }) {
           {/* Stats row */}
           <div className="grid grid-cols-3 gap-3 px-6 pt-5 pb-4 flex-shrink-0">
             <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actual YTD</div>
-              <div className="text-lg font-bold text-gray-900">{formatCurrency(team.actual)}</div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actual</div>
+              <div className="text-lg font-bold text-gray-900">{formatCurrency(scaledTeam.actual)}</div>
             </div>
             <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Budget YTD</div>
-              <div className="text-lg font-bold text-gray-900">{formatCurrency(team.budget)}</div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Budget</div>
+              <div className="text-lg font-bold text-gray-900">{formatCurrency(scaledTeam.budget)}</div>
             </div>
-            <div className={`rounded-xl p-3 text-center ${variance>0?'bg-red-50':'bg-emerald-50'}`}>
+            <div className={`rounded-xl p-3 text-center ${scaledVariance>0?'bg-red-50':'bg-emerald-50'}`}>
               <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Variance</div>
-              <div className={`text-lg font-bold ${variance>0?'text-red-600':'text-emerald-600'}`}>
-                {variance>0?'+':''}{formatCurrency(variance)}
+              <div className={`text-lg font-bold ${scaledVariance>0?'text-red-600':'text-emerald-600'}`}>
+                {scaledVariance>0?'+':''}{formatCurrency(scaledVariance)}
               </div>
-              <div className={`text-[10px] font-medium mt-0.5 ${variance>0?'text-red-500':'text-emerald-500'}`}>
-                {varPct>0?'+':''}{varPct.toFixed(1)}%
+              <div className={`text-[10px] font-medium mt-0.5 ${scaledVariance>0?'text-red-500':'text-emerald-500'}`}>
+                {scaledVarPct>0?'+':''}{scaledVarPct.toFixed(1)}%
               </div>
             </div>
           </div>
@@ -2394,7 +2521,7 @@ function TeamDetailDrawer({ team, onClose }) {
                       </thead>
                       <tbody>
                         {catAccounts.map(acct => {
-                          const catData = team.cats[selectedCat]
+                          const catData = scaledTeam.cats[selectedCat]
                           const aActual = Math.round(catData.actual * acct.share)
                           const aBudget = Math.round(catData.budget * acct.share)
                           const av      = aActual - aBudget
@@ -2424,11 +2551,11 @@ function TeamDetailDrawer({ team, onClose }) {
                         {/* Category total */}
                         <tr className="bg-gray-900">
                           <td className="px-4 py-2 font-bold text-white">Total — {TEAM_CAT_MAP[selectedCat]?.label||selectedCat}</td>
-                          <td className="px-3 py-2 text-right tabular-nums font-bold text-white">{formatCurrency(team.cats[selectedCat].actual)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-gray-400">{formatCurrency(team.cats[selectedCat].budget)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-bold text-white">{formatCurrency(scaledTeam.cats[selectedCat].actual)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-400">{formatCurrency(scaledTeam.cats[selectedCat].budget)}</td>
                           {(() => {
-                            const cv = team.cats[selectedCat].actual - team.cats[selectedCat].budget
-                            const cvp = team.cats[selectedCat].budget > 0 ? cv/team.cats[selectedCat].budget*100 : 0
+                            const cv = scaledTeam.cats[selectedCat].actual - scaledTeam.cats[selectedCat].budget
+                            const cvp = scaledTeam.cats[selectedCat].budget > 0 ? cv/scaledTeam.cats[selectedCat].budget*100 : 0
                             return <>
                               <td className={`px-3 py-2 text-right tabular-nums font-bold ${cv>0?'text-red-400':'text-emerald-400'}`}>{cv>0?'+':''}{formatCurrency(cv)}</td>
                               <td className={`px-4 py-2 text-right tabular-nums font-bold ${cvp>0?'text-red-400':'text-emerald-400'}`}>{cvp>0?'+':''}{cvp.toFixed(1)}%</td>
@@ -2457,7 +2584,7 @@ function TeamDetailDrawer({ team, onClose }) {
                       </thead>
                       <tbody>
                         {catKeys.map((key,i) => {
-                          const cat   = team.cats[key]
+                          const cat   = scaledTeam.cats[key]
                           const label = TEAM_CAT_MAP[key]?.label || key
                           const color = TEAM_CATEGORIES[i%TEAM_CATEGORIES.length].color
                           const v     = cat.actual - cat.budget
@@ -2492,16 +2619,16 @@ function TeamDetailDrawer({ team, onClose }) {
                         })}
                         <tr className="bg-gray-900">
                           <td className="px-4 py-2.5 font-bold text-white text-xs">Total</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums font-bold text-white">{formatCurrency(team.actual)}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(team.budget)}</td>
-                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${variance>0?'text-red-400':'text-emerald-400'}`}>
-                            {variance>0?'+':''}{formatCurrency(variance)}
+                          <td className="px-3 py-2.5 text-right tabular-nums font-bold text-white">{formatCurrency(scaledTeam.actual)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-400">{formatCurrency(scaledTeam.budget)}</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${scaledVariance>0?'text-red-400':'text-emerald-400'}`}>
+                            {scaledVariance>0?'+':''}{formatCurrency(scaledVariance)}
                           </td>
-                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${varPct>0?'text-red-400':'text-emerald-400'}`}>
-                            {varPct>0?'+':''}{varPct.toFixed(1)}%
+                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${scaledVarPct>0?'text-red-400':'text-emerald-400'}`}>
+                            {scaledVarPct>0?'+':''}{scaledVarPct.toFixed(1)}%
                           </td>
                           <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">
-                            {formatCurrency(catKeys.reduce((s,k)=>s+(team.cats[k].priorYear||0),0))}
+                            {formatCurrency(catKeys.reduce((s,k)=>s+(scaledTeam.cats[k].priorYear||0),0))}
                           </td>
                         </tr>
                       </tbody>
@@ -2532,12 +2659,32 @@ function TeamDetailDrawer({ team, onClose }) {
 // Teams Tab — full enterprise layout
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TeamsTab({ dateRange }) {
+function TeamsTab({ dateRange, activeBudget }) {
   const teams = TEAMS_MOCK
-  const totalActual  = teams.reduce((s,t) => s+t.actual, 0)
-  const totalBudget  = teams.reduce((s,t) => s+t.budget, 0)
+  const rangeLabel = presetLabel(dateRange?.preset)
+  const monthsInRange = (() => {
+    const s = dateRange?.startDate || '2025-06-01'
+    const e = dateRange?.endDate   || '2026-05-31'
+    return FISCAL_MONTHS.filter(m => m.date >= s && m.date <= e).length
+  })()
+  const fraction = monthsInRange / 12
+  const scaledTeams = teams.map(t => ({
+    ...t,
+    actual:  Math.round(t.actual  * fraction),
+    budget:  Math.round(t.budget  * fraction),
+    cats: Object.fromEntries(
+      Object.entries(t.cats).map(([k,v]) => [k, {
+        budget:    Math.round(v.budget    * fraction),
+        actual:    Math.round(v.actual    * fraction),
+        priorYear: Math.round(v.priorYear * fraction),
+      }])
+    ),
+  }))
+
+  const totalActual   = scaledTeams.reduce((s,t) => s+t.actual,  0)
+  const totalBudget   = scaledTeams.reduce((s,t) => s+t.budget,  0)
   const totalVariance = totalActual - totalBudget
-  const overBudget   = teams.filter(t => t.actual > t.budget).length
+  const overBudget    = scaledTeams.filter(t => t.actual > t.budget).length
 
   const [sortKey,  setSortKey]  = useState('name')
   const [sortDir,  setSortDir]  = useState(1)
@@ -2548,7 +2695,7 @@ function TeamsTab({ dateRange }) {
     else { setSortKey(key); setSortDir(1) }
   }
 
-  const sorted = [...teams].sort((a,b) => {
+  const sorted = [...scaledTeams].sort((a,b) => {
     let av, bv
     if (sortKey==='name')    { av=a.name;                 bv=b.name }
     if (sortKey==='actual')  { av=a.actual;               bv=b.actual }
@@ -2598,13 +2745,13 @@ function TeamsTab({ dateRange }) {
       {/* 4 KPI summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label:`Total Actuals · ${presetLabel(dateRange.preset)}`, value: formatCurrency(totalActual), sub: null, positive: true },
-          { label:`Total Budget · ${presetLabel(dateRange.preset)}`,  value: formatCurrency(totalBudget), sub: null, positive: true },
-          { label:'Variance YTD', value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
+          { label:`Total Actuals · ${rangeLabel}`, value: formatCurrency(totalActual), sub: null, positive: true },
+          { label:`Total Budget · ${rangeLabel}`,  value: formatCurrency(totalBudget), sub: null, positive: true },
+          { label:`Variance · ${rangeLabel}`, value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
             sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
             positive: totalVariance <= 0 },
           { label:'Teams Over Budget', value: String(overBudget),
-            sub: `${teams.length - overBudget} of ${teams.length} within budget`,
+            sub: `${scaledTeams.length - overBudget} of ${scaledTeams.length} within budget`,
             positive: overBudget === 0 },
         ].map((card,i) => (
           <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -2691,7 +2838,7 @@ function TeamsTab({ dateRange }) {
         </table>
       </div>
 
-      {selected && <TeamDetailDrawer team={selected} onClose={()=>setSelected(null)}/>}
+      {selected && <TeamDetailDrawer team={selected} globalDateRange={dateRange} onClose={()=>setSelected(null)}/>}
     </div>
   )
 }
@@ -3638,6 +3785,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 export default function ELTDashboard() {
   const { orgConfig } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [activeBudget, setActiveBudget] = useState(BUDGET_SCENARIOS[0])
 
   const defaultRange = getELTPresetRange('fiscal-ytd', orgConfig)
   const [dateRange, setDateRange] = useState({ preset:'fiscal-ytd', ...defaultRange })
@@ -3659,11 +3807,12 @@ export default function ELTDashboard() {
     <div className="min-h-screen flex flex-col" style={{backgroundColor:'var(--color-primary-bg)'}}>
       <FloatingNav currentPage="executive"/>
       <ELTNav orgConfig={orgConfig} activeTab={activeTab} setActiveTab={setActiveTab}
-        dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}/>
+        dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}
+        activeBudget={activeBudget} onSetBudget={setActiveBudget}/>
       <main className="flex-1 overflow-auto">
-        {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig}/>}
+        {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
-        {activeTab==='teams'     && <TeamsTab dateRange={dateRange}/>}
+        {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
         {activeTab==='import'    && <ELTImportTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} dateRange={dateRange} orgConfig={orgConfig}/>}
       </main>
