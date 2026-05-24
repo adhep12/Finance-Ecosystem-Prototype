@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'
+import SetupPage from './SetupPage'
 import { formatCurrency, formatOverUnder } from '../utils/formatters'
 import {
   filterActualsByRange, calcBudgetByCategory,
@@ -255,6 +256,7 @@ const TABS = [
   { id:'transactions',  label:'Transactions' },
   { id:'comments',      label:'Comments & Requests' },
   { id:'import',        label:'Import' },
+  { id:'setup',         label:'⚙ Setup' },
 ]
 
 function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom,
@@ -1622,6 +1624,7 @@ export default function MasterDashboard(){
           previousActuals={previousActuals} restorePreviousActuals={restorePreviousActuals}
           previousIncome={previousIncome}   restorePreviousIncome={restorePreviousIncome}/>
       )}
+      {activeTab==='setup' && <SetupPage/>}
     </div>
   )
 }
