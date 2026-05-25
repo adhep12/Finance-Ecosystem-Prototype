@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { X, Plus, ChevronDown, Info } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useTeam } from '../context/TeamContext'
 import CommentPinFAB from '../components/CommentPinFAB'
 import {
   filterActualsByRange,
@@ -83,6 +84,8 @@ function ExcludeModal({ allCategories, excluded, onChange, onClose }) {
 
 function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
   const { orgConfig, selectedScenario, dateRange } = useApp()
+  const { team } = useTeam()
+  const displayName = team?.name || orgConfig.teamName
   const [showModal, setShowModal] = useState(false)
 
   const days = dateRange.startDate && dateRange.endDate
@@ -113,7 +116,7 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
               {orgConfig.logoInitial}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{orgConfig.teamName}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{displayName}</h1>
               <p className="text-sm text-gray-600 mt-0.5">
                 {days > 0 ? `${days} days · ` : ''}{summary.transactions.toLocaleString()} transactions
                 {excluded.length > 0 && (
@@ -583,13 +586,15 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
 
 export default function BriefingPage() {
   const {
-    actuals,
     budgetFlat,
     selectedScenario,
     dateRange,
     briefingExclusions,
     setBriefingExclusions,
   } = useApp()
+
+  // Scope all actuals to this team's departments only
+  const { teamActuals: actuals } = useTeam()
 
   const [sortMode, setSortMode] = useState('spend')
   const [selectedCategory, setSelectedCategory] = useState(null)

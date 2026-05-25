@@ -4,7 +4,8 @@ import {
   MessageSquare, List, LayoutGrid,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { useNavigate } from 'react-router-dom'
+import { useTeam } from '../context/TeamContext'
+import { useNavigate, useParams } from 'react-router-dom'
 import { formatCurrency } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +173,7 @@ function AddCommentModal({ initialType = 'question', onClose }) {
 
 function CommentDetailPanel({ comment, onClose }) {
   const { updateCommentStatus, deleteComment } = useApp()
+  const { teamId } = useParams()
   const navigate = useNavigate()
   const status   = getStatus(comment)
   const typeColor = TYPE_COLOR_MAP[comment.type] || '#6B7280'
@@ -186,10 +188,11 @@ function CommentDetailPanel({ comment, onClose }) {
 
   function handleOpenInContext() {
     const anchor = comment.anchor
+    const base   = teamId ? `/team/${teamId}` : ''
     if (anchor?.type === 'tx' && anchor.txRef) {
-      navigate('/breakdown', { state: { openTx: anchor.txRef } })
+      navigate(`${base}/breakdown`, { state: { openTx: anchor.txRef } })
     } else {
-      navigate(comment.page === 'breakdown' ? '/breakdown' : '/briefing')
+      navigate(comment.page === 'breakdown' ? `${base}/breakdown` : `${base}/briefing`)
     }
     onClose()
   }
@@ -446,6 +449,8 @@ function ListView({ comments, onSelect }) {
 
 export default function CommentsPage() {
   const { comments, orgConfig, updateComment } = useApp()
+  const { team } = useTeam()
+  const teamName = team?.name || orgConfig.teamName
 
   const [view,           setView]           = useState('kanban')
   const [statusFilters,  setStatusFilters]  = useState({ open: true, approved: true, rejected: true, resolved: true })
@@ -493,7 +498,7 @@ export default function CommentsPage() {
       {/* Header */}
       <div>
         <div className="text-[10px] font-bold uppercase tracking-widest text-teal-600 mb-1">
-          COMMENTS & REQUESTS · {(orgConfig.teamName || 'Team').toUpperCase()}
+          COMMENTS & REQUESTS · {(teamName || 'Team').toUpperCase()}
         </div>
         <h1 className="text-2xl font-bold text-gray-900">Comments & requests</h1>
         <p className="text-sm text-gray-500">{totalVisible} item{totalVisible !== 1 ? 's' : ''} in view</p>

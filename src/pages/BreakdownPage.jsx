@@ -5,6 +5,7 @@ import {
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useTeam } from '../context/TeamContext'
 import {
   filterActualsByRange,
   calcBudgetByCategory,
@@ -496,6 +497,7 @@ const PIN_TYPES = [
 
 function TransactionModal({ transaction: t, onClose, onAddComment }) {
   const { deptNames } = useApp()
+  const { teamId }    = useTeam()
   const [text,   setText]   = useState('')
   const [type,   setType]   = useState('question')
   const [author, setAuthor] = useState('')
@@ -608,7 +610,7 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
           <div className="flex justify-end gap-2 items-center">
             {saved && (
               <span className="text-xs text-green-600 font-medium flex-1">
-                Saved! → <a href="/comments" className="underline">View in Comments</a>
+                Saved! → <a href={`/team/${teamId}/comments`} className="underline">View in Comments</a>
               </span>
             )}
             <button
@@ -631,7 +633,10 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function BreakdownPage() {
-  const { actuals, budgetFlat, selectedScenario, dateRange, addComment, deptNames } = useApp()
+  const { budgetFlat, selectedScenario, dateRange, addComment, deptNames } = useApp()
+
+  // Scope all actuals to this team's departments only
+  const { teamActuals: actuals } = useTeam()
 
   // ── Persistent state (survives navigation & reload) ───────────────────────
   const [drillOrder,      setDrillOrder]      = useLocalStorage('bd-drill-order',   ['category', 'account', 'grant', 'vendor'])

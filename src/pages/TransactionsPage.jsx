@@ -4,6 +4,7 @@ import {
   MessageSquare, X,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useTeam } from '../context/TeamContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -196,7 +197,9 @@ function TxCommentModal({ transaction: t, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
-  const { actuals, comments } = useApp()
+  const { comments } = useApp()
+  // Scope all actuals to this team's departments only
+  const { teamActuals: actuals } = useTeam()
 
   const [sortCol,    setSortCol]    = useState('date')
   const [sortDir,    setSortDir]    = useState('asc')

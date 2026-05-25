@@ -1,47 +1,130 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AppProvider } from './context/AppContext'
+import { AppProvider }   from './context/AppContext'
+import { TeamProvider }  from './context/TeamContext'
+import { useTeam }       from './context/TeamContext'
 import BriefingPage      from './pages/BriefingPage'
 import BreakdownPage     from './pages/BreakdownPage'
 import CommentsPage      from './pages/CommentsPage'
 import TransactionsPage  from './pages/TransactionsPage'
 import ELTDashboard      from './pages/ELTDashboard'
-import MasterDashboard    from './pages/MasterDashboard'
+import MasterDashboard   from './pages/MasterDashboard'
 import Header            from './components/Header'
 import FloatingNav       from './components/FloatingNav'
 
-function AppShell() {
+// ─────────────────────────────────────────────────────────────────────────────
+// Team-not-found error screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TeamNotFound() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      minHeight: '100vh', background: '#F5F2EC', flexDirection: 'column',
+      gap: 16, padding: 40,
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 12, border: '1px solid #E5E2DC',
+        padding: 48, maxWidth: 420, textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>🔍</div>
+        <h2 style={{ color: '#1A1A1A', marginBottom: 8, fontWeight: 600 }}>Team not found</h2>
+        <p style={{ color: '#6B7280', marginBottom: 24, lineHeight: 1.6 }}>
+          The team ID in this URL doesn't match any team in the database.
+          Check that the URL is correct or navigate back to the Executive dashboard.
+        </p>
+        <a
+          href="/elt"
+          style={{
+            display: 'inline-block', background: '#0EA5A0', color: '#fff',
+            borderRadius: 8, padding: '10px 24px', fontWeight: 600,
+            fontSize: 15, textDecoration: 'none',
+          }}
+        >
+          ← Back to Executive Dashboard
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TeamShellInner — rendered after TeamProvider; gates on loading / not-found
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TeamShellInner() {
+  const { isLoading, teamNotFound } = useTeam()
+
+  if (teamNotFound) return <TeamNotFound />
+
+  if (isLoading) return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      minHeight: '100vh', background: '#F5F2EC', flexDirection: 'column', gap: 16,
+    }}>
+      <div style={{
+        width: 40, height: 40, borderRadius: '50%',
+        border: '3px solid #E5E2DC', borderTopColor: '#0EA5A0',
+        animation: 'spin 0.8s linear infinite',
+      }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <span style={{ color: '#6B7280', fontSize: 14 }}>Loading team…</span>
+    </div>
+  )
+
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--color-primary-bg)' }}>
       <Header />
       <main className="flex-1 overflow-auto">
         <Routes>
-          <Route path="/"            element={<Navigate to="/briefing" replace />} />
-          <Route path="/briefing"      element={<BriefingPage />} />
-          <Route path="/breakdown"     element={<BreakdownPage />} />
-          <Route path="/comments"      element={<CommentsPage />} />
-          <Route path="/transactions"  element={<TransactionsPage />} />
-          {/* /import removed — legacy import page deleted */}
+          <Route path="briefing"     element={<BriefingPage />} />
+          <Route path="breakdown"    element={<BreakdownPage />} />
+          <Route path="comments"     element={<CommentsPage />} />
+          <Route path="transactions" element={<TransactionsPage />} />
+          {/* Default: land on briefing */}
+          <Route path="*"            element={<Navigate to="briefing" replace />} />
         </Routes>
       </main>
     </div>
   )
 }
 
-// FloatingNav lives here — outside both AppShell and ELTDashboard — so it
-// never unmounts on route change and its state (open/position) persists.
+// ─────────────────────────────────────────────────────────────────────────────
+// TeamShell — provides TeamContext then delegates to TeamShellInner
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TeamShell() {
+  return (
+    <TeamProvider>
+      <TeamShellInner />
+    </TeamProvider>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AppRoutes — FloatingNav lives here so it never unmounts on route change
+// ─────────────────────────────────────────────────────────────────────────────
+
 function AppRoutes() {
   return (
     <>
       <FloatingNav />
       <Routes>
-        <Route path="/elt"    element={<ELTDashboard />} />
-        <Route path="/master" element={<MasterDashboard />} />
-        <Route path="/*"      element={<AppShell />} />
+        <Route path="/elt"            element={<ELTDashboard />} />
+        <Route path="/master"         element={<MasterDashboard />} />
+        {/* All team dashboards: /team/:teamId/briefing|breakdown|... */}
+        <Route path="/team/:teamId/*" element={<TeamShell />} />
+        {/* Root and legacy flat routes → executive dashboard */}
+        <Route path="/"               element={<Navigate to="/elt" replace />} />
+        <Route path="*"               element={<Navigate to="/elt" replace />} />
       </Routes>
     </>
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// App
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function App() {
   return (

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useParams } from 'react-router-dom'
 import { ChevronDown, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useTeam } from '../context/TeamContext'
 import { daysBetween, formatDateInput } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,6 +147,8 @@ function presetLabel(preset) {
 
 export default function Header() {
   const { orgConfig, availableScenarios, selectedScenario, setSelectedScenario, dateRange } = useApp()
+  const { team }    = useTeam()
+  const { teamId }  = useParams()
   const [showDatePicker,     setShowDatePicker]     = useState(false)
   const [showScenarioPicker, setShowScenarioPicker] = useState(false)
   const pickerRef   = useRef(null)
@@ -167,12 +170,17 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handle)
   }, [])
 
+  // Build tab URLs using the team's ID from the URL
+  const base = teamId ? `/team/${teamId}` : ''
   const tabs = [
-    { to: '/briefing',      label: 'Briefing' },
-    { to: '/breakdown',     label: 'Breakdown' },
-    { to: '/transactions',  label: 'Transactions' },
-    { to: '/comments',      label: 'Comments & Requests' },
+    { to: `${base}/briefing`,      label: 'Briefing' },
+    { to: `${base}/breakdown`,     label: 'Breakdown' },
+    { to: `${base}/transactions`,  label: 'Transactions' },
+    { to: `${base}/comments`,      label: 'Comments & Requests' },
   ]
+
+  // Team name: use DB row when available, fall back to orgConfig.teamName
+  const teamName = team?.name || orgConfig.teamName
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
@@ -188,7 +196,7 @@ export default function Header() {
           </div>
           <span className="text-sm font-semibold text-gray-800 truncate">{orgConfig.name}</span>
           <span className="text-gray-300 text-sm">·</span>
-          <span className="text-sm text-gray-500 truncate">{orgConfig.teamName}</span>
+          <span className="text-sm text-gray-500 truncate">{teamName}</span>
         </div>
 
         {/* Centered tabs */}
