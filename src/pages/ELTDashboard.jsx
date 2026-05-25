@@ -377,14 +377,15 @@ function computePLAccounts(actuals, catBudgets, dateRange) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TEAM_CATEGORIES = [
-  { key: 'staff',      label: 'Staff & Benefits',     color: '#00B3E5' },
-  { key: 'contract',   label: 'Contract Services',    color: '#E8A838' },
-  { key: 'technology', label: 'Technology',            color: '#C05A2F' },
-  { key: 'travel',     label: 'Travel & Expense',      color: '#D98F1C' },
-  { key: 'marketing',  label: 'Marketing',             color: '#2A7B8C' },
-  { key: 'facilities', label: 'Facilities',            color: '#4E6B3A' },
-  { key: 'supplies',   label: 'Supplies & Materials',  color: '#7A8A3E' },
-  { key: 'training',   label: 'Training & Dev',        color: '#4A2E5A' },
+  { key: 'staff',        label: 'Staff & Benefits',     color: '#00B3E5' },
+  { key: 'contract',     label: 'Contract Services',    color: '#E8A838' },
+  { key: 'technology',   label: 'Technology',            color: '#C05A2F' },
+  { key: 'travel',       label: 'Travel & Expense',      color: '#D98F1C' },
+  { key: 'marketing',    label: 'Marketing',             color: '#2A7B8C' },
+  { key: 'facilities',   label: 'Facilities',            color: '#4E6B3A' },
+  { key: 'supplies',     label: 'Supplies & Materials',  color: '#7A8A3E' },
+  { key: 'training',     label: 'Training & Dev',        color: '#4A2E5A' },
+  { key: 'other',        label: 'Uncategorized',         color: '#9BA8B5' },
 ]
 const TEAM_CAT_MAP = Object.fromEntries(TEAM_CATEGORIES.map(c => [c.key, c]))
 
