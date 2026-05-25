@@ -5,7 +5,7 @@ import {
   ReferenceLine, Cell,
 } from 'recharts'
 import {
-  TrendingUp, TrendingDown, DollarSign, AlertTriangle,
+  TrendingUp, TrendingDown, DollarSign, AlertTriangle, Minus,
   ChevronDown, ChevronRight, ChevronLeft,
   Plus, X, Edit2, Trash2,
   BarChart2, Activity, Filter, Search, Check, Settings,
@@ -22,7 +22,7 @@ import MasterTransactionsEditor from './MasterTransactionsEditor'
 import PatronImportFlow from './PatronImportFlow'
 import CashFlowImportFlow from './CashFlowImportFlow'
 import { useOrgSettings } from '../hooks/useRegistry'
-import { formatCurrency, formatOverUnder } from '../utils/formatters'
+import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
 import {
   filterActualsByRange, calcBudgetByCategory,
   buildVisibleRows, getUniqueValues,
@@ -108,6 +108,31 @@ function getIncomeInRange(incomeMonths, startDate, endDate){
 function numMonthsInRange(startDate, endDate){
   const s=new Date(startDate), e=new Date(endDate)
   return (e.getFullYear()-s.getFullYear())*12 + (e.getMonth()-s.getMonth()) + 1
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Variance display helpers — match ELT dashboard exactly
+// ─────────────────────────────────────────────────────────────────────────────
+
+function varColor(delta, inverse=false) {
+  if (!delta) return 'text-gray-500'
+  const pos = delta > 0
+  if (inverse) return pos ? 'text-red-600' : 'text-emerald-600'
+  return pos ? 'text-emerald-600' : 'text-red-600'
+}
+function varBg(delta, inverse=false) {
+  if (!delta) return 'bg-gray-100 text-gray-500'
+  const pos = delta > 0
+  if (inverse) return pos ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
+  return pos ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+}
+function TrendBadge({ delta, inverse=false, label }) {
+  const Icon = delta>0 ? TrendingUp : delta<0 ? TrendingDown : Minus
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${varBg(delta,inverse)}`}>
+      <Icon size={11}/>{label}
+    </span>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,11 +241,11 @@ function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
 
 const TABS = [
   { id:'overview',      label:'Overview' },
-  { id:'breakdown',     label:'Breakdown' },
+  { id:'breakdown',     label:'P&L Breakdown' },
   { id:'transactions',  label:'Transactions' },
+  { id:'teams',         label:'Teams' },
   { id:'comments',      label:'Comments & Requests' },
   { id:'import',        label:'Import' },
-  { id:'setup',         label:'⚙ Setup' },
 ]
 
 function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom,
@@ -237,68 +262,100 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
     return ()=>document.removeEventListener('mousedown', handler)
   },[])
 
-  const { deptNames } = useApp()
+  const { orgConfig, deptNames } = useApp()
   const allDepts  = Object.keys(deptNames)
   const allActive = !activeDepts || activeDepts.size === allDepts.length
   const teamLabel = allActive ? 'All Teams' : `${activeDepts.size} Team${activeDepts.size!==1?'s':''}`
 
   return (
-    <nav ref={navRef} className="sticky top-0 z-30 flex items-center gap-0 px-6 border-b border-gray-200 bg-white/95 backdrop-blur-sm" style={{height:48}}>
-      {/* Tabs */}
-      <div className="flex items-center gap-1 flex-1">
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setActiveTab(t.id)}
-            className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${activeTab===t.id?'border-teal-600 text-teal-700':'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
-            {t.label}
+    <header ref={navRef} className="bg-white border-b border-gray-200 sticky top-0 z-40">
+      <div className="flex items-center h-12 px-6 gap-4">
+
+        {/* Left: org identity */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+            style={{backgroundColor:'var(--color-accent)'}}>
+            {orgConfig.logoInitial || (orgConfig.name||'F').charAt(0).toUpperCase()}
+          </div>
+          <span className="text-sm font-semibold text-gray-800">{orgConfig.name||'Finance'}</span>
+          <span className="text-gray-300 text-sm">·</span>
+          <span className="text-sm font-medium text-gray-500">Finance</span>
+        </div>
+
+        {/* Center: pill tab navigation */}
+        <nav className="flex-1 flex justify-center">
+          <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-1">
+            {TABS.map(t=>(
+              <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                className={`px-4 py-1 rounded-full text-sm font-medium transition-all whitespace-nowrap
+                  ${activeTab===t.id?'bg-gray-900 text-white shadow-sm':'text-gray-600 hover:text-gray-900'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        {/* Right: controls */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+
+          {/* Team multi-select */}
+          <div className="relative">
+            <button onClick={()=>{ setShowTeam(p=>!p); setShowDate(false); setShowBudget(false) }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors ${!allActive?'border-gray-900 bg-gray-900 text-white hover:bg-gray-800':'border-gray-200'}`}>
+              <Building2 size={13}/>
+              {teamLabel}
+              <ChevronDown size={11} className="text-gray-400"/>
+            </button>
+            {showTeam && <TeamMultiSelect activeDepts={activeDepts} onToggle={code=>{ onToggleDept(code) }} onSelectAll={onSelectAllDepts} onClose={()=>setShowTeam(false)}/>}
+          </div>
+
+          {/* Budget scenario */}
+          <div className="relative">
+            <button onClick={()=>{ setShowBudget(p=>!p); setShowDate(false); setShowTeam(false) }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
+              <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET</span>
+              <span className="max-w-[100px] truncate">{activeBudget||'Budget'}</span>
+              <ChevronDown size={11} className="text-gray-400"/>
+            </button>
+            {showBudget && (
+              <div className="absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-56">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Budget Scenario</div>
+                <div className="space-y-1">
+                  {availableScenarios.length===0
+                    ? <p className="text-xs text-gray-400 italic">No budget imported yet.</p>
+                    : availableScenarios.map(s=>(
+                      <button key={s} onClick={()=>{ onSetBudget(s); setShowBudget(false) }}
+                        className={`w-full text-left px-3 py-2 rounded-lg border transition-all text-sm ${activeBudget===s?'bg-gray-900 text-white border-gray-900':'text-gray-800 border-gray-200 bg-white hover:border-gray-400'}`}>
+                        {s}
+                      </button>
+                    ))
+                  }
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Date range */}
+          <div className="relative">
+            <button onClick={()=>{ setShowDate(p=>!p); setShowBudget(false); setShowTeam(false) }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
+              <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
+              <span>{presetLabel(dateRange.preset)}</span>
+              <ChevronDown size={11} className="text-gray-400"/>
+            </button>
+            {showDate && <MasterDatePicker dateRange={dateRange} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={()=>setShowDate(false)}/>}
+          </div>
+
+          {/* Settings gear */}
+          <button onClick={()=>setActiveTab('setup')}
+            title="Setup"
+            className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-colors ${activeTab==='setup'?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+            <Settings size={14}/>
           </button>
-        ))}
+
+        </div>
       </div>
-
-      {/* Right controls */}
-      <div className="flex items-center gap-2">
-        {/* Team multi-select */}
-        <div className="relative">
-          <button onClick={()=>{ setShowTeam(p=>!p); setShowDate(false); setShowBudget(false) }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${!allActive?'bg-teal-50 border-teal-300 text-teal-700':'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-            <Building2 size={13}/>
-            {teamLabel}
-            <ChevronDown size={11}/>
-          </button>
-          {showTeam && <TeamMultiSelect activeDepts={activeDepts} onToggle={code=>{ onToggleDept(code) }} onSelectAll={onSelectAllDepts} onClose={()=>setShowTeam(false)}/>}
-        </div>
-
-        {/* Budget scenario */}
-        <div className="relative">
-          <button onClick={()=>{ setShowBudget(p=>!p); setShowDate(false); setShowTeam(false) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-300 transition-colors">
-            <BarChart2 size={13}/>
-            {activeBudget||'Budget'}
-            <ChevronDown size={11}/>
-          </button>
-          {showBudget && (
-            <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-52 py-2">
-              {availableScenarios.map(s=>(
-                <button key={s} onClick={()=>{ onSetBudget(s); setShowBudget(false) }}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 ${activeBudget===s?'font-semibold text-teal-700':''}`}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Date range */}
-        <div className="relative">
-          <button onClick={()=>{ setShowDate(p=>!p); setShowBudget(false); setShowTeam(false) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-600 hover:border-gray-300 transition-colors">
-            <Calendar size={13}/>
-            {presetLabel(dateRange.preset)}
-            <ChevronDown size={11}/>
-          </button>
-          {showDate && <MasterDatePicker dateRange={dateRange} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={()=>setShowDate(false)}/>}
-        </div>
-      </div>
-    </nav>
+    </header>
   )
 }
 
@@ -308,6 +365,8 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
 
 function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
+  const startM = startDate.substring(0,7)
+  const endM   = endDate.substring(0,7)
   const inRange = useMemo(()=>filterActualsByRange(actuals, startDate, endDate),[actuals,startDate,endDate])
   const incomeInRange = useMemo(()=>getIncomeInRange(incomeMonths, startDate, endDate),[incomeMonths,startDate,endDate])
 
@@ -315,49 +374,83 @@ function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, 
   const expRange = useMemo(()=>inRange.filter(t=>t.record_type!=='income'),[inRange])
   const totalExpenses = useMemo(()=>expRange.reduce((s,t)=>s+t.amount,0),[expRange])
   const totalIncome   = useMemo(()=>incomeInRange.reduce((s,m)=>s+(m.contributions+m.merch+m.other),0),[incomeInRange])
-  const totalBudget   = useMemo(()=>{
-    const startM = startDate.substring(0,7)
-    const endM   = endDate.substring(0,7)
-    const n      = numMonthsInRange(startDate, endDate)
-    // Budget comparison is expense-only — exclude income budget rows
-    return budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income').reduce((s,b)=>{
-      if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
-      return s + (b.monthlyAmount||0) * n
-    }, 0)
-  },[budgetFlat,scenario,startDate,endDate])
 
-  let value, sub, subColor='text-gray-400'
+  // Budget totals
+  const expBudget = useMemo(()=>
+    budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income' && b.period>=startM && b.period<=endM)
+      .reduce((s,b)=>s+(b.amount||0),0)
+  ,[budgetFlat,scenario,startM,endM])
+  const incBudget = useMemo(()=>
+    budgetFlat.filter(b=>b.scenario===scenario && b.record_type==='income' && b.period>=startM && b.period<=endM)
+      .reduce((s,b)=>s+(b.amount||0),0)
+  ,[budgetFlat,scenario,startM,endM])
+
+  // Per-card computed values
+  let mainValue, cmpLabel, cmpDelta, cmpBase, isInverse
+
   if(def.id==='total-income'){
-    value = formatCurrency(totalIncome)
-    sub   = `${incomeInRange.length} months`
+    mainValue  = formatCurrency(totalIncome)
+    cmpLabel   = 'vs Budget'
+    cmpDelta   = totalIncome - incBudget
+    cmpBase    = incBudget
+    isInverse  = false
   } else if(def.id==='total-expenses'){
-    value = formatCurrency(totalExpenses)
-    sub   = `${expRange.length} transactions`
+    mainValue  = formatCurrency(totalExpenses)
+    cmpLabel   = 'vs Budget'
+    cmpDelta   = expBudget - totalExpenses  // positive = under budget = good
+    cmpBase    = expBudget
+    isInverse  = false  // under budget is good (positive delta)
   } else if(def.id==='net-position'){
-    const net = totalIncome - totalExpenses
-    value = formatCurrency(net)
-    sub   = net>=0 ? 'Surplus' : 'Deficit'
-    subColor = net>=0 ? 'text-emerald-600' : 'text-red-500'
+    const net  = totalIncome - totalExpenses
+    mainValue  = formatCurrency(net)
+    const budgetNet = incBudget - expBudget
+    cmpLabel   = budgetNet !== 0 ? 'vs Budget' : null
+    cmpDelta   = net - budgetNet
+    cmpBase    = budgetNet
+    isInverse  = false
   } else if(def.id==='budget-variance'){
-    const delta = totalExpenses - totalBudget
-    value = formatOverUnder(delta)
-    sub   = delta<=0 ? `${Math.round(Math.abs(delta/totalBudget||0)*100)}% under budget` : `${Math.round((delta/(totalBudget||1))*100)}% over budget`
-    subColor = delta<=0 ? 'text-emerald-600' : 'text-red-500'
+    const delta= totalExpenses - expBudget
+    mainValue  = formatOverUnder(delta)
+    cmpLabel   = null  // variance is already a comparison
+    isInverse  = false
   }
 
-  const IconComp = def.icon==='TrendingUp'?TrendingUp:def.icon==='TrendingDown'?TrendingDown:def.icon==='DollarSign'?DollarSign:AlertTriangle
+  const cmpPct = cmpBase && Math.abs(cmpBase) > 0
+    ? formatPercent(Math.abs(cmpDelta) / Math.abs(cmpBase) * 100 * (cmpDelta>=0?1:-1), {showSign:true,decimals:1})
+    : null
 
   return (
-    <div className="relative bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-start gap-3" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
-      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
-      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{backgroundColor:def.color+'20'}}>
-        <IconComp size={16} style={{color:def.color}}/>
-      </div>
-      <div>
-        <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-0.5">{def.label}</div>
-        <div className="text-xl font-bold text-gray-900">{value||'—'}</div>
-        <div className={`text-xs mt-0.5 ${subColor}`}>{sub}</div>
-      </div>
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[200px]"
+      style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+      {editMode && (
+        <button onClick={onRemove}
+          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
+          <X size={11}/>
+        </button>
+      )}
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1"
+        style={{color:'var(--neutral-60)'}}>{def.label}</div>
+      <div className="text-3xl font-bold text-gray-900 mb-4">{mainValue||'—'}</div>
+      {cmpLabel && cmpBase !== 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmpLabel}</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <TrendBadge delta={cmpDelta} inverse={isInverse} label={cmpPct||'—'}/>
+            <span className={`text-sm font-semibold ${varColor(cmpDelta,isInverse)}`}>
+              {cmpDelta>0?'+':''}{formatCurrency(cmpDelta)}
+            </span>
+            <span className="text-xs text-gray-400">vs {formatCurrency(cmpBase)}</span>
+          </div>
+        </div>
+      )}
+      {def.id==='budget-variance' && (
+        <div className="text-xs text-gray-400 mt-1">
+          {totalExpenses > expBudget
+            ? <span className="text-red-600 font-medium">{formatPercent((totalExpenses-expBudget)/(expBudget||1)*100,{decimals:1})} over budget</span>
+            : <span className="text-emerald-600 font-medium">{formatPercent((expBudget-totalExpenses)/(expBudget||1)*100,{decimals:1})} under budget</span>
+          }
+        </div>
+      )}
     </div>
   )
 }
@@ -378,14 +471,14 @@ const axisStyle = { fontSize:10, fill:'#9CA3AF' }
 
 function ChartPanel({ title, subtitle, editMode, onRemove, children }){
   return (
-    <div className="relative bg-white rounded-xl border border-gray-100 p-4" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+    <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center z-10">
           <X size={11}/>
         </button>
       )}
       <div className="mb-3">
-        <div className="text-xs font-semibold text-gray-700">{title}</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>{title}</div>
         {subtitle && <div className="text-[10px] text-gray-400 mt-0.5">{subtitle}</div>}
       </div>
       {children}
@@ -458,9 +551,9 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v)]}/>
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       <div className="flex items-center justify-between mb-4">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Monthly Spend vs Planned</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Monthly Spend vs Planned</div>
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
           {['monthly','cumulative'].map(m=>(
             <button key={m} onClick={()=>setMode(m)}
@@ -533,8 +626,8 @@ function NetPositionCard({ actuals, incomeMonths, dateRange }){
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v),'Net']}/>
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Net Position by Month</div>
+    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Net Position by Month</div>
       {chartData.length===0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <div style={{height:180}}>
@@ -571,8 +664,8 @@ function CashPositionCard({ cashFlowData, dateRange }){
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[fmtCompact(v),n]}/>
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Cash Position</div>
+    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Cash Position</div>
       {chartData.length===0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No cash flow data</div>
         : <div style={{height:180}}>
@@ -622,8 +715,8 @@ function TeamSpendCard({ actuals, dateRange }){
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[fmtCompact(v),n]}/>
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Team Spend Comparison</div>
+    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Team Spend Comparison</div>
       {chartData.length===0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <div style={{height:180}}>
@@ -662,9 +755,9 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
   ,[budgetByCat,byCat])
 
   return (
-    <div className="relative bg-white rounded-xl border border-gray-100 p-4" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+    <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
-      <div className="text-xs font-semibold text-gray-700 mb-3">Budget Watch Areas</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Budget Watch Areas</div>
       {alerts.length===0 && <div className="text-xs text-gray-400 text-center py-4">All categories under 80% of budget</div>}
       {alerts.map(({cat,bud,actual,pct})=>(
         <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
@@ -707,21 +800,22 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
       {/* ── KPI Section ── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Key Metrics</span>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Key Metrics</span>
           <div className="flex items-center gap-2">
             {editKPI && hiddenKPIs.length>0 && hiddenKPIs.map(k=>(
-              <button key={k.id} onClick={()=>addKPI(k.id)} className="text-[10px] px-2 py-1 rounded-full border border-dashed border-teal-400 text-teal-600 hover:bg-teal-50">
+              <button key={k.id} onClick={()=>addKPI(k.id)}
+                className="text-[10px] px-2 py-1 rounded-full border border-dashed border-gray-400 text-gray-500 hover:border-gray-600 hover:text-gray-700">
                 + {k.label}
               </button>
             ))}
             <button onClick={()=>setEditKPI(p=>!p)}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editKPI?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-              <Settings size={11}/> {editKPI?'Done':'Edit'}
+              className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${editKPI?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+              <Edit2 size={11}/> {editKPI?'Done':'Edit'}
             </button>
           </div>
         </div>
-        <div className="grid gap-3" style={{gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))'}}>
+        <div className="flex flex-wrap gap-4">
           {visibleKPIs.map(id=>{
             const def = KPI_DEFS.find(k=>k.id===id)
             if(!def) return null
@@ -733,7 +827,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       {/* ── Charts Section — 4 hardwired preset charts ── */}
       <section>
         <div className="mb-4">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Charts</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Charts</span>
         </div>
         {/* Chart 1: full width */}
         <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
@@ -747,11 +841,11 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
       {/* ── Watch Areas Section ── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Watch Areas</span>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Watch Areas</span>
           <button onClick={()=>setEditWatch(p=>!p)}
-            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editWatch?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-            <Settings size={11}/> {editWatch?'Done':'Edit'}
+            className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${editWatch?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+            <Edit2 size={11}/> {editWatch?'Done':'Edit'}
           </button>
         </div>
         <div className="max-w-sm">
@@ -799,8 +893,8 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
         const color = DEPT_COLORS[code]||'#9BA8B5'
         const over  = delta>0
         return (
-          <div key={code} className="flex-shrink-0 bg-white rounded-xl border border-gray-100 px-4 py-3 min-w-[170px]"
-            style={{borderLeftColor:color,borderLeftWidth:3,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
+          <div key={code} className="flex-shrink-0 bg-white rounded-2xl border border-gray-100 px-4 py-3 min-w-[170px]"
+            style={{borderLeftColor:color,borderLeftWidth:3,boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
             <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{color}}>{deptNames[code]||code}</div>
             <div className="text-base font-bold text-gray-900">{formatCurrency(actual)}</div>
             <div className="text-[11px] text-gray-400">{budget>0?`of ${formatCurrency(budget)}`:'No budget'}</div>
@@ -1343,7 +1437,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden flex-shrink-0">
           {[['summary','P&L'],['calendar','Calendar']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setViewMode(id)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode===id?'bg-teal-600 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode===id?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
               {lbl}
             </button>
           ))}
@@ -1432,23 +1526,24 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
           </div>
 
           {/* Summary panel */}
-          <div className="w-64 border-l border-gray-100 overflow-y-auto flex-shrink-0 bg-gray-50/50">
+          <div className="w-64 border-l border-gray-100 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
             <div className="p-4 space-y-4">
               {/* Totals */}
               <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Summary</p>
-                <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-1.5 text-xs">
+                <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Summary</p>
+                <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-2 text-xs"
+                  style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
                   <div className="flex justify-between">
                     <span className="text-gray-400">Total Income</span>
-                    <span className="font-semibold text-gray-800">{formatCurrency(totalIncActual)}</span>
+                    <span className="font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncActual)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-400">Total Expenses</span>
-                    <span className="font-semibold text-gray-800">{formatCurrency(totalExpActual)}</span>
+                    <span className="font-semibold text-gray-800 tabular-nums">{formatCurrency(totalExpActual)}</span>
                   </div>
-                  <div className="border-t border-gray-100 pt-1.5 flex justify-between">
+                  <div className="border-t border-gray-100 pt-2 flex justify-between">
                     <span className="text-gray-600 font-medium">Net</span>
-                    <span className={`font-bold ${netActual>=0?'text-emerald-600':'text-red-500'}`}>{formatCurrency(netActual)}</span>
+                    <span className={`font-bold tabular-nums ${netActual>=0?'text-emerald-600':'text-red-500'}`}>{formatCurrency(netActual)}</span>
                   </div>
                 </div>
               </div>
@@ -1456,16 +1551,17 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               {/* Top vendors */}
               {topVendors.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top Vendors</p>
-                  <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Top Vendors</p>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-2"
+                    style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
                     {topVendors.map((v,i)=>(
                       <div key={v.vendor} className="text-xs">
                         <div className="flex justify-between mb-0.5">
                           <span className="text-gray-600 truncate max-w-[100px]">{v.vendor}</span>
-                          <span className="font-medium text-gray-800 flex-shrink-0">{formatCurrency(v.amount)}</span>
+                          <span className="font-medium text-gray-800 flex-shrink-0 tabular-nums">{formatCurrency(v.amount)}</span>
                         </div>
                         <div className="w-full bg-gray-100 rounded-full h-1">
-                          <div className="h-full rounded-full bg-teal-500" style={{ width:`${totalExpActual>0?(v.amount/totalExpActual*100):0}%` }}/>
+                          <div className="h-full rounded-full" style={{ width:`${totalExpActual>0?(v.amount/totalExpActual*100):0}%`, backgroundColor:'var(--color-accent)' }}/>
                         </div>
                       </div>
                     ))}
@@ -1476,12 +1572,13 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               {/* Income categories */}
               {incomeGroups.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Income Breakdown</p>
-                  <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Income Breakdown</p>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-1.5"
+                    style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
                     {incomeGroups.slice(0,5).map(g=>(
                       <div key={g.cat} className="flex justify-between text-xs">
                         <span className="text-gray-500 truncate max-w-[100px]">{g.cat}</span>
-                        <span className="font-medium text-gray-700">{formatCurrency(g.actual)}</span>
+                        <span className="font-medium text-gray-700 tabular-nums">{formatCurrency(g.actual)}</span>
                       </div>
                     ))}
                   </div>
@@ -1688,6 +1785,93 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Teams Tab — team spend overview
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TeamsTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const { deptNames } = useApp()
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+
+  // Team totals
+  const allDeptCodes = useMemo(()=>[...new Set(actuals.map(t=>t.department).filter(Boolean))].sort(),[actuals])
+  const displayDepts = activeDepts ? [...activeDepts] : allDeptCodes
+
+  const teamStats = useMemo(()=>displayDepts.map(code=>{
+    const dActuals = actuals.filter(t=>{
+      const p=t.period||(t.date?t.date.slice(0,7):null)
+      return p&&p>=startP&&p<=endP&&t.department===code&&t.record_type!=='income'
+    })
+    const actual = dActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0)
+    const budget = budgetFlat
+      .filter(b=>b.scenario===scenario&&b.department===code&&b.record_type!=='income'&&b.period>=startP&&b.period<=endP)
+      .reduce((s,b)=>s+(b.amount||0),0)
+    const delta = budget > 0 ? actual - budget : null
+    const pct   = budget > 0 ? Math.round(actual/budget*100) : null
+    const txCount = dActuals.length
+    return { code, actual, budget, delta, pct, txCount }
+  }),[displayDepts,actuals,budgetFlat,scenario,startP,endP])
+
+  return (
+    <div className="flex-1 overflow-y-auto" style={{backgroundColor:'var(--color-primary-bg)'}}>
+      {/* Team status strip */}
+      <DeptStatusCards actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} activeDepts={activeDepts}/>
+
+      {/* Team cards grid */}
+      <div className="p-6 space-y-6">
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Team Spend Summary</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {teamStats.map(({ code, actual, budget, delta, pct, txCount })=>{
+            const color = DEPT_COLORS[code] || '#9BA8B5'
+            const isOver = delta !== null && delta > 0
+            return (
+              <div key={code} className="bg-white rounded-2xl border border-gray-100 p-5"
+                style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{backgroundColor:color}}/>
+                    <span className="text-sm font-semibold text-gray-800">{deptNames[code]||code}</span>
+                  </div>
+                  {pct !== null && (
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isOver?'bg-red-50 text-red-700':'bg-emerald-50 text-emerald-700'}`}>
+                      {pct}% used
+                    </span>
+                  )}
+                </div>
+                <div className="text-3xl font-bold text-gray-900 mb-1">{formatCurrency(actual)}</div>
+                {budget > 0 && (
+                  <div className="text-xs text-gray-400 mb-3">of {formatCurrency(budget)} budgeted</div>
+                )}
+                {pct !== null && (
+                  <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3">
+                    <div className="h-1.5 rounded-full transition-all"
+                      style={{width:`${Math.min(pct,100)}%`, backgroundColor:isOver?'#EF4444':color}}/>
+                  </div>
+                )}
+                {delta !== null && (
+                  <div className="flex items-center gap-2">
+                    <TrendBadge
+                      delta={-delta}
+                      label={`${formatCurrency(Math.abs(delta))} ${isOver?'over':'under'}`}/>
+                  </div>
+                )}
+                <div className="text-[10px] text-gray-400 mt-2">{txCount} transactions</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Team Spend chart */}
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest mb-4" style={{color:'var(--neutral-60)'}}>Monthly Team Spend</div>
+          <TeamSpendCard actuals={actuals} dateRange={dateRange}/>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Import Tab — four Supabase-backed import flows
 // Legacy in-memory imports (Actuals, Budget legacy, Income) removed.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1780,7 +1964,7 @@ export default function MasterDashboard(){
   const tabProps = { actuals:filteredActuals, budgetFlat, scenario:selectedScenario, incomeMonths, dateRange, activeDepts }
 
   return (
-    <div className="flex flex-col min-h-screen bg-white">
+    <div className="flex flex-col min-h-screen" style={{backgroundColor:'var(--color-primary-bg)'}}>
       <MasterNav
         activeTab={activeTab} setActiveTab={setActiveTab}
         dateRange={dateRange} onApplyPreset={applyPreset} onApplyCustom={applyCustom}
@@ -1790,9 +1974,10 @@ export default function MasterDashboard(){
       {activeTab==='overview'      && <OverviewTab {...tabProps}/>}
       {activeTab==='breakdown'     && <BreakdownTab {...tabProps}/>}
       {activeTab==='transactions'  && <MasterTransactionsEditor orgSettings={orgSettings}/>}
+      {activeTab==='teams'         && <TeamsTab {...tabProps}/>}
       {activeTab==='comments'      && <div className="flex-1"><CommentsPage/></div>}
       {activeTab==='import'        && <MasterImportTab/>}
-      {activeTab==='setup' && <SetupPage/>}
+      {activeTab==='setup'         && <SetupPage/>}
     </div>
   )
 }
