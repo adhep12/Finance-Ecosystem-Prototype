@@ -234,6 +234,21 @@ export function AppProvider({ children }) {
         if (!bData || bData.length < PAGE_SIZE) break
         bPage++
       }
+      // ── Debug: log budget row count and sample to diagnose truncation ─────────
+      {
+        const bySc = budgetRows.reduce((m, r) => { m[r.scenario] = (m[r.scenario]||0) + 1; return m }, {})
+        const samplePeriods = [...new Set(budgetRows.map(r => r.period))].sort().slice(0, 5)
+        const samplePeriodsLast = [...new Set(budgetRows.map(r => r.period))].sort().slice(-5)
+        const fyRows = budgetRows.filter(r => r.period && r.period >= '2025-10' && r.period <= '2026-09')
+        const fyTotal = fyRows.reduce((s, r) => s + (r.budget || 0), 0)
+        console.log('[AppContext] budget loaded:', budgetRows.length, 'rows | by scenario:', bySc)
+        console.log('[AppContext] budget periods (first 5):', samplePeriods, '... (last 5):', samplePeriodsLast)
+        console.log('[AppContext] budget FY Oct25-Sep26 rows:', fyRows.length, '| raw total $:', fyTotal.toLocaleString())
+        if (fyRows.length > 0) {
+          const sample = fyRows.slice(0, 3)
+          console.log('[AppContext] budget FY sample rows:', JSON.stringify(sample))
+        }
+      }
       setBudgetFlat(mapBudgetFlat(budgetRows))
 
       // ── Org summary: v_org_summary — used by ELT dashboard ───────────────────
@@ -308,6 +323,9 @@ export function AppProvider({ children }) {
       dept_code:  row.dept_code != null ? String(row.dept_code) : null,
       amount:     row.budget,       // calcBudgetByCategory sums 'amount'
       department: row.dept_code != null ? String(row.dept_code) : null,
+      // Normalize period to YYYY-MM; the DB may return a full date string
+      // (e.g. '2025-10-01') that would fail monthSet.has() comparisons.
+      period:     row.period ? String(row.period).substring(0, 7) : null,
     }))
   }
 
