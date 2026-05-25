@@ -493,6 +493,44 @@ export function AppProvider({ children }) {
     )
   }
 
+  // ── Boot gate: don't mount children until org_id is resolved ──────────────
+  // Without this, components that query Supabase on mount fire while ORG_ID
+  // is still '' (empty string), getting 0 rows because no row matches
+  // org_id = ''. We hold the app on a loading screen until Phase 1 of
+  // loadFromDB() has called setOrgId() and the real UUID is in place.
+  if (!orgId) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', background: '#F5F2EC', flexDirection: 'column', gap: 16,
+      }}>
+        {dbError ? (
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E2DC', padding: 40, maxWidth: 440, textAlign: 'center' }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            <h3 style={{ color: '#1A1A1A', marginBottom: 8 }}>Failed to connect</h3>
+            <p style={{ color: '#6B7280', marginBottom: 20, fontSize: 14 }}>{dbError}</p>
+            <button
+              onClick={loadFromDB}
+              style={{ background: '#0EA5A0', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <>
+            <div style={{
+              width: 40, height: 40, borderRadius: '50%',
+              border: '3px solid #E5E2DC', borderTopColor: '#0EA5A0',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+            <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+            <span style={{ color: '#6B7280', fontSize: 14 }}>Loading…</span>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 
