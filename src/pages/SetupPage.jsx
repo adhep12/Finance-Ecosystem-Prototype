@@ -1799,8 +1799,12 @@ function FieldMappingsRegistry() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 text-xs text-gray-400">
-                  {m.source_label && <span>Source: <span className="text-gray-600">{m.source_label}</span></span>}
+                <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+                  {m.source_label && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium bg-gray-100 text-gray-600 border-gray-200">
+                      {m.source_label}
+                    </span>
+                  )}
                   <span>{fieldCount} field{fieldCount !== 1 ? 's' : ''} mapped</span>
                   <span>Updated {formatDate(m.updated_at)}</span>
                 </div>
