@@ -12,7 +12,7 @@ import { useTeam } from '../context/TeamContext'
 
 const TX_COLS = [
   { key: 'date',        label: 'Date',       numeric: false },
-  { key: 'department',  label: 'Department', numeric: false },
+  { key: 'dept_name',   label: 'Department', numeric: false },
   { key: 'category',    label: 'Category',   numeric: false },
   { key: 'account',     label: 'Account',    numeric: false },
   { key: 'grant',       label: 'Grant',      numeric: false },
@@ -204,7 +204,7 @@ export default function TransactionsPage() {
   const [sortCol,    setSortCol]    = useState('date')
   const [sortDir,    setSortDir]    = useState('asc')
   const [filters,    setFilters]    = useState({
-    date: '', department: '', category: '', account: '', grant: '', vendor: '', amount: '',
+    date: '', dept_name: '', category: '', account: '', grant: '', vendor: '', amount: '',
   })
   const [page,       setPage]       = useState(1)
   const [selectedTx, setSelectedTx] = useState(null)   // open comment modal
@@ -225,7 +225,7 @@ export default function TransactionsPage() {
   }
 
   function clearFilters() {
-    setFilters({ date: '', department: '', category: '', account: '', grant: '', vendor: '', amount: '' })
+    setFilters({ date: '', dept_name: '', category: '', account: '', grant: '', vendor: '', amount: '' })
     setPage(1)
   }
 
@@ -407,7 +407,7 @@ export default function TransactionsPage() {
                       }`}
                     >
                       <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
-                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.department || '—'}</td>
+                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.dept_name || row.department || '—'}</td>
                       <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[140px] truncate">{row.category || '—'}</td>
                       <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
                       <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.grant || '—'}</td>
