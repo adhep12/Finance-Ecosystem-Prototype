@@ -2891,37 +2891,51 @@ function TeamsTab({ dateRange, activeBudget }) {
       })
   }, [])
 
-  // Build per-team actuals (expenses only, in date range)
-  // Transactions without a team_name are excluded — they have no team assignment.
-  const { teamActualMap, teamIdMap } = useMemo(() => {
+  // Build per-team actuals (expenses only, in date range).
+  // Transactions without a team_name are tallied separately as unassigned — they
+  // represent real spend that either (a) was imported without a dept_code,
+  // (b) has a dept_code that isn't linked to any team in the registry, or
+  // (c) belonged to a team that was later deleted (on delete set null cascade).
+  const { teamActualMap, teamIdMap, unassignedActual, unassignedDeptCodes } = useMemo(() => {
     const actualMap = {}, idMap = {}
+    let unassigned = 0
+    const deptCodes = new Set()
     for (const t of actuals) {
-      if (!t.team_name) continue   // skip unassigned transactions
       if (!t.date || t.date < startDate || t.date > endDate) continue
       if (t.record_type === 'income') continue
+      if (!t.team_name) {
+        unassigned += Math.abs(t.amount || 0)
+        if (t.dept_code) deptCodes.add(t.dept_code)
+        else deptCodes.add('(no dept)')
+        continue
+      }
       const name = t.team_name
       actualMap[name] = (actualMap[name] || 0) + Math.abs(t.amount || 0)
       if (t.team_id && !idMap[name]) idMap[name] = t.team_id
     }
-    return { teamActualMap: actualMap, teamIdMap: idMap }
+    return { teamActualMap: actualMap, teamIdMap: idMap, unassignedActual: unassigned, unassignedDeptCodes: deptCodes }
   }, [actuals, startDate, endDate])
 
-  // Build per-team budget (selected scenario, in date range)
-  // Budget rows without a team_name are excluded — no team assignment.
-  const teamBudgetMap = useMemo(() => {
+  // Build per-team budget (selected scenario, in date range).
+  // Budget rows without a team_name are tallied as unassigned budget.
+  const { teamBudgetMap, unassignedBudget } = useMemo(() => {
     const m = {}
+    let unassigned = 0
     for (const b of budgetFlat) {
-      if (!b.team_name) continue   // skip unassigned budget rows
       if (b.scenario !== activeBudget) continue
       if (b.record_type === 'income') continue
       if (!b.period || b.period < startM || b.period > endM) continue
+      if (!b.team_name) {
+        unassigned += Math.abs(b.amount || 0)
+        continue
+      }
       const name = b.team_name
       m[name] = (m[name] || 0) + Math.abs(b.amount || 0)
     }
-    return m
+    return { teamBudgetMap: m, unassignedBudget: unassigned }
   }, [budgetFlat, activeBudget, startM, endM])
 
-  // Merge into team rows
+  // Merge into team rows (assigned teams only — unassigned handled separately below)
   const teams = useMemo(() => {
     const allNames = new Set([...Object.keys(teamActualMap), ...Object.keys(teamBudgetMap)])
     return [...allNames].map(name => ({
@@ -2932,8 +2946,10 @@ function TeamsTab({ dateRange, activeBudget }) {
     }))
   }, [teamActualMap, teamBudgetMap, teamIdMap])
 
-  const totalActual   = teams.reduce((s,t) => s + t.actual,  0)
-  const totalBudget   = teams.reduce((s,t) => s + t.budget,  0)
+  const hasUnassigned   = unassignedActual > 0 || unassignedBudget > 0
+  // Totals include unassigned so the page reconciles to real org spend
+  const totalActual   = teams.reduce((s,t) => s + t.actual,  0) + unassignedActual
+  const totalBudget   = teams.reduce((s,t) => s + t.budget,  0) + unassignedBudget
   const totalVariance = totalActual - totalBudget
   const overBudget    = teams.filter(t => t.budget > 0 && t.actual > t.budget).length
 
@@ -3137,6 +3153,33 @@ function TeamsTab({ dateRange, activeBudget }) {
                 </tr>
               )
             })}
+            {/* Unassigned row */}
+            {hasUnassigned && (
+              <tr className="border-b border-amber-100 bg-amber-50/40">
+                <td className="px-6 py-3">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={13} className="text-amber-500 flex-shrink-0"/>
+                    <span className="font-medium text-amber-800">Unassigned</span>
+                  </div>
+                  <div className="text-[10px] text-amber-600 mt-0.5">
+                    {unassignedDeptCodes.size} dept code{unassignedDeptCodes.size !== 1 ? 's' : ''} — no team mapping
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums font-medium text-amber-700">{formatCurrency(unassignedActual,{compact:false})}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-400">—</td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-400">—</td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-400">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600">—</span>
+                </td>
+                <td className="px-6 py-3">
+                  <div className="flex items-center gap-2 justify-end">
+                    <span className="text-xs tabular-nums text-amber-600">
+                      {totalActual > 0 ? ((unassignedActual/totalActual)*100).toFixed(1) : '0.0'}%
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            )}
             {/* Totals */}
             <tr className="bg-gray-900">
               <td className="px-6 py-3 font-bold text-white">Total — All Teams</td>
@@ -3155,6 +3198,20 @@ function TeamsTab({ dateRange, activeBudget }) {
           </tbody>
         </table>
       </div>
+
+      {/* Unassigned footnote */}
+      {hasUnassigned && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-4 py-3">
+          <AlertCircle size={14} className="text-amber-500 mt-0.5 flex-shrink-0"/>
+          <div className="text-xs text-amber-700 leading-relaxed">
+            <span className="font-semibold">Why are transactions unassigned?</span> Transactions appear here when:
+            (1) they were imported without a department code,
+            (2) the department exists but hasn't been mapped to a team, or
+            (3) the team was deleted and the cascade set the department's team reference to null.
+            These amounts are included in the totals row so the page reconciles to actual org spend.
+          </div>
+        </div>
+      )}
 
     </div>
 
