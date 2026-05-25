@@ -1,8 +1,8 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AppProvider }   from './context/AppContext'
-import { TeamProvider }  from './context/TeamContext'
-import { useTeam }       from './context/TeamContext'
+import { AppProvider, useApp } from './context/AppContext'
+import { TeamProvider }        from './context/TeamContext'
+import { useTeam }             from './context/TeamContext'
 import BriefingPage      from './pages/BriefingPage'
 import BreakdownPage     from './pages/BreakdownPage'
 import CommentsPage      from './pages/CommentsPage'
@@ -53,11 +53,19 @@ function TeamNotFound() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TeamShellInner() {
-  const { isLoading, teamNotFound } = useTeam()
+  const { isLoading: teamLoading, teamNotFound } = useTeam()
+  const { isLoading: dataLoading }               = useApp()
 
   if (teamNotFound) return <TeamNotFound />
 
-  if (isLoading) return (
+  // Gate on BOTH:
+  //   teamLoading — team row + dept codes not yet fetched
+  //   dataLoading — AppContext still paginating org actuals (13 × 1000-row pages)
+  // Without this gate, pages render with teamActuals=[] and show empty dashboards.
+  const loading   = teamLoading || dataLoading
+  const loadLabel = dataLoading && !teamLoading ? 'Loading transactions…' : 'Loading team…'
+
+  if (loading) return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       minHeight: '100vh', background: '#F5F2EC', flexDirection: 'column', gap: 16,
@@ -68,7 +76,7 @@ function TeamShellInner() {
         animation: 'spin 0.8s linear infinite',
       }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      <span style={{ color: '#6B7280', fontSize: 14 }}>Loading team…</span>
+      <span style={{ color: '#6B7280', fontSize: 14 }}>{loadLabel}</span>
     </div>
   )
 
