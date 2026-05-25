@@ -38,13 +38,13 @@ export function TeamProvider({ children }) {
       setTeamNotFound(false)
 
       try {
-        // Fetch team row + its departments in parallel
+        // departments table uses dept_code / dept_name (not code / name)
         const [
           { data: teamRow,  error: teamErr  },
           { data: deptRows, error: deptErr  },
         ] = await Promise.all([
           supabase.from('teams').select('*').eq('id', teamId).single(),
-          supabase.from('departments').select('id, code, name, team_id').eq('team_id', teamId),
+          supabase.from('departments').select('id, dept_code, dept_name, team_id').eq('team_id', teamId),
         ])
 
         if (cancelled) return
@@ -59,7 +59,7 @@ export function TeamProvider({ children }) {
         const depts = deptRows || []
         setTeam(teamRow)
         setTeamDepts(depts)
-        setTeamDeptCodes(depts.map(d => d.code || d.dept_code).filter(Boolean))
+        setTeamDeptCodes(depts.map(d => d.dept_code).filter(Boolean))
       } catch (err) {
         if (!cancelled) {
           console.error('[TeamContext] load error:', err)
