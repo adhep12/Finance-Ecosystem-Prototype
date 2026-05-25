@@ -18,7 +18,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Plus, Trash2, RotateCcw, Download, Search, ChevronDown,
   Check, X, Clock, Eye, EyeOff, Loader2, AlertTriangle,
-  Edit2, Filter, ChevronLeft, ChevronRight,
+  Edit2, Filter, ChevronLeft, ChevronRight, ArrowUp, ArrowDown,
+  ArrowUpDown, SlidersHorizontal,
 } from 'lucide-react'
 import { supabase, ORG_ID, dbUpdate, dbSoftDelete } from '../lib/supabase'
 
@@ -57,6 +58,136 @@ function downloadCSV(filename, rows, columns) {
   const blob = new Blob([header + '\n' + body], { type: 'text/csv' })
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename })
   a.click()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quick preset dates
+// ─────────────────────────────────────────────────────────────────────────────
+
+function quickPresets() {
+  const today = new Date()
+  const y = today.getFullYear(), m = today.getMonth()
+  const todayStr = today.toISOString().slice(0, 10)
+  const thisMonthStart = new Date(y, m, 1).toISOString().slice(0, 10)
+  const lastMonthStart = new Date(y, m-1, 1).toISOString().slice(0, 10)
+  const lastMonthEnd   = new Date(y, m, 0).toISOString().slice(0, 10)
+  const last3Start     = new Date(y, m-2, 1).toISOString().slice(0, 10)
+  return [
+    { label:'This month',    start: thisMonthStart, end: todayStr },
+    { label:'Last month',    start: lastMonthStart, end: lastMonthEnd },
+    { label:'Last 3 months', start: last3Start,     end: todayStr },
+  ]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MultiCheckFilter dropdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MultiCheckFilter({ label, options, selected, onToggle, onClear, groups }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const activeCount = selected.size
+  // Render grouped or flat
+  const renderItems = () => {
+    if (groups && groups.length > 0) {
+      return groups.map(g => (
+        <div key={g.label}>
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 px-3 pt-2 pb-1">{g.label}</div>
+          {g.items.map(o => (
+            <button key={o.value} onClick={() => onToggle(o.value)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
+              <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0
+                ${selected.has(o.value) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                {selected.has(o.value) && <Check size={8} className="text-white"/>}
+              </div>
+              <span className="truncate">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      ))
+    }
+    return options.map(o => (
+      <button key={o.value} onClick={() => onToggle(o.value)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
+        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0
+          ${selected.has(o.value) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+          {selected.has(o.value) && <Check size={8} className="text-white"/>}
+        </div>
+        <span className="truncate">{o.label}</span>
+      </button>
+    ))
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(p => !p)}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors
+          ${activeCount > 0 ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+        {label}
+        {activeCount > 0 && <span className="bg-white/20 px-1 rounded-full text-[10px] font-bold">{activeCount}</span>}
+        <ChevronDown size={10}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 min-w-[180px] max-h-64 overflow-y-auto">
+          {activeCount > 0 && (
+            <button onClick={() => { onClear(); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 border-b border-gray-100 font-medium">
+              Clear all ({activeCount})
+            </button>
+          )}
+          {renderItems()}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AmountRangeFilter
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  const active = amtMin !== '' || amtMax !== ''
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(p => !p)}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors
+          ${active ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+        Amount{active ? ' ✓' : ''}
+        <ChevronDown size={10}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-52">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Amount Range</div>
+          <div className="flex gap-2 items-center">
+            <input type="number" placeholder="Min" value={amtMin}
+              onChange={e => onMin(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none"/>
+            <span className="text-gray-400 text-xs">–</span>
+            <input type="number" placeholder="Max" value={amtMax}
+              onChange={e => onMax(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none"/>
+          </div>
+          {active && (
+            <button onClick={onClear} className="mt-2 text-xs text-red-600 hover:underline">Clear</button>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** Compute default date range: current fiscal year start → today */
@@ -301,6 +432,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const [departments, setDepartments] = useState([])
   const [accounts,    setAccounts]    = useState([])
   const [grants,      setGrants]      = useState([])
+  const [teams,       setTeams]       = useState([])
 
   // Lookup maps keyed by ID
   const deptMap  = useMemo(() => new Map(departments.map(d => [d.id, d])), [departments])
@@ -333,6 +465,35 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const [saving,      setSaving]      = useState({}) // { [id]: bool }
   const [toast,       setToast]       = useState(null)
 
+  // Column filters
+  const [deptFilter,  setDeptFilter]  = useState(new Set())  // dept IDs
+  const [catFilter,   setCatFilter]   = useState(new Set())  // category strings
+  const [acctFilter,  setAcctFilter]  = useState(new Set())  // account IDs
+  const [grantFilter, setGrantFilter] = useState(new Set())  // grant IDs or 'none'
+  const [amtMin,      setAmtMin]      = useState('')
+  const [amtMax,      setAmtMax]      = useState('')
+  const [vendorSearch,setVendorSearch]= useState('')
+
+  // Sort
+  const [sortCol, setSortCol] = useState('date')
+  const [sortDir, setSortDir] = useState('desc')
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir(col === 'date' ? 'desc' : 'asc') }
+  }
+
+  function activeFilterCount() {
+    return (deptFilter.size > 0 ? 1 : 0) + (catFilter.size > 0 ? 1 : 0) +
+           (acctFilter.size > 0 ? 1 : 0) + (grantFilter.size > 0 ? 1 : 0) +
+           (amtMin !== '' ? 1 : 0) + (amtMax !== '' ? 1 : 0) +
+           (vendorSearch ? 1 : 0)
+  }
+  function clearAllFilters() {
+    setDeptFilter(new Set()); setCatFilter(new Set()); setAcctFilter(new Set())
+    setGrantFilter(new Set()); setAmtMin(''); setAmtMax(''); setVendorSearch('')
+    setSearch('')
+  }
+
   function showToast(msg, type = 'success') {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
@@ -344,12 +505,14 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       supabase.from('departments').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('dept_code'),
       supabase.from('chart_of_accounts').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('account_code'),
       supabase.from('grants').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('grant_code'),
-    ]).then(([{ data: d }, { data: a }, { data: g }]) => {
+      supabase.from('teams').select('id, team_name').eq('org_id', ORG_ID).eq('deleted', false).order('team_name'),
+    ]).then(([{ data: d }, { data: a }, { data: g }, { data: t }]) => {
       setDepartments(d || [])
       setAccounts(a || [])
       setGrants(g || [])
+      setTeams(t || [])
     })
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load edited IDs ─────────────────────────────────────────────────────────
   const loadEditedIds = useCallback(async () => {
@@ -417,7 +580,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
     grant_name:   grantMap.get(r.grant_id)?.grant_name       || '',
   })), [rows, deptMap, acctMap, grantMap])
 
-  // ── Client-side filters (search + record_type) ──────────────────────────────
+  // ── Client-side filters + sort ───────────────────────────────────────────────
   const filtered = useMemo(() => {
     let result = enriched
     if (recordType !== 'all') result = result.filter(r => r.record_type === recordType)
@@ -426,8 +589,36 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       [r.vendor, r.description, r.account_name, r.dept_name, r.category, r.grant_name, r.account_code, r.dept_code]
         .some(v => String(v || '').toLowerCase().includes(q))
     )
+    if (deptFilter.size > 0)  result = result.filter(r => deptFilter.has(r.department_id))
+    if (catFilter.size > 0)   result = result.filter(r => catFilter.has(r.category))
+    if (acctFilter.size > 0)  result = result.filter(r => acctFilter.has(r.account_id))
+    if (grantFilter.size > 0) result = result.filter(r => {
+      if (grantFilter.has('none')) return !r.grant_id || grantFilter.has(r.grant_id)
+      return grantFilter.has(r.grant_id)
+    })
+    if (vendorSearch) {
+      const vs = vendorSearch.toLowerCase()
+      result = result.filter(r => (r.vendor || '').toLowerCase().includes(vs))
+    }
+    if (amtMin !== '') result = result.filter(r => Math.abs(r.amount || 0) >= parseFloat(amtMin))
+    if (amtMax !== '') result = result.filter(r => Math.abs(r.amount || 0) <= parseFloat(amtMax))
+
+    // Sort
+    result = [...result].sort((a, b) => {
+      let av, bv
+      if (sortCol === 'date')   { av = a.date; bv = b.date; return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (sortCol === 'vendor') { av = (a.vendor||''); bv = (b.vendor||''); return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (sortCol === 'dept')   { av = (a.dept_name||''); bv = (b.dept_name||''); return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (sortCol === 'cat')    { av = (a.category||''); bv = (b.category||''); return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (sortCol === 'acct')   { av = (a.account_name||''); bv = (b.account_name||''); return sortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (sortCol === 'amount') { av = Math.abs(a.amount||0); bv = Math.abs(b.amount||0); return sortDir==='asc'?av-bv:bv-av }
+      return 0
+    })
     return result
-  }, [enriched, search, recordType])
+  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorSearch, amtMin, amtMax, sortCol, sortDir])
+
+  // Running total of filtered rows
+  const filteredTotal = useMemo(() => filtered.reduce((s,r) => s + Math.abs(r.amount||0), 0), [filtered])
 
   // ── Edit handler ─────────────────────────────────────────────────────────────
   async function handleEdit(row, field, newVal) {
@@ -563,52 +754,123 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       {/* History panel */}
       {historyId && <HistoryPanel txId={historyId} onClose={() => setHistoryId(null)}/>}
 
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 flex-wrap px-6 py-3 border-b border-gray-200 bg-gray-50">
-        {/* Date range */}
+      {/* ── Toolbar row 1: date range + quick presets + type toggle + actions ── */}
+      <div className="flex items-center gap-2 flex-wrap px-6 py-3 border-b border-gray-100 bg-gray-50">
+        {/* Date pickers */}
         <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
           className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
         <span className="text-xs text-gray-400">to</span>
         <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
           className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-
-        {/* Record type filter */}
+        {/* Quick presets */}
+        {quickPresets().map(p => (
+          <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end) }}
+            className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
+            {p.label}
+          </button>
+        ))}
+        <div className="w-px h-5 bg-gray-200"/>
+        {/* Record type */}
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
           {[['all','All'],['expense','Expense'],['income','Income']].map(([val, lbl]) => (
             <button key={val} onClick={() => setRecordType(val)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
               {lbl}
             </button>
           ))}
         </div>
-
-        {/* Search */}
-        <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor, account, category…"
-            className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-        </div>
-
         <div className="flex-1"/>
-
         {/* Show deleted */}
         <button onClick={() => setShowDeleted(p => !p)}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg transition-colors ${showDeleted ? 'bg-red-50 border-red-300 text-red-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
           {showDeleted ? <EyeOff size={12}/> : <Eye size={12}/>}
           Deleted ({deletedRows.length || '?'})
         </button>
-
-        {/* Export */}
         <button onClick={handleExport}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
           <Download size={12}/> Export
         </button>
-
-        {/* Add */}
         <button onClick={() => setShowAdd(p => !p)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
           <Plus size={12}/> Add
         </button>
+      </div>
+      {/* ── Toolbar row 2: column filters + search ── */}
+      <div className="flex items-center gap-2 flex-wrap px-6 py-2.5 border-b border-gray-200 bg-white">
+        <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+        {/* Search */}
+        <div className="relative min-w-[180px]">
+          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+            className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
+        </div>
+        {/* Vendor search */}
+        <div className="relative min-w-[140px]">
+          <input value={vendorSearch} onChange={e => setVendorSearch(e.target.value)} placeholder="Vendor…"
+            className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
+        </div>
+        {/* Department multiselect grouped by team */}
+        {(() => {
+          const teamMap = new Map(teams.map(t => [t.id, t.team_name]))
+          const groups = []
+          const byTeam = {}
+          for (const d of departments) {
+            const tName = teamMap.get(d.team_id) || 'Unassigned'
+            if (!byTeam[tName]) byTeam[tName] = []
+            byTeam[tName].push({ value: d.id, label: d.dept_name || d.dept_code })
+          }
+          for (const [tName, items] of Object.entries(byTeam)) groups.push({ label: tName, items })
+          return (
+            <MultiCheckFilter label="Department" selected={deptFilter}
+              options={departments.map(d => ({ value: d.id, label: d.dept_name || d.dept_code }))}
+              groups={groups.length > 0 ? groups : null}
+              onToggle={id => setDeptFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+              onClear={() => setDeptFilter(new Set())}/>
+          )
+        })()}
+        {/* Category */}
+        {(() => {
+          const cats = [...new Set(accounts.map(a => a.category).filter(Boolean))].sort()
+          return (
+            <MultiCheckFilter label="Category" selected={catFilter}
+              options={cats.map(c => ({ value: c, label: c }))}
+              onToggle={c => setCatFilter(p => { const n = new Set(p); n.has(c) ? n.delete(c) : n.add(c); return n })}
+              onClear={() => setCatFilter(new Set())}/>
+          )
+        })()}
+        {/* Account */}
+        <MultiCheckFilter label="Account" selected={acctFilter}
+          options={accounts.map(a => ({ value: a.id, label: a.account_name || a.account_code }))}
+          onToggle={id => setAcctFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+          onClear={() => setAcctFilter(new Set())}/>
+        {/* Grant */}
+        {(() => {
+          const grantOpts = [
+            { value: 'none', label: 'No grant (N/A)' },
+            ...grants.map(g => ({ value: g.id, label: g.grant_name || g.grant_code }))
+          ]
+          return (
+            <MultiCheckFilter label="Grant" selected={grantFilter}
+              options={grantOpts}
+              onToggle={id => setGrantFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+              onClear={() => setGrantFilter(new Set())}/>
+          )
+        })()}
+        {/* Amount range */}
+        <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
+          onMin={setAmtMin} onMax={setAmtMax}
+          onClear={() => { setAmtMin(''); setAmtMax('') }}/>
+        {/* Filter badge + clear */}
+        {activeFilterCount() > 0 && (
+          <>
+            <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+              {activeFilterCount()} filter{activeFilterCount() !== 1 ? 's' : ''}
+            </span>
+            <button onClick={clearAllFilters} className="text-xs text-red-600 hover:underline font-medium">
+              Clear all
+            </button>
+          </>
+        )}
       </div>
 
       {/* ── Add form ── */}
@@ -628,8 +890,9 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       <div className="flex-1 overflow-auto">
         {/* Stats bar */}
         <div className="flex items-center gap-4 px-6 py-2 bg-white border-b border-gray-100 text-xs text-gray-400">
-          <span>{filtered.length} of {totalCount} transactions</span>
-          {filtered.length !== totalCount && <span>({totalCount - filtered.length} filtered out)</span>}
+          <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
+          {filtered.length < totalCount && <span className="text-gray-400">of {totalCount.toLocaleString()} in range</span>}
+          <span className="font-semibold text-gray-700">{formatCurrency(filteredTotal)}</span>
           <span className="flex-1"/>
           <span>{totalPages > 1 && `Page ${page + 1} of ${totalPages}`}</span>
         </div>
@@ -648,16 +911,33 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         {!loading && !error && (
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Date</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-36">Account</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Category</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-32">Department</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-32">Vendor</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-24">Amount</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">Description</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Actions</th>
-              </tr>
+              {(() => {
+                function SH({ col, right, className: cls, children }) {
+                  const active = sortCol === col
+                  return (
+                    <th onClick={() => toggleSort(col)}
+                      className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none
+                        ${right ? 'text-right' : 'text-left'} ${active ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-600'} ${cls||''}`}>
+                      <span className={`inline-flex items-center gap-1 ${right?'justify-end':''}`}>
+                        {children}
+                        {active ? (sortDir==='asc'?<ArrowUp size={8}/>:<ArrowDown size={8}/>) : <ArrowUpDown size={8} className="opacity-30"/>}
+                      </span>
+                    </th>
+                  )
+                }
+                return (
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <SH col="date">Date</SH>
+                    <SH col="acct">Account</SH>
+                    <SH col="cat">Category</SH>
+                    <SH col="dept">Department</SH>
+                    <SH col="vendor">Vendor</SH>
+                    <SH col="amount" right>Amount</SH>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Description</th>
+                    <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-20">Actions</th>
+                  </tr>
+                )
+              })()}
             </thead>
             <tbody>
               {filtered.length === 0 && (
