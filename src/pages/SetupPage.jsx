@@ -1004,7 +1004,7 @@ function AccountsRegistry() {
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-32">Account Code</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">Account Name</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-40">Category</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-52">Category</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Record Type</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-20 text-center">Tx Count</th>
               <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-24">Actions</th>
@@ -1029,6 +1029,7 @@ function AccountsRegistry() {
                       onBlur={e => handleUpdate(row.id, 'category', e.target.value, row)}
                       onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                       list="category-hints-list"
+                      title={row.category ?? ''}
                       className="text-sm border border-transparent hover:border-gray-200 focus:border-teal-400 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-500 w-full bg-transparent focus:bg-white transition-colors"
                     />
                     <datalist id="category-hints-list">
