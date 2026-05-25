@@ -4,7 +4,7 @@ import {
   MessageSquare, List, LayoutGrid,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { useTeam } from '../context/TeamContext'
+import { useTeamOptional } from '../context/TeamContext'
 import { useNavigate, useParams } from 'react-router-dom'
 import { formatCurrency } from '../utils/formatters'
 
@@ -449,7 +449,8 @@ function ListView({ comments, onSelect }) {
 
 export default function CommentsPage() {
   const { comments, orgConfig, updateComment } = useApp()
-  const { team } = useTeam()
+  const teamCtx  = useTeamOptional()          // null when rendered in MasterDashboard
+  const team     = teamCtx?.team || null
   const teamName = team?.team_name || orgConfig.teamName
 
   const [view,           setView]           = useState('kanban')

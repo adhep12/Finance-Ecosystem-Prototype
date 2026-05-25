@@ -103,3 +103,8 @@ export function useTeam() {
   if (!ctx) throw new Error('useTeam must be used within TeamProvider')
   return ctx
 }
+
+// Safe version — returns null when called outside a TeamProvider (e.g. MasterDashboard)
+export function useTeamOptional() {
+  return useContext(TeamContext)
+}

@@ -204,19 +204,26 @@ export function AppProvider({ children }) {
         page++
       }
 
+      // Set actuals FIRST — dashboards can render even if v_org_summary is slow/down
+      setActuals(mapActuals(txRows))
+
+      // v_org_summary is a separate, non-fatal query.
+      // If it times out, budget data is empty but actuals (PnL) still show.
       const { data: summaryRows, error: sumErr } = await supabase
         .from('v_org_summary').select('*').eq('org_id', resolvedOrgId)
 
-      if (sumErr) throw sumErr
+      if (sumErr) {
+        console.warn('[AppContext] v_org_summary failed (budget data will be empty):', sumErr.message)
+        setOrgSummary([])
+        setBudgetFlat([])
+      } else {
+        // Store the raw org summary for components that need it
+        setOrgSummary(summaryRows || [])
 
-      setActuals(mapActuals(txRows))
-
-      // Store the raw org summary for components that need it
-      setOrgSummary(summaryRows || [])
-
-      // Map v_org_summary rows into budgetFlat format for calcBudgetByCategory
-      // and filterELTByRange compatibility.
-      setBudgetFlat(mapOrgSummaryToBudget(summaryRows || []))
+        // Map v_org_summary rows into budgetFlat format for calcBudgetByCategory
+        // and filterELTByRange compatibility.
+        setBudgetFlat(mapOrgSummaryToBudget(summaryRows || []))
+      }
 
     } catch (err) {
       console.error('[AppContext] DB load error:', err)
