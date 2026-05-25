@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -11,7 +12,7 @@ import {
   BarChart2, Activity, Filter, Search, Check, Settings,
   Building2, Calendar, Download, GripVertical, RotateCcw,
   Ban, Eye, EyeOff, ArrowUp, ArrowDown, CheckSquare, Square,
-  Layers, FileText, Clock, ChevronUp,
+  Layers, FileText, Clock, ChevronUp, ArrowUpDown, ExternalLink,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'
@@ -2255,88 +2256,302 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Teams Tab — team spend overview
+// Teams Tab — clean 8-team table with hover preview + TeamSpend chart
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TeamsTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
-  const { deptNames } = useApp()
+function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
+  const navigate = useNavigate()
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
 
-  // Team totals
-  const allDeptCodes = useMemo(()=>[...new Set(actuals.map(t=>t.department).filter(Boolean))].sort(),[actuals])
-  const displayDepts = activeDepts ? [...activeDepts] : allDeptCodes
+  const [sortCol, setSortCol] = useState('actual')
+  const [sortDir, setSortDir] = useState('desc')
+  const [hoverTeam, setHoverTeam] = useState(null)
+  const [hoverPos,  setHoverPos]  = useState({ x:0, y:0 })
+  const [managers,  setManagers]  = useState({})  // team_id → manager name
 
-  const teamStats = useMemo(()=>displayDepts.map(code=>{
-    const dActuals = actuals.filter(t=>{
-      const p=t.period||(t.date?t.date.slice(0,7):null)
-      return p&&p>=startP&&p<=endP&&t.department===code&&t.record_type!=='income'
+  useEffect(() => {
+    supabase.from('teams').select('id, manager_name').eq('org_id', ORG_ID)
+      .then(({ data }) => {
+        const m = {}
+        for (const t of data || []) if (t.manager_name) m[t.id] = t.manager_name
+        setManagers(m)
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Actuals by team ────────────────────────────────────────────────────────
+  const { actualByTeam, idByTeam } = useMemo(() => {
+    const act = {}, ids = {}
+    for (const t of actuals) {
+      const p = t.period||(t.date?t.date.slice(0,7):null)
+      if (!p||p<startP||p>endP||t.record_type==='income'||!t.team_name) continue
+      const name = t.team_name
+      act[name] = (act[name]||0) + Math.abs(t.amount||0)
+      if (t.team_id && !ids[name]) ids[name] = t.team_id
+    }
+    return { actualByTeam: act, idByTeam: ids }
+  }, [actuals, startP, endP])
+
+  // ── Budget by team ─────────────────────────────────────────────────────────
+  const budgetByTeam = useMemo(() => {
+    const m = {}
+    for (const b of budgetFlat) {
+      if (b.scenario!==scenario||b.record_type==='income'||!b.team_name) continue
+      if (!b.period||b.period<startP||b.period>endP) continue
+      m[b.team_name] = (m[b.team_name]||0) + Math.abs(b.amount||0)
+    }
+    return m
+  }, [budgetFlat, scenario, startP, endP])
+
+  // ── Per-team per-category breakdown (for Top Issue + hover) ───────────────
+  const teamCatMap = useMemo(() => {
+    const result = {}
+    for (const t of actuals) {
+      const p = t.period||(t.date?t.date.slice(0,7):null)
+      if (!p||p<startP||p>endP||t.record_type==='income'||!t.team_name) continue
+      const team = t.team_name, cat = t.category||'Other'
+      if (!result[team]) result[team] = {}
+      if (!result[team][cat]) result[team][cat] = { actual:0, budget:0 }
+      result[team][cat].actual += Math.abs(t.amount||0)
+    }
+    for (const b of budgetFlat) {
+      if (b.scenario!==scenario||b.record_type==='income'||!b.team_name) continue
+      if (!b.period||b.period<startP||b.period>endP) continue
+      const team = b.team_name, cat = b.category||'Other'
+      if (!result[team]) result[team] = {}
+      if (!result[team][cat]) result[team][cat] = { actual:0, budget:0 }
+      result[team][cat].budget += Math.abs(b.amount||0)
+    }
+    return result
+  }, [actuals, budgetFlat, scenario, startP, endP])
+
+  // ── Build team rows ────────────────────────────────────────────────────────
+  const teams = useMemo(() => {
+    const allNames = new Set([...Object.keys(actualByTeam), ...Object.keys(budgetByTeam)])
+    return [...allNames].map(name => {
+      const actual   = actualByTeam[name] || 0
+      const budget   = budgetByTeam[name] || 0
+      const variance = actual - budget
+      const varPct   = budget > 0 ? (variance / budget * 100) : null
+      const id       = idByTeam[name] || null
+      const txCount  = actuals.filter(t => {
+        const p = t.period||(t.date?t.date.slice(0,7):null)
+        return p&&p>=startP&&p<=endP&&t.team_name===name&&t.record_type!=='income'
+      }).length
+      // Over-budget categories sorted by % over
+      const catData  = teamCatMap[name] || {}
+      const overCats = Object.entries(catData)
+        .filter(([,d]) => d.budget > 0 && d.actual > d.budget)
+        .map(([cat,d]) => ({ cat, pct:(d.actual-d.budget)/d.budget*100 }))
+        .sort((a,b) => b.pct - a.pct)
+      const topIssue = overCats[0] || null
+      const top3     = overCats.slice(0,3)
+      // Status pill
+      let status
+      if      (budget === 0)    status = 'no-budget'
+      else if (varPct !== null && varPct >= 0) status = 'over'
+      else if (varPct !== null && varPct >= -15) status = 'watch'
+      else                      status = 'on-track'
+      return { name, id, actual, budget, variance, varPct, txCount, topIssue, top3, status }
     })
-    const actual = dActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0)
-    const budget = budgetFlat
-      .filter(b=>b.scenario===scenario&&b.department===code&&b.record_type!=='income'&&b.period>=startP&&b.period<=endP)
-      .reduce((s,b)=>s+(b.amount||0),0)
-    const delta = budget > 0 ? actual - budget : null
-    const pct   = budget > 0 ? Math.round(actual/budget*100) : null
-    const txCount = dActuals.length
-    return { code, actual, budget, delta, pct, txCount }
-  }),[displayDepts,actuals,budgetFlat,scenario,startP,endP])
+  }, [actualByTeam, budgetByTeam, idByTeam, teamCatMap, actuals, startP, endP])
+
+  // ── Summary stats ──────────────────────────────────────────────────────────
+  const totalActual   = teams.reduce((s,t) => s+t.actual,   0)
+  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0)
+  const totalVariance = totalActual - totalBudget
+  const teamsOver     = teams.filter(t => t.status === 'over').length
+
+  // ── Sorted rows ───────────────────────────────────────────────────────────
+  const sorted = useMemo(() => [...teams].sort((a,b) => {
+    if (sortCol === 'name') {
+      return sortDir==='asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
+    }
+    const av = sortCol==='actual'   ? a.actual
+             : sortCol==='budget'   ? a.budget
+             : sortCol==='variance' ? a.variance
+             : sortCol==='varpct'   ? (a.varPct??-999)
+             : a.actual
+    const bv = sortCol==='actual'   ? b.actual
+             : sortCol==='budget'   ? b.budget
+             : sortCol==='variance' ? b.variance
+             : sortCol==='varpct'   ? (b.varPct??-999)
+             : b.actual
+    return sortDir==='asc' ? av-bv : bv-av
+  }), [teams, sortCol, sortDir])
+
+  function toggleSort(col) {
+    if (sortCol===col) setSortDir(d=>d==='asc'?'desc':'asc')
+    else { setSortCol(col); setSortDir('desc') }
+  }
+
+  function SortTh({ col, right, children }) {
+    const active = sortCol === col
+    return (
+      <th onClick={()=>toggleSort(col)}
+        className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none whitespace-nowrap
+          ${right?'text-right':'text-left'} ${active?'text-gray-900':'text-gray-400 hover:text-gray-600'}`}>
+        <span className={`inline-flex items-center gap-1 ${right?'justify-end':''}`}>
+          {children}
+          {active
+            ? (sortDir==='asc' ? <ArrowUp size={9}/> : <ArrowDown size={9}/>)
+            : <ArrowUpDown size={9} className="opacity-30"/>}
+        </span>
+      </th>
+    )
+  }
+
+  function StatusPill({ status }) {
+    if (status==='over')      return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">Over Budget</span>
+    if (status==='watch')     return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">Watch</span>
+    if (status==='on-track')  return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">On Track</span>
+    return <span className="text-[10px] text-gray-400">—</span>
+  }
+
+  // ── Hover tooltip ─────────────────────────────────────────────────────────
+  function HoverCard({ team }) {
+    if (!team) return null
+    const mgr = managers[team.id]
+    return (
+      <div className="fixed z-50 w-64 bg-white rounded-xl shadow-2xl border border-gray-100 p-4 pointer-events-none"
+        style={{ left: hoverPos.x + 20, top: hoverPos.y - 10 }}>
+        <div className="text-sm font-semibold text-gray-900 mb-1">{team.name}</div>
+        {mgr && <div className="text-[10px] text-gray-400 mb-3">{mgr}</div>}
+        <div className="space-y-1 mb-3">
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-500">Actual</span>
+            <span className="font-semibold text-gray-800">{formatCurrency(team.actual,{compact:false})}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-500">Budget</span>
+            <span className="text-gray-400">{team.budget>0?formatCurrency(team.budget,{compact:false}):'—'}</span>
+          </div>
+          {team.variance !== 0 && team.budget > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">Variance</span>
+              <span className={`font-semibold ${team.variance>0?'text-red-600':'text-emerald-600'}`}>
+                {team.variance>0?'+':''}{formatCurrency(team.variance,{compact:false})}
+              </span>
+            </div>
+          )}
+        </div>
+        {team.top3.length > 0 && (
+          <div className="border-t border-gray-100 pt-2 mb-3">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Over-Budget Categories</div>
+            {team.top3.map(({cat,pct}) => (
+              <div key={cat} className="flex justify-between text-[11px] py-0.5">
+                <span className="text-gray-600 truncate">{cat}</span>
+                <span className="text-red-600 font-semibold flex-shrink-0 ml-2">+{pct.toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="text-[10px] text-gray-400 border-t border-gray-100 pt-2">{team.txCount} transactions in period</div>
+        {team.id && (
+          <div className="mt-2 pt-2 border-t border-gray-100">
+            <span className="text-[10px] text-gray-400">Click row to open dashboard →</span>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 overflow-y-auto" style={{backgroundColor:'var(--color-primary-bg)'}}>
-      {/* Team status strip */}
-      <DeptStatusCards actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} activeDepts={activeDepts}/>
 
-      {/* Team cards grid */}
+      {/* ── Summary stats bar ──────────────────────────────────────────── */}
+      <div className="flex gap-4 px-6 py-4 bg-white border-b border-gray-100 overflow-x-auto">
+        {[
+          { label:'Total Actuals', val: formatCurrency(totalActual,{compact:false}), sub: null },
+          { label:'Total Budget',  val: formatCurrency(totalBudget,{compact:false}),  sub: null },
+          { label:'Variance',
+            val: (totalVariance>0?'+':'')+formatCurrency(Math.abs(totalVariance),{compact:false}),
+            sub: totalBudget>0 ? `${(totalVariance/totalBudget*100).toFixed(1)}% of budget` : null,
+            cls: totalVariance>0?'text-red-600':totalVariance<0?'text-emerald-600':'text-gray-900' },
+          { label:'Teams Over Budget', val:`${teamsOver} of ${teams.length}`,
+            sub: teamsOver===0?'All teams within budget':'team'+(teamsOver!==1?'s':'')+' over budget',
+            cls: teamsOver>0?'text-red-600':'text-gray-900' },
+        ].map(s => (
+          <div key={s.label} className="flex-shrink-0 bg-white rounded-xl border border-gray-100 px-4 py-3 min-w-[150px]"
+            style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">{s.label}</div>
+            <div className={`text-sm font-bold tabular-nums ${s.cls||'text-gray-900'}`}>{s.val}</div>
+            {s.sub && <div className="text-[10px] text-gray-400 mt-0.5">{s.sub}</div>}
+          </div>
+        ))}
+      </div>
+
       <div className="p-6 space-y-6">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Team Spend Summary</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {teamStats.map(({ code, actual, budget, delta, pct, txCount })=>{
-            const color = DEPT_COLORS[code] || '#9BA8B5'
-            const isOver = delta !== null && delta > 0
-            return (
-              <div key={code} className="bg-white rounded-2xl border border-gray-100 p-5"
-                style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{backgroundColor:color}}/>
-                    <span className="text-sm font-semibold text-gray-800">{deptNames[code]||code}</span>
-                  </div>
-                  {pct !== null && (
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isOver?'bg-red-50 text-red-700':'bg-emerald-50 text-emerald-700'}`}>
-                      {pct}% used
-                    </span>
-                  )}
-                </div>
-                <div className="text-3xl font-bold text-gray-900 mb-1">{formatCurrency(actual)}</div>
-                {budget > 0 && (
-                  <div className="text-xs text-gray-400 mb-3">of {formatCurrency(budget)} budgeted</div>
-                )}
-                {pct !== null && (
-                  <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3">
-                    <div className="h-1.5 rounded-full transition-all"
-                      style={{width:`${Math.min(pct,100)}%`, backgroundColor:isOver?'#EF4444':color}}/>
-                  </div>
-                )}
-                {delta !== null && (
-                  <div className="flex items-center gap-2">
-                    <TrendBadge
-                      delta={-delta}
-                      label={`${formatCurrency(Math.abs(delta))} ${isOver?'over':'under'}`}/>
-                  </div>
-                )}
-                <div className="text-[10px] text-gray-400 mt-2">{txCount} transactions</div>
-              </div>
-            )
-          })}
+        {/* ── Main table ───────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <SortTh col="name">Team</SortTh>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-gray-400">Manager</th>
+                <SortTh col="actual" right>Actual</SortTh>
+                <SortTh col="budget" right>Budget</SortTh>
+                <SortTh col="variance" right>Variance $</SortTh>
+                <SortTh col="varpct" right>Var %</SortTh>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-gray-400">Status</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest text-gray-400">Top Issue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0 && (
+                <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-400 text-sm">No team data in range</td></tr>
+              )}
+              {sorted.map(team => {
+                const isOver = team.status === 'over'
+                const mgr    = managers[team.id] || null
+                return (
+                  <tr key={team.name}
+                    onClick={() => team.id && navigate(`/team/${team.id}/briefing`)}
+                    onMouseEnter={e => { setHoverTeam(team); setHoverPos({x:e.clientX, y:e.clientY}) }}
+                    onMouseMove={e => setHoverPos({x:e.clientX, y:e.clientY})}
+                    onMouseLeave={() => setHoverTeam(null)}
+                    className={`border-b border-gray-50 transition-colors group ${team.id?'cursor-pointer hover:bg-gray-50':'hover:bg-gray-50/50'}`}>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">{team.name}</div>
+                      {mgr && <div className="text-[10px] text-gray-400 mt-0.5">{mgr}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-400">{mgr || '—'}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-gray-800">{formatCurrency(team.actual,{compact:false})}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-400">{team.budget>0?formatCurrency(team.budget,{compact:false}):'—'}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${team.budget>0?(isOver?'text-red-600':'text-emerald-600'):'text-gray-400'}`}>
+                      {team.budget>0 ? ((team.variance>0?'+':'')+formatCurrency(team.variance,{compact:false})) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {team.varPct !== null
+                        ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${isOver?'bg-red-50 text-red-700':'bg-emerald-50 text-emerald-700'}`}>
+                            {isOver?'+':''}{team.varPct.toFixed(1)}%
+                          </span>
+                        : <span className="text-gray-400 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3"><StatusPill status={team.status}/></td>
+                    <td className="px-4 py-3">
+                      {team.topIssue
+                        ? <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium whitespace-nowrap">
+                            {team.topIssue.cat} +{team.topIssue.pct.toFixed(0)}%
+                          </span>
+                        : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
 
-        {/* Team Spend chart */}
+        {/* ── Team Spend chart (moved from Overview) ───────────────────── */}
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-widest mb-4" style={{color:'var(--neutral-60)'}}>Monthly Team Spend</div>
           <TeamSpendCard actuals={actuals} dateRange={dateRange}/>
         </div>
       </div>
+
+      {/* ── Hover tooltip ────────────────────────────────────────────────── */}
+      <HoverCard team={hoverTeam}/>
     </div>
   )
 }
