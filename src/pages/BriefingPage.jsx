@@ -85,7 +85,7 @@ function ExcludeModal({ allCategories, excluded, onChange, onClose }) {
 function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
   const { orgConfig, selectedScenario, dateRange } = useApp()
   const { team } = useTeam()
-  const displayName = team?.name || orgConfig.teamName
+  const displayName = team?.team_name || orgConfig.teamName
   const [showModal, setShowModal] = useState(false)
 
   const days = dateRange.startDate && dateRange.endDate

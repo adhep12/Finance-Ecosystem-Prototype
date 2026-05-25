@@ -450,7 +450,7 @@ function ListView({ comments, onSelect }) {
 export default function CommentsPage() {
   const { comments, orgConfig, updateComment } = useApp()
   const { team } = useTeam()
-  const teamName = team?.name || orgConfig.teamName
+  const teamName = team?.team_name || orgConfig.teamName
 
   const [view,           setView]           = useState('kanban')
   const [statusFilters,  setStatusFilters]  = useState({ open: true, approved: true, rejected: true, resolved: true })

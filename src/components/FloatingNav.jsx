@@ -59,8 +59,10 @@ export default function FloatingNav() {
 
   // ── Fetch teams from DB; fall back to FALLBACK_TEAMS on error ─────────────
   useEffect(() => {
-    supabase.from('teams').select('id, name').order('name')
-      .then(({ data }) => { if (data?.length) setTeams(data) })
+    supabase.from('teams').select('id, team_name').order('team_name')
+      .then(({ data }) => {
+        if (data?.length) setTeams(data.map(t => ({ id: t.id, name: t.team_name })))
+      })
       .catch(() => { /* keep FALLBACK_TEAMS */ })
   }, [])
 
