@@ -130,9 +130,12 @@ export function AppProvider({ children }) {
     setOrgNotFound(false)
     try {
       // ── Phase 1: resolve org_id from org_settings ─────────────────────────
+      // Order by reserve_floor desc so the "real" configured org (non-zero floor)
+      // wins over test/scratch rows if multiple rows exist.
       const { data: settingsRow, error: settErr } = await supabase
         .from('org_settings')
         .select('*')
+        .order('reserve_floor', { ascending: false })
         .limit(1)
         .single()
 
