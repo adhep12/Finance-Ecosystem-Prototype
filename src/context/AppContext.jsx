@@ -217,27 +217,36 @@ export function AppProvider({ children }) {
       const [
         { data: deptLookup,  error: deptLookupErr  },
         { data: acctLookup,  error: acctLookupErr  },
+        { data: teamLookup,  error: teamLookupErr  },
       ] = await Promise.all([
         // departments: no org_id filter — some rows may lack org_id (created
         // via setup before org_id was enforced). TeamContext uses the same
         // pattern successfully. Scoping by org is implicit via team_id.
+        // Include team_id so budget rows can be labelled with team_name.
         supabase.from('departments')
-          .select('id, dept_code, dept_name'),
+          .select('id, dept_code, dept_name, team_id'),
         supabase.from('chart_of_accounts')
           .select('id, record_type, category')
           .eq('org_id', resolvedOrgId)
           .eq('deleted', false),
+        // teams: needed to resolve team_name on budget rows
+        // (TeamsTab groups budgetFlat by b.team_name — must match actuals)
+        supabase.from('teams')
+          .select('id, team_name'),
       ])
 
       if (deptLookupErr) console.warn('[AppContext] departments lookup error:', deptLookupErr.message)
       if (acctLookupErr) console.warn('[AppContext] chart_of_accounts lookup error:', acctLookupErr.message)
+      if (teamLookupErr) console.warn('[AppContext] teams lookup error:', teamLookupErr.message)
 
-      const deptMap = {}  // department uuid → { dept_code, dept_name }
+      const deptMap = {}  // department uuid → { dept_code, dept_name, team_id }
       for (const d of (deptLookup || [])) deptMap[d.id] = d
       const acctMap = {}  // account uuid → { record_type, category }
       for (const a of (acctLookup || [])) acctMap[a.id] = a
+      const teamMap = {}  // team uuid → team_name
+      for (const t of (teamLookup || [])) teamMap[t.id] = t.team_name
 
-      console.log('[AppContext] dept lookup:', Object.keys(deptMap).length, 'depts | acct lookup:', Object.keys(acctMap).length, 'accounts')
+      console.log('[AppContext] lookups — depts:', Object.keys(deptMap).length, '| accts:', Object.keys(acctMap).length, '| teams:', Object.keys(teamMap).length)
 
       let budgetRows = []
       let bPage = 0
@@ -257,7 +266,7 @@ export function AppProvider({ children }) {
         bPage++
       }
 
-      setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap))
+      setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap))
 
       // v_org_summary was removed — the view times out (complex JOIN, no index)
       // and no component reads orgSummary anyway.  All dashboard widgets derive
@@ -318,16 +327,19 @@ export function AppProvider({ children }) {
   // Map budgets table rows → budgetFlat, resolving dept_code / record_type
   // from pre-fetched lookup maps (departments + chart_of_accounts).
   // Replaces the slow mapBudgetFlat(view) path which timed out at ~5000/16000 rows.
-  function mapBudgetFlatDirect(rows, deptMap, acctMap) {
+  function mapBudgetFlatDirect(rows, deptMap, acctMap, teamMap = {}) {
     return rows.map(row => {
       const dept     = deptMap[row.department_id] || {}
       const acct     = acctMap[row.account_id]    || {}
       const deptCode = dept.dept_code != null ? String(dept.dept_code) : null
+      const teamName = dept.team_id ? (teamMap[dept.team_id] || null) : null
       return {
         ...row,
         dept_code:   deptCode,
         department:  deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
         dept_name:   dept.dept_name || null,
+        team_id:     dept.team_id   || null,
+        team_name:   teamName,           // TeamsTab groups budgetFlat by b.team_name
         record_type: acct.record_type || 'expense',  // income budget rows link to income accounts
         category:    row.category || acct.category || null,
         // 'amount' is the correct column name in the budgets table (no rename needed)
