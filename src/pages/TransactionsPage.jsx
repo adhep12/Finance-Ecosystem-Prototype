@@ -22,6 +22,8 @@ const PIN_TYPES = [
   { type: 'budget-request',       label: 'Budget Request',       color: '#8B5CF6', placeholder: 'Describe the budget request…' },
 ]
 
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +38,12 @@ function fmtAmtCompact(n) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', maximumFractionDigits: 0,
   }).format(n)
+}
+
+function formatPeriod(p) {
+  if (!p) return '—'
+  const [y, m] = p.split('-').map(Number)
+  return `${MONTH_NAMES[m-1]} ${y}`
 }
 
 function downloadCSV(filename, rows2d) {
@@ -73,6 +81,41 @@ function quickPresets() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Cascading filter helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function applyActualsFilters(rows, except, { search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax }) {
+  let r = rows
+  if (except !== 'recordType' && recordType !== 'all') r = r.filter(row => row.record_type === recordType)
+  if (except !== 'search' && search.trim()) {
+    const q = search.trim().toLowerCase()
+    r = r.filter(row => [row.vendor, row.dept_name, row.department, row.category, row.account, row.grant, row.description].some(v => String(v||'').toLowerCase().includes(q)))
+  }
+  if (except !== 'dept' && deptFilter.size > 0) r = r.filter(row => deptFilter.has(row.dept_name || row.department))
+  if (except !== 'cat' && catFilter.size > 0) r = r.filter(row => catFilter.has(row.category))
+  if (except !== 'acct' && acctFilter.size > 0) r = r.filter(row => acctFilter.has(row.account))
+  if (except !== 'vendor' && vendorFilter.size > 0) r = r.filter(row => vendorFilter.has(row.vendor || ''))
+  if (except !== 'grant' && grantFilter.size > 0) r = r.filter(row => grantFilter.has(row.grant || 'No grant (N/A)'))
+  if (except !== 'amt') {
+    if (amtMin !== '') r = r.filter(row => Math.abs(row.amount||0) >= parseFloat(amtMin))
+    if (amtMax !== '') r = r.filter(row => Math.abs(row.amount||0) <= parseFloat(amtMax))
+  }
+  return r
+}
+
+function applyBudgetFilters(rows, except, { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }) {
+  let r = rows
+  if (except !== 'period') {
+    if (budgetStartPeriod) r = r.filter(b => b.period >= budgetStartPeriod)
+    if (budgetEndPeriod)   r = r.filter(b => b.period <= budgetEndPeriod)
+  }
+  if (except !== 'dept' && budgetDeptFilter.size > 0) r = r.filter(b => budgetDeptFilter.has(b.dept_name || b.department))
+  if (except !== 'cat' && budgetCatFilter.size > 0)   r = r.filter(b => budgetCatFilter.has(b.category))
+  if (except !== 'scenario' && budgetScenarioFilter.size > 0) r = r.filter(b => budgetScenarioFilter.has(b.scenario))
+  return r
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MultiCheckFilter
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -97,12 +140,14 @@ function MultiCheckFilter({ label, options, selected, onToggle, onClear }) {
       </button>
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 min-w-[180px] max-h-64 overflow-y-auto">
-          {activeCount > 0 && (
-            <button onClick={() => { onClear(); setOpen(false) }}
-              className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 border-b border-gray-100 font-medium">
-              Clear all ({activeCount})
-            </button>
-          )}
+          {/* Header row: All / Clear */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100">
+            <button onClick={() => { onClear() }} className="text-xs text-teal-600 hover:underline font-medium">All</button>
+            {activeCount > 0 && <>
+              <span className="text-gray-300 text-xs">·</span>
+              <button onClick={() => { onClear(); setOpen(false) }} className="text-xs text-red-500 hover:underline">Clear ({activeCount})</button>
+            </>}
+          </div>
           {options.map(o => (
             <button key={o.value} onClick={() => onToggle(o.value)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
@@ -120,10 +165,10 @@ function MultiCheckFilter({ label, options, selected, onToggle, onClear }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AmountRangeFilter
+// AmountRangeFilter with presets + mini histogram
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
+function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear, baseAmounts = [] }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -132,6 +177,22 @@ function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
     return () => document.removeEventListener('mousedown', h)
   }, [])
   const active = amtMin !== '' || amtMax !== ''
+
+  const presets = [
+    { label: 'Under $1K',   min: '',     max: '1000'  },
+    { label: '$1K – $10K',  min: '1000', max: '10000' },
+    { label: 'Over $10K',   min: '10000',max: ''      },
+    { label: 'Over $50K',   min: '50000',max: ''      },
+  ]
+  const BUCKETS = [
+    { label: '<$1K',      min: 0,     max: 1000      },
+    { label: '$1K-$10K',  min: 1000,  max: 10000     },
+    { label: '$10K-$50K', min: 10000, max: 50000     },
+    { label: '>$50K',     min: 50000, max: Infinity   },
+  ]
+  const counts = BUCKETS.map(b => baseAmounts.filter(a => a >= b.min && a < b.max).length)
+  const maxCount = Math.max(...counts, 1)
+
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(p => !p)}
@@ -141,8 +202,34 @@ function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
         <ChevronDown size={10}/>
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-52">
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-56">
           <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Amount Range</div>
+
+          {/* Mini histogram */}
+          {baseAmounts.length > 0 && (
+            <div className="flex items-end gap-1 mb-3 h-10">
+              {BUCKETS.map((b, i) => (
+                <div key={b.label} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-teal-100 rounded-sm transition-all"
+                    style={{ height: `${(counts[i] / maxCount) * 32}px`, minHeight: counts[i] > 0 ? 2 : 0 }}/>
+                  <span className="text-[8px] text-gray-400 leading-none">{b.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Preset buttons */}
+          <div className="flex flex-wrap gap-1 mb-2">
+            {presets.map(p => (
+              <button key={p.label}
+                onClick={() => { onMin(p.min); onMax(p.max) }}
+                className="px-2 py-0.5 text-[10px] border border-gray-200 rounded-full text-gray-500 hover:bg-gray-100 transition-colors whitespace-nowrap">
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Min/Max inputs */}
           <div className="flex gap-2 items-center">
             <input type="number" placeholder="Min" value={amtMin}
               onChange={e => onMin(e.target.value)}
@@ -277,8 +364,8 @@ function TxCommentModal({ transaction: t, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
-  const { comments, dateRange } = useApp()
-  const { teamActuals: actuals } = useTeam()
+  const { comments, dateRange, deptNames } = useApp()
+  const { teamActuals: actuals, teamBudget } = useTeam()
 
   // ── Date range — default to global fiscal year range from AppContext ──
   const today = new Date().toISOString().slice(0, 10)
@@ -286,23 +373,38 @@ export default function TransactionsPage() {
   const [startDate, setStartDate] = useState(dateRange?.startDate || yearStart)
   const [endDate,   setEndDate]   = useState(dateRange?.endDate   || today)
 
-  // ── Filters ──
+  // ── View mode: actuals | budget ──
+  const [viewMode, setViewMode] = useState('actuals')
+
+  // ── Actuals filters ──
   const [search,       setSearch]       = useState('')
   const [recordType,   setRecordType]   = useState('all')
   const [deptFilter,   setDeptFilter]   = useState(new Set())
   const [catFilter,    setCatFilter]    = useState(new Set())
   const [acctFilter,   setAcctFilter]   = useState(new Set())
-  const [vendorFilter, setVendorFilter] = useState('')        // text search for vendor
-  const [grantFilter,  setGrantFilter]  = useState(new Set()) // multiselect for grant
+  const [vendorFilter, setVendorFilter] = useState(new Set())  // multiselect Set
+  const [grantFilter,  setGrantFilter]  = useState(new Set())
   const [amtMin,       setAmtMin]       = useState('')
   const [amtMax,       setAmtMax]       = useState('')
 
-  // ── Sort ──
+  // ── Budget filters ──
+  const [budgetDeptFilter,     setBudgetDeptFilter]     = useState(new Set())
+  const [budgetCatFilter,      setBudgetCatFilter]      = useState(new Set())
+  const [budgetScenarioFilter, setBudgetScenarioFilter] = useState(new Set())
+  const [budgetStartPeriod,    setBudgetStartPeriod]    = useState(dateRange?.startDate?.substring(0,7) || '')
+  const [budgetEndPeriod,      setBudgetEndPeriod]      = useState(dateRange?.endDate?.substring(0,7)   || '')
+
+  // ── Budget sort ──
+  const [budgetSortCol, setBudgetSortCol] = useState('period')
+  const [budgetSortDir, setBudgetSortDir] = useState('asc')
+
+  // ── Actuals sort ──
   const [sortCol, setSortCol] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
 
   // ── Pagination ──
   const [page, setPage] = useState(1)
+  const [budgetPage, setBudgetPage] = useState(1)
 
   // ── Modal ──
   const [selectedTx, setSelectedTx] = useState(null)
@@ -313,67 +415,72 @@ export default function TransactionsPage() {
     setPage(1)
   }
 
-  // ── Derived filter options from actuals ──
-  const deptOptions = useMemo(() => {
-    const seen = new Map()
-    for (const r of actuals) {
-      const name = r.dept_name || r.department
-      if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
-    }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [actuals])
-
-  const catOptions = useMemo(() => {
-    const seen = new Set()
-    for (const r of actuals) if (r.category) seen.add(r.category)
-    return [...seen].sort().map(c => ({ value: c, label: c }))
-  }, [actuals])
-
-  const acctOptions = useMemo(() => {
-    const seen = new Map()
-    for (const r of actuals) {
-      const name = r.account
-      if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
-    }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [actuals])
-
-  const grantOptions = useMemo(() => {
-    const seen = new Set()
-    for (const r of actuals) seen.add(r.grant || 'No grant (N/A)')
-    return [...seen].sort().map(g => ({ value: g, label: g }))
-  }, [actuals])
+  function toggleBudgetSort(col) {
+    if (budgetSortCol === col) setBudgetSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setBudgetSortCol(col); setBudgetSortDir(col === 'amount' ? 'desc' : 'asc') }
+    setBudgetPage(1)
+  }
 
   // ── In-range rows (date filter applied first) ──
   const inRange = useMemo(() =>
     actuals.filter(r => (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate))
   , [actuals, startDate, endDate])
 
-  // ── Filtered + sorted rows ──
+  // Build filter state object for helpers
+  const actualsFilterState = { search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax }
+  const budgetFilterState  = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
+
+  // ── Dynamic cascade options — each computed from all OTHER active filters ──
+
+  const deptOptions = useMemo(() => {
+    const pool = applyActualsFilters(inRange, 'dept', actualsFilterState)
+    const seen = new Map()
+    for (const r of pool) {
+      const name = r.dept_name || r.department
+      if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [inRange, search, recordType, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax])
+
+  const catOptions = useMemo(() => {
+    const pool = applyActualsFilters(inRange, 'cat', actualsFilterState)
+    const seen = new Set()
+    for (const r of pool) if (r.category) seen.add(r.category)
+    return [...seen].sort().map(c => ({ value: c, label: c }))
+  }, [inRange, search, recordType, deptFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax])
+
+  const acctOptions = useMemo(() => {
+    const pool = applyActualsFilters(inRange, 'acct', actualsFilterState)
+    const seen = new Map()
+    for (const r of pool) {
+      const name = r.account
+      if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [inRange, search, recordType, deptFilter, catFilter, vendorFilter, grantFilter, amtMin, amtMax])
+
+  const vendorOptions = useMemo(() => {
+    const pool = applyActualsFilters(inRange, 'vendor', actualsFilterState)
+    const seen = new Set()
+    for (const r of pool) if (r.vendor) seen.add(r.vendor)
+    return [...seen].sort().map(v => ({ value: v, label: v }))
+  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, amtMin, amtMax])
+
+  const grantOptions = useMemo(() => {
+    const pool = applyActualsFilters(inRange, 'grant', actualsFilterState)
+    const seen = new Set()
+    for (const r of pool) seen.add(r.grant || 'No grant (N/A)')
+    return [...seen].sort().map(g => ({ value: g, label: g }))
+  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, amtMin, amtMax])
+
+  // Base amounts for histogram (all filters except amount applied)
+  const baseAmounts = useMemo(() =>
+    applyActualsFilters(inRange, 'amt', actualsFilterState).map(r => Math.abs(r.amount||0))
+  , [inRange, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter])
+
+  // ── Filtered + sorted actuals rows ──
   const filtered = useMemo(() => {
-    let rows = inRange
-
-    if (recordType !== 'all') rows = rows.filter(r => r.record_type === recordType)
-
-    const q = search.trim().toLowerCase()
-    if (q) rows = rows.filter(r =>
-      [r.vendor, r.dept_name, r.department, r.category, r.account, r.grant, r.description]
-        .some(v => String(v || '').toLowerCase().includes(q))
-    )
-
-    if (deptFilter.size > 0)  rows = rows.filter(r => deptFilter.has(r.dept_name || r.department))
-    if (catFilter.size > 0)   rows = rows.filter(r => catFilter.has(r.category))
-    if (acctFilter.size > 0)  rows = rows.filter(r => acctFilter.has(r.account))
-    if (amtMin !== '')        rows = rows.filter(r => Math.abs(r.amount || 0) >= parseFloat(amtMin))
-    if (amtMax !== '')        rows = rows.filter(r => Math.abs(r.amount || 0) <= parseFloat(amtMax))
-
-    if (vendorFilter.trim()) {
-      const vq = vendorFilter.trim().toLowerCase()
-      rows = rows.filter(r => (r.vendor || '').toLowerCase().includes(vq))
-    }
-    if (grantFilter.size > 0) {
-      rows = rows.filter(r => grantFilter.has(r.grant || 'No grant (N/A)'))
-    }
+    let rows = applyActualsFilters(inRange, null, actualsFilterState)
 
     rows = [...rows].sort((a, b) => {
       let av, bv
@@ -390,6 +497,49 @@ export default function TransactionsPage() {
 
   const filteredTotal = useMemo(() => filtered.reduce((s, r) => s + Math.abs(r.amount || 0), 0), [filtered])
 
+  // ── Budget cascade options ──
+  const budgetDeptOptions = useMemo(() => {
+    const pool = applyBudgetFilters(teamBudget, 'dept', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) {
+      const name = b.dept_name || b.department
+      if (name) seen.add(name)
+    }
+    return [...seen].sort().map(n => ({ value: n, label: n }))
+  }, [teamBudget, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+
+  const budgetCatOptions = useMemo(() => {
+    const pool = applyBudgetFilters(teamBudget, 'cat', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) if (b.category) seen.add(b.category)
+    return [...seen].sort().map(c => ({ value: c, label: c }))
+  }, [teamBudget, budgetDeptFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+
+  const budgetScenarioOptions = useMemo(() => {
+    const pool = applyBudgetFilters(teamBudget, 'scenario', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) if (b.scenario) seen.add(b.scenario)
+    return [...seen].sort().map(s => ({ value: s, label: s }))
+  }, [teamBudget, budgetDeptFilter, budgetCatFilter, budgetStartPeriod, budgetEndPeriod])
+
+  // ── Filtered budget rows ──
+  const filteredBudget = useMemo(() => {
+    let rows = applyBudgetFilters(teamBudget, null, budgetFilterState)
+
+    rows = [...rows].sort((a, b) => {
+      let av, bv
+      if (budgetSortCol === 'period')   { av = a.period||''; bv = b.period||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'dept')     { av = a.dept_name||a.department||''; bv = b.dept_name||b.department||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'cat')      { av = a.category||''; bv = b.category||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'scenario') { av = a.scenario||''; bv = b.scenario||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'amount')   { av = a.amount||0; bv = b.amount||0; return budgetSortDir==='asc'?av-bv:bv-av }
+      return 0
+    })
+    return rows
+  }, [teamBudget, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
+
+  const filteredBudgetTotal = useMemo(() => filteredBudget.reduce((s, b) => s + (b.amount||0), 0), [filteredBudget])
+
   // ── Active filter count ──
   function activeFilterCount() {
     return [
@@ -398,7 +548,7 @@ export default function TransactionsPage() {
       deptFilter.size,
       catFilter.size,
       acctFilter.size,
-      vendorFilter.trim() ? 1 : 0,
+      vendorFilter.size,
       grantFilter.size,
       amtMin !== '' || amtMax !== '' ? 1 : 0,
     ].reduce((a, b) => a + b, 0)
@@ -407,9 +557,16 @@ export default function TransactionsPage() {
   function clearAllFilters() {
     setSearch(''); setRecordType('all')
     setDeptFilter(new Set()); setCatFilter(new Set()); setAcctFilter(new Set())
-    setVendorFilter(''); setGrantFilter(new Set())
+    setVendorFilter(new Set()); setGrantFilter(new Set())
     setAmtMin(''); setAmtMax('')
     setPage(1)
+  }
+
+  function clearAllBudgetFilters() {
+    setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set()); setBudgetScenarioFilter(new Set())
+    setBudgetStartPeriod(dateRange?.startDate?.substring(0,7) || '')
+    setBudgetEndPeriod(dateRange?.endDate?.substring(0,7) || '')
+    setBudgetPage(1)
   }
 
   // ── Comments index ──
@@ -429,10 +586,20 @@ export default function TransactionsPage() {
   function txKey(row) { return `${row.date}|${row.vendor}|${row.amount}` }
   function txComments(row) { return txCommentMap.get(txKey(row)) || [] }
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages       = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageRows         = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const budgetTotalPages = Math.max(1, Math.ceil(filteredBudget.length / PAGE_SIZE))
+  const budgetPageRows   = filteredBudget.slice((budgetPage - 1) * PAGE_SIZE, budgetPage * PAGE_SIZE)
 
   function handleExport() {
+    if (viewMode === 'budget') {
+      const keys = ['period', 'department', 'category', 'scenario', 'amount', 'period_type']
+      downloadCSV('budget-export.csv', [
+        keys,
+        ...filteredBudget.map(r => keys.map(k => r[k] ?? '')),
+      ])
+      return
+    }
     const keys = ['date', 'dept_name', 'category', 'account', 'grant', 'vendor', 'amount', 'description']
     downloadCSV('transactions-export.csv', [
       keys,
@@ -441,6 +608,9 @@ export default function TransactionsPage() {
   }
 
   const shProps = { sortCol, sortDir, onSort: (col) => { toggleSort(col); setPage(1) } }
+
+  const budgetActiveFx = (budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) +
+    (budgetStartPeriod ? 1 : 0) + (budgetEndPeriod ? 1 : 0)
 
   return (
     <>
@@ -451,34 +621,64 @@ export default function TransactionsPage() {
         <div>
           <div className="text-xs font-bold uppercase tracking-widest text-teal-600 mb-1">Raw Data</div>
           <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
-          <p className="text-sm text-gray-500 mt-1">All actuals for this team. Click any row to leave a comment.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {viewMode === 'budget'
+              ? 'Budget line items for this team. Switch to Actuals to see transactions.'
+              : 'All actuals for this team. Click any row to leave a comment.'}
+          </p>
         </div>
         <button onClick={handleExport}
           className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-sm">
-          <FileDown size={14}/> Export{activeFilterCount() > 0 ? ' filtered' : ' all'}
+          <FileDown size={14}/> Export{viewMode === 'actuals' && activeFilterCount() > 0 ? ' filtered' : viewMode === 'budget' ? ' budget' : ' all'}
         </button>
       </div>
 
       <div className="bg-white rounded-2xl overflow-hidden shadow-sm mx-6 mb-6 flex flex-col">
 
-        {/* ── Toolbar row 1: date range + presets + record type ── */}
+        {/* ── Toolbar row 1: date range + presets + record type + view mode ── */}
         <div className="flex items-center gap-2 flex-wrap px-5 py-3 border-b border-gray-100 bg-gray-50">
-          <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(1) }}
-            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-          <span className="text-xs text-gray-400">to</span>
-          <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(1) }}
-            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-          {quickPresets().map(p => (
-            <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end); setPage(1) }}
-              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
-              {p.label}
-            </button>
-          ))}
-          <div className="w-px h-5 bg-gray-200"/>
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-            {[['all','All'],['expense','Expense'],['income','Income']].map(([val, lbl]) => (
-              <button key={val} onClick={() => { setRecordType(val); setPage(1) }}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+          {viewMode === 'actuals' ? (
+            <>
+              <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(1) }}
+                className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+              <span className="text-xs text-gray-400">to</span>
+              <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(1) }}
+                className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+              {quickPresets().map(p => (
+                <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end); setPage(1) }}
+                  className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
+                  {p.label}
+                </button>
+              ))}
+              <div className="w-px h-5 bg-gray-200"/>
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                {[['all','All'],['expense','Expense'],['income','Income']].map(([val, lbl]) => (
+                  <button key={val} onClick={() => { setRecordType(val); setPage(1) }}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            /* Budget period range (month inputs) */
+            <>
+              <span className="text-xs text-gray-500 font-medium">Period:</span>
+              <input type="month" value={budgetStartPeriod} onChange={e => { setBudgetStartPeriod(e.target.value); setBudgetPage(1) }}
+                className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+              <span className="text-xs text-gray-400">to</span>
+              <input type="month" value={budgetEndPeriod} onChange={e => { setBudgetEndPeriod(e.target.value); setBudgetPage(1) }}
+                className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+            </>
+          )}
+
+          {/* Actuals / Budget view toggle — right side of toolbar row 1 */}
+          <div className="ml-auto flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
+            {[['actuals','Actuals'],['budget','Budget']].map(([id, lbl]) => (
+              <button key={id} onClick={() => setViewMode(id)}
+                className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                  viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>
                 {lbl}
               </button>
             ))}
@@ -486,178 +686,269 @@ export default function TransactionsPage() {
         </div>
 
         {/* ── Toolbar row 2: search + column filters ── */}
-        <div className="flex items-center gap-2 flex-wrap px-5 py-2.5 border-b border-gray-200 bg-white">
-          <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
-          {/* Global search */}
-          <div className="relative min-w-[180px]">
-            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search…"
-              className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
-          </div>
-          {/* Department */}
-          <MultiCheckFilter label="Department" options={deptOptions} selected={deptFilter}
-            onToggle={v => { setDeptFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
-            onClear={() => { setDeptFilter(new Set()); setPage(1) }}/>
-          {/* Category */}
-          <MultiCheckFilter label="Category" options={catOptions} selected={catFilter}
-            onToggle={v => { setCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
-            onClear={() => { setCatFilter(new Set()); setPage(1) }}/>
-          {/* Account */}
-          <MultiCheckFilter label="Account" options={acctOptions} selected={acctFilter}
-            onToggle={v => { setAcctFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
-            onClear={() => { setAcctFilter(new Set()); setPage(1) }}/>
-          {/* Vendor — text search, filters as you type */}
-          <div className="relative min-w-[130px]">
-            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
-            <input
-              value={vendorFilter}
-              onChange={e => { setVendorFilter(e.target.value); setPage(1) }}
-              placeholder="Vendor…"
-              className={`w-full pl-7 pr-6 py-1.5 text-xs rounded-lg border focus:outline-none focus:ring-1 focus:ring-teal-400 transition-colors ${
-                vendorFilter.trim() ? 'bg-gray-900 text-white border-gray-900 placeholder-gray-400' : 'border-gray-200 text-gray-500'
-              }`}
-            />
-            {vendorFilter && (
-              <button
-                onClick={() => { setVendorFilter(''); setPage(1) }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
-              >
-                <X size={10}/>
-              </button>
+        {viewMode === 'actuals' ? (
+          <div className="flex items-center gap-2 flex-wrap px-5 py-2.5 border-b border-gray-200 bg-white">
+            <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+            {/* Global search */}
+            <div className="relative min-w-[180px]">
+              <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search…"
+                className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
+            </div>
+            {/* Department */}
+            <MultiCheckFilter label="Department" options={deptOptions} selected={deptFilter}
+              onToggle={v => { setDeptFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+              onClear={() => { setDeptFilter(new Set()); setPage(1) }}/>
+            {/* Category */}
+            <MultiCheckFilter label="Category" options={catOptions} selected={catFilter}
+              onToggle={v => { setCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+              onClear={() => { setCatFilter(new Set()); setPage(1) }}/>
+            {/* Account */}
+            <MultiCheckFilter label="Account" options={acctOptions} selected={acctFilter}
+              onToggle={v => { setAcctFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+              onClear={() => { setAcctFilter(new Set()); setPage(1) }}/>
+            {/* Vendor — now multiselect dropdown */}
+            <MultiCheckFilter label="Vendor" options={vendorOptions} selected={vendorFilter}
+              onToggle={v => { setVendorFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+              onClear={() => { setVendorFilter(new Set()); setPage(1) }}/>
+            {/* Grant — multiselect including "No grant (N/A)" */}
+            <MultiCheckFilter label="Grant" options={grantOptions} selected={grantFilter}
+              onToggle={v => { setGrantFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+              onClear={() => { setGrantFilter(new Set()); setPage(1) }}/>
+            {/* Amount range */}
+            <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
+              onMin={v => { setAmtMin(v); setPage(1) }}
+              onMax={v => { setAmtMax(v); setPage(1) }}
+              onClear={() => { setAmtMin(''); setAmtMax(''); setPage(1) }}
+              baseAmounts={baseAmounts}/>
+            {/* Filter badge + clear */}
+            {activeFilterCount() > 0 && (
+              <>
+                <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+                  {activeFilterCount()} filter{activeFilterCount() !== 1 ? 's' : ''}
+                </span>
+                <button onClick={clearAllFilters} className="text-xs text-red-600 hover:underline font-medium">
+                  Clear all
+                </button>
+              </>
             )}
           </div>
-          {/* Grant — multiselect including "No grant (N/A)" */}
-          <MultiCheckFilter label="Grant" options={grantOptions} selected={grantFilter}
-            onToggle={v => { setGrantFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
-            onClear={() => { setGrantFilter(new Set()); setPage(1) }}/>
-          {/* Amount range */}
-          <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
-            onMin={v => { setAmtMin(v); setPage(1) }}
-            onMax={v => { setAmtMax(v); setPage(1) }}
-            onClear={() => { setAmtMin(''); setAmtMax(''); setPage(1) }}/>
-          {/* Filter badge + clear */}
-          {activeFilterCount() > 0 && (
+        ) : (
+          /* Budget filter row */
+          <div className="flex items-center gap-2 flex-wrap px-5 py-2.5 border-b border-gray-200 bg-white">
+            <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+            <MultiCheckFilter label="Department" options={budgetDeptOptions} selected={budgetDeptFilter}
+              onToggle={v => { setBudgetDeptFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+              onClear={() => { setBudgetDeptFilter(new Set()); setBudgetPage(1) }}/>
+            <MultiCheckFilter label="Category" options={budgetCatOptions} selected={budgetCatFilter}
+              onToggle={v => { setBudgetCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+              onClear={() => { setBudgetCatFilter(new Set()); setBudgetPage(1) }}/>
+            <MultiCheckFilter label="Scenario" options={budgetScenarioOptions} selected={budgetScenarioFilter}
+              onToggle={v => { setBudgetScenarioFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+              onClear={() => { setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}/>
+            {(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) > 0 && (
+              <>
+                <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+                  {budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size} filter{(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) !== 1 ? 's' : ''}
+                </span>
+                <button onClick={clearAllBudgetFilters} className="text-xs text-red-600 hover:underline font-medium">
+                  Clear all
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Stats bar ── */}
+        <div className="flex items-center gap-4 px-5 py-2 border-b border-gray-100 text-xs text-gray-400">
+          {viewMode === 'actuals' ? (
             <>
-              <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
-                {activeFilterCount()} filter{activeFilterCount() !== 1 ? 's' : ''}
-              </span>
-              <button onClick={clearAllFilters} className="text-xs text-red-600 hover:underline font-medium">
-                Clear all
-              </button>
+              <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
+              {filtered.length < inRange.length && (
+                <span>of {inRange.length.toLocaleString()} in range</span>
+              )}
+              <span className="font-semibold text-gray-700">{fmtAmtCompact(filteredTotal)}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-gray-600">{filteredBudget.length.toLocaleString()} budget line{filteredBudget.length !== 1 ? 's' : ''}</span>
+              <span className="font-semibold text-gray-700">{fmtAmtCompact(filteredBudgetTotal)} total budgeted</span>
             </>
           )}
         </div>
 
-        {/* ── Stats bar ── */}
-        <div className="flex items-center gap-4 px-5 py-2 border-b border-gray-100 text-xs text-gray-400">
-          <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
-          {filtered.length < inRange.length && (
-            <span>of {inRange.length.toLocaleString()} in range</span>
-          )}
-          <span className="font-semibold text-gray-700">{fmtAmtCompact(filteredTotal)}</span>
-        </div>
-
-        {/* ── Table ── */}
-        <div className="overflow-x-auto flex-1">
-          <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
-            <thead>
-              <tr className="bg-gray-900 text-white select-none">
-                <SH col="date"   {...shProps}>Date</SH>
-                <SH col="dept"   {...shProps}>Department</SH>
-                <SH col="cat"    {...shProps}>Category</SH>
-                <SH col="acct"   {...shProps}>Account</SH>
-                <SH col="vendor" {...shProps}>Vendor</SH>
-                <SH col="amount" right {...shProps}>Amount</SH>
-                <th className="px-2 py-2.5 w-10 bg-gray-900"/>
-              </tr>
-            </thead>
-            <tbody>
-              {pageRows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-gray-400 text-sm">
-                    {activeFilterCount() > 0
-                      ? 'No transactions match your filters.'
-                      : 'No transactions in this date range.'}
-                  </td>
+        {/* ── Table (Actuals) ── */}
+        {viewMode === 'actuals' && (
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
+              <thead>
+                <tr className="bg-gray-900 text-white select-none">
+                  <SH col="date"   {...shProps}>Date</SH>
+                  <SH col="dept"   {...shProps}>Department</SH>
+                  <SH col="cat"    {...shProps}>Category</SH>
+                  <SH col="acct"   {...shProps}>Account</SH>
+                  <SH col="vendor" {...shProps}>Vendor</SH>
+                  <SH col="amount" right {...shProps}>Amount</SH>
+                  <th className="px-2 py-2.5 w-10 bg-gray-900"/>
                 </tr>
-              ) : pageRows.map((row, i) => {
-                const rowComments  = txComments(row)
-                const hasComments  = rowComments.length > 0
-                const commentColor = hasComments
-                  ? (PIN_TYPES.find(p => p.type === rowComments[0].type)?.color || '#6B7280')
-                  : null
-                return (
-                  <tr key={i} onClick={() => setSelectedTx(row)}
-                    className={`border-b border-gray-50 hover:bg-teal-50/40 transition-colors cursor-pointer group ${
-                      i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-                    }`}>
-                    <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {row._warnings?.includes('no_dept') ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-gray-400 text-xs">{row.dept_name || row.department || '—'}</span>
-                          <UnresolvedChip warnType="no_dept"/>
-                        </div>
-                      ) : (
-                        <span className="text-gray-700">{row.dept_name || row.department || '—'}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 max-w-[160px]">
-                      {(row._warnings?.length > 0) ? (
-                        <div className="flex flex-col gap-0.5">
-                          {row.category && <span className="text-gray-600 text-xs truncate">{row.category}</span>}
-                          {(row._warnings || [])
-                            .filter(w => w !== 'no_dept')  // no_dept shown in dept column
-                            .map(w => <UnresolvedChip key={w} warnType={w}/>)
-                          }
-                        </div>
-                      ) : (
-                        <span className="text-gray-700 whitespace-nowrap truncate">{row.category || '—'}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
-                    <td className="px-3 py-2 text-gray-800 max-w-[200px] truncate">{row.vendor || '—'}</td>
-                    <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
-                      {fmtAmt(row.amount)}
-                    </td>
-                    <td className="px-2 py-2 w-10 text-center">
-                      {hasComments ? (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
-                          style={{ backgroundColor: commentColor }}
-                          title={`${rowComments.length} comment${rowComments.length !== 1 ? 's' : ''}`}>
-                          <MessageSquare size={9}/>
-                          {rowComments.length}
-                        </span>
-                      ) : (
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-teal-100 text-teal-400">
-                          <MessageSquare size={12}/>
-                        </span>
-                      )}
+              </thead>
+              <tbody>
+                {pageRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-12 text-center text-gray-400 text-sm">
+                      {activeFilterCount() > 0
+                        ? 'No transactions match your filters.'
+                        : 'No transactions in this date range.'}
                     </td>
                   </tr>
-                )
-              })}
-            </tbody>
+                ) : pageRows.map((row, i) => {
+                  const rowComments  = txComments(row)
+                  const hasComments  = rowComments.length > 0
+                  const commentColor = hasComments
+                    ? (PIN_TYPES.find(p => p.type === rowComments[0].type)?.color || '#6B7280')
+                    : null
+                  return (
+                    <tr key={i} onClick={() => setSelectedTx(row)}
+                      className={`border-b border-gray-50 hover:bg-teal-50/40 transition-colors cursor-pointer group ${
+                        i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+                      }`}>
+                      <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {row._warnings?.includes('no_dept') ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-gray-400 text-xs">{row.dept_name || row.department || '—'}</span>
+                            <UnresolvedChip warnType="no_dept"/>
+                          </div>
+                        ) : (
+                          <span className="text-gray-700">{row.dept_name || row.department || '—'}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 max-w-[160px]">
+                        {(row._warnings?.length > 0) ? (
+                          <div className="flex flex-col gap-0.5">
+                            {row.category && <span className="text-gray-600 text-xs truncate">{row.category}</span>}
+                            {(row._warnings || [])
+                              .filter(w => w !== 'no_dept')
+                              .map(w => <UnresolvedChip key={w} warnType={w}/>)
+                            }
+                          </div>
+                        ) : (
+                          <span className="text-gray-700 whitespace-nowrap truncate">{row.category || '—'}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
+                      <td className="px-3 py-2 text-gray-800 max-w-[200px] truncate">{row.vendor || '—'}</td>
+                      <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
+                        {fmtAmt(row.amount)}
+                      </td>
+                      <td className="px-2 py-2 w-10 text-center">
+                        {hasComments ? (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                            style={{ backgroundColor: commentColor }}
+                            title={`${rowComments.length} comment${rowComments.length !== 1 ? 's' : ''}`}>
+                            <MessageSquare size={9}/>
+                            {rowComments.length}
+                          </span>
+                        ) : (
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-teal-100 text-teal-400">
+                            <MessageSquare size={12}/>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
 
-            {/* Totals footer */}
-            {pageRows.length > 0 && (
-              <tfoot>
-                <tr className="bg-gray-50 border-t-2 border-gray-200">
-                  <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    {activeFilterCount() > 0 ? `Filtered total (${filtered.length} rows)` : `Total (${inRange.length} rows)`}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono font-bold text-gray-900 tabular-nums">
-                    {fmtAmt(filteredTotal)}
-                  </td>
-                  <td/>
+              {/* Totals footer */}
+              {pageRows.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-50 border-t-2 border-gray-200">
+                    <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {activeFilterCount() > 0 ? `Filtered total (${filtered.length} rows)` : `Total (${inRange.length} rows)`}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-bold text-gray-900 tabular-nums">
+                      {fmtAmt(filteredTotal)}
+                    </td>
+                    <td/>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+
+        {/* ── Table (Budget) ── */}
+        {viewMode === 'budget' && (
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-xs border-collapse" style={{ minWidth: 640 }}>
+              <thead>
+                <tr className="bg-gray-900 text-white select-none">
+                  {[
+                    { col: 'period',      label: 'Period'      },
+                    { col: 'dept',        label: 'Department'  },
+                    { col: 'cat',         label: 'Category'    },
+                    { col: 'scenario',    label: 'Scenario'    },
+                    { col: 'amount',      label: 'Amount',      right: true },
+                    { col: 'period_type', label: 'Period Type' },
+                  ].map(({ col, label, right }) => (
+                    <th key={col} onClick={() => { toggleBudgetSort(col); setBudgetPage(1) }}
+                      className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none whitespace-nowrap
+                        ${right ? 'text-right' : 'text-left'} ${budgetSortCol === col ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>
+                      <span className={`inline-flex items-center gap-1 ${right ? 'justify-end' : ''}`}>
+                        {label}
+                        {budgetSortCol === col
+                          ? (budgetSortDir === 'asc' ? <ArrowUp size={8}/> : <ArrowDown size={8}/>)
+                          : <ArrowUpDown size={8} className="opacity-30"/>}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {budgetPageRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">
+                      No budget lines match your filters.
+                    </td>
+                  </tr>
+                ) : budgetPageRows.map((row, i) => (
+                  <tr key={i}
+                    className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
+                    <td className="px-3 py-2 text-gray-700">{row.dept_name || row.department || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{row.category || '—'}</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700">
+                        {row.scenario || '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
+                      {fmtAmt(row.amount || 0)}
+                    </td>
+                    <td className="px-3 py-2 text-gray-500">{row.period_type || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {budgetPageRows.length > 0 && (
+                <tfoot>
+                  <tr className="bg-gray-50 border-t-2 border-gray-200">
+                    <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Total ({filteredBudget.length} lines)
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-bold text-gray-900 tabular-nums">
+                      {fmtAmt(filteredBudgetTotal)}
+                    </td>
+                    <td/>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
 
-        {/* ── Pagination ── */}
-        {totalPages > 1 && (
+        {/* ── Pagination (Actuals) ── */}
+        {viewMode === 'actuals' && totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50">
             <span className="text-xs text-gray-500">
               Page {page} of {totalPages} · rows {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}
@@ -678,6 +969,35 @@ export default function TransactionsPage() {
                 )
               })}
               {[['›', () => setPage(p => Math.min(totalPages, p+1)), page === totalPages], ['»', () => setPage(totalPages), page === totalPages]].map(([l, fn, dis]) => (
+                <button key={l} onClick={fn} disabled={dis}
+                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors">{l}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Pagination (Budget) ── */}
+        {viewMode === 'budget' && budgetTotalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50">
+            <span className="text-xs text-gray-500">
+              Page {budgetPage} of {budgetTotalPages} · rows {((budgetPage - 1) * PAGE_SIZE) + 1}–{Math.min(budgetPage * PAGE_SIZE, filteredBudget.length)}
+            </span>
+            <div className="flex gap-1">
+              {[['«', () => setBudgetPage(1), budgetPage === 1], ['‹', () => setBudgetPage(p => Math.max(1, p-1)), budgetPage === 1]].map(([l, fn, dis]) => (
+                <button key={l} onClick={fn} disabled={dis}
+                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors">{l}</button>
+              ))}
+              {Array.from({ length: Math.min(5, budgetTotalPages) }, (_, i) => {
+                const offset = Math.max(0, Math.min(budgetPage - 3, budgetTotalPages - 5))
+                const p = offset + i + 1
+                return (
+                  <button key={p} onClick={() => setBudgetPage(p)}
+                    className={`px-2.5 py-1 text-xs border rounded-lg transition-colors ${
+                      p === budgetPage ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 hover:bg-gray-100'
+                    }`}>{p}</button>
+                )
+              })}
+              {[['›', () => setBudgetPage(p => Math.min(budgetTotalPages, p+1)), budgetPage === budgetTotalPages], ['»', () => setBudgetPage(budgetTotalPages), budgetPage === budgetTotalPages]].map(([l, fn, dis]) => (
                 <button key={l} onClick={fn} disabled={dis}
                   className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors">{l}</button>
               ))}
