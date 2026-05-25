@@ -59,7 +59,7 @@ export function TeamProvider({ children }) {
         const depts = deptRows || []
         setTeam(teamRow)
         setTeamDepts(depts)
-        setTeamDeptCodes(depts.map(d => d.dept_code).filter(Boolean))
+        setTeamDeptCodes(depts.map(d => d.dept_code != null ? String(d.dept_code) : null).filter(Boolean))
       } catch (err) {
         if (!cancelled) {
           console.error('[TeamContext] load error:', err)

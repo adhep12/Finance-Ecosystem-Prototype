@@ -273,10 +273,16 @@ export function AppProvider({ children }) {
   // before Supabase and use field names like `.department`, `.account`,
   // `.grant`.  The view returns `dept_code`, `account_name`, `grant_code`.
   // We add the aliased fields here so callers don't need to change.
+  //
+  // IMPORTANT: dept_code comes back from PostgreSQL as an integer.
+  // JavaScript object keys are always strings (Object.keys coerces), and
+  // DEPT_COLORS / deptNames lookups all use string keys.  Stringify here
+  // so every downstream === comparison, Set.has(), and object lookup works.
   function mapActuals(rows) {
     return rows.map(row => ({
       ...row,
-      department: row.dept_code,    // filterActualsByRange, groupByField
+      dept_code:  row.dept_code  != null ? String(row.dept_code)  : null,
+      department: row.dept_code  != null ? String(row.dept_code)  : null,
       account:    row.account_name,  // groupByField
       grant:      row.grant_code,    // groupByField
     }))
@@ -288,8 +294,9 @@ export function AppProvider({ children }) {
   function mapBudgetFlat(rows) {
     return rows.map(row => ({
       ...row,
+      dept_code:  row.dept_code != null ? String(row.dept_code) : null,
       amount:     row.budget,       // calcBudgetByCategory sums 'amount'
-      department: row.dept_code,    // per-dept budget filtering
+      department: row.dept_code != null ? String(row.dept_code) : null,
     }))
   }
 
@@ -318,7 +325,8 @@ export function AppProvider({ children }) {
   // ── Derived: dept name map from loaded actuals ────────────────────────────
   const deptNames = useMemo(() =>
     actuals.reduce((map, t) => {
-      if (t.dept_code && t.dept_name) map[t.dept_code] = t.dept_name
+      // dept_code is already stringified by mapActuals; use String() guard anyway
+      if (t.dept_code && t.dept_name) map[String(t.dept_code)] = t.dept_name
       return map
     }, {})
   , [actuals])
