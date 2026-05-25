@@ -188,7 +188,7 @@ export default function FloatingNav() {
                 ${currentPage === 'finance' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}
             >
               <LayoutDashboard size={12} />
-              Finance
+              Admin
               {currentPage === 'finance' && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white/50 flex-shrink-0" />}
             </button>
 

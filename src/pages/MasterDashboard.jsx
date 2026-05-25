@@ -293,7 +293,7 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
           </div>
           <span className="text-sm font-semibold text-gray-800">{orgConfig.name||'Finance'}</span>
           <span className="text-gray-300 text-sm">·</span>
-          <span className="text-sm font-medium text-gray-500">Finance</span>
+          <span className="text-sm font-medium text-gray-500">Admin</span>
         </div>
 
         {/* Center: pill tab navigation */}
