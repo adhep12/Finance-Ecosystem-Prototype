@@ -2954,7 +2954,7 @@ function TeamsTab({ dateRange, activeBudget }) {
     }))
   }, [teamActualMap, teamBudgetMap, teamIdMap])
 
-  const hasUnassigned   = unassignedActual > 0 || unassignedBudget > 0
+  const hasUnassigned   = unassignedActual > 0
   // Totals include unassigned so the page reconciles to real org spend
   const totalActual   = teams.reduce((s,t) => s + t.actual,  0) + unassignedActual
   const totalBudget   = teams.reduce((s,t) => s + t.budget,  0) + unassignedBudget
