@@ -389,7 +389,12 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
       const isDimmed   = hasOpen && g.key !== openAtThis
       const budget     = getBudget(g, field, parentBudget, parentActual)
 
-      result.push({ type: 'group', field, value: g.key, actual: g.total, budget, depth, isExpanded, isDimmed, items: g.items })
+      // budgetIsReal = true when budget comes from actual budgetByCat data (category level),
+      // false when it's a proportional estimate (sub-category levels).
+      // This lets the UI show "No Budget" badge for proportional estimates
+      // instead of repeating the same variance % as the parent row.
+      const budgetIsReal = field === 'category'
+      result.push({ type: 'group', field, value: g.key, actual: g.total, budget, budgetIsReal, depth, isExpanded, isDimmed, items: g.items })
 
       if (isExpanded) {
         process(g.items, depth + 1, budget, g.total)

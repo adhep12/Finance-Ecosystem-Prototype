@@ -437,9 +437,14 @@ function GroupRow({ row, onToggle, onHide }) {
         ) : <span className="text-gray-300">—</span>}
       </div>
 
-      {/* Variance badge */}
+      {/* Variance badge — only show real % when budget comes from actual data (category level).
+           Sub-category rows use proportional estimation which always equals the parent's %,
+           so we show "No Budget" there to avoid the misleading repeated value. */}
       <div className="text-right flex-shrink-0 flex justify-end" style={{ width: 100 }}>
-        <VarianceBadge actual={row.actual} budget={row.budget || null} />
+        <VarianceBadge
+          actual={row.actual}
+          budget={row.budgetIsReal ? (row.budget || null) : null}
+        />
       </div>
     </div>
   )

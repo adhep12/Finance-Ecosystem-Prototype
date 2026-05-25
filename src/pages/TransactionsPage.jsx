@@ -277,23 +277,25 @@ function TxCommentModal({ transaction: t, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
-  const { comments } = useApp()
+  const { comments, dateRange } = useApp()
   const { teamActuals: actuals } = useTeam()
 
-  // ── Date range ──
+  // ── Date range — default to global fiscal year range from AppContext ──
   const today = new Date().toISOString().slice(0, 10)
   const yearStart = `${new Date().getFullYear()}-01-01`
-  const [startDate, setStartDate] = useState(yearStart)
-  const [endDate,   setEndDate]   = useState(today)
+  const [startDate, setStartDate] = useState(dateRange?.startDate || yearStart)
+  const [endDate,   setEndDate]   = useState(dateRange?.endDate   || today)
 
   // ── Filters ──
-  const [search,      setSearch]      = useState('')
-  const [recordType,  setRecordType]  = useState('all')
-  const [deptFilter,  setDeptFilter]  = useState(new Set())
-  const [catFilter,   setCatFilter]   = useState(new Set())
-  const [acctFilter,  setAcctFilter]  = useState(new Set())
-  const [amtMin,      setAmtMin]      = useState('')
-  const [amtMax,      setAmtMax]      = useState('')
+  const [search,       setSearch]       = useState('')
+  const [recordType,   setRecordType]   = useState('all')
+  const [deptFilter,   setDeptFilter]   = useState(new Set())
+  const [catFilter,    setCatFilter]    = useState(new Set())
+  const [acctFilter,   setAcctFilter]   = useState(new Set())
+  const [vendorFilter, setVendorFilter] = useState('')        // text search for vendor
+  const [grantFilter,  setGrantFilter]  = useState(new Set()) // multiselect for grant
+  const [amtMin,       setAmtMin]       = useState('')
+  const [amtMax,       setAmtMax]       = useState('')
 
   // ── Sort ──
   const [sortCol, setSortCol] = useState('date')
@@ -336,6 +338,12 @@ export default function TransactionsPage() {
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
   }, [actuals])
 
+  const grantOptions = useMemo(() => {
+    const seen = new Set()
+    for (const r of actuals) seen.add(r.grant || 'No grant (N/A)')
+    return [...seen].sort().map(g => ({ value: g, label: g }))
+  }, [actuals])
+
   // ── In-range rows (date filter applied first) ──
   const inRange = useMemo(() =>
     actuals.filter(r => (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate))
@@ -359,6 +367,14 @@ export default function TransactionsPage() {
     if (amtMin !== '')        rows = rows.filter(r => Math.abs(r.amount || 0) >= parseFloat(amtMin))
     if (amtMax !== '')        rows = rows.filter(r => Math.abs(r.amount || 0) <= parseFloat(amtMax))
 
+    if (vendorFilter.trim()) {
+      const vq = vendorFilter.trim().toLowerCase()
+      rows = rows.filter(r => (r.vendor || '').toLowerCase().includes(vq))
+    }
+    if (grantFilter.size > 0) {
+      rows = rows.filter(r => grantFilter.has(r.grant || 'No grant (N/A)'))
+    }
+
     rows = [...rows].sort((a, b) => {
       let av, bv
       if (sortCol === 'date')   { av = a.date   || ''; bv = b.date   || ''; return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av) }
@@ -370,7 +386,7 @@ export default function TransactionsPage() {
       return 0
     })
     return rows
-  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, amtMin, amtMax, sortCol, sortDir])
+  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax, sortCol, sortDir])
 
   const filteredTotal = useMemo(() => filtered.reduce((s, r) => s + Math.abs(r.amount || 0), 0), [filtered])
 
@@ -382,6 +398,8 @@ export default function TransactionsPage() {
       deptFilter.size,
       catFilter.size,
       acctFilter.size,
+      vendorFilter.trim() ? 1 : 0,
+      grantFilter.size,
       amtMin !== '' || amtMax !== '' ? 1 : 0,
     ].reduce((a, b) => a + b, 0)
   }
@@ -389,6 +407,7 @@ export default function TransactionsPage() {
   function clearAllFilters() {
     setSearch(''); setRecordType('all')
     setDeptFilter(new Set()); setCatFilter(new Set()); setAcctFilter(new Set())
+    setVendorFilter(''); setGrantFilter(new Set())
     setAmtMin(''); setAmtMax('')
     setPage(1)
   }
@@ -487,6 +506,30 @@ export default function TransactionsPage() {
           <MultiCheckFilter label="Account" options={acctOptions} selected={acctFilter}
             onToggle={v => { setAcctFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
             onClear={() => { setAcctFilter(new Set()); setPage(1) }}/>
+          {/* Vendor — text search, filters as you type */}
+          <div className="relative min-w-[130px]">
+            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+            <input
+              value={vendorFilter}
+              onChange={e => { setVendorFilter(e.target.value); setPage(1) }}
+              placeholder="Vendor…"
+              className={`w-full pl-7 pr-6 py-1.5 text-xs rounded-lg border focus:outline-none focus:ring-1 focus:ring-teal-400 transition-colors ${
+                vendorFilter.trim() ? 'bg-gray-900 text-white border-gray-900 placeholder-gray-400' : 'border-gray-200 text-gray-500'
+              }`}
+            />
+            {vendorFilter && (
+              <button
+                onClick={() => { setVendorFilter(''); setPage(1) }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+              >
+                <X size={10}/>
+              </button>
+            )}
+          </div>
+          {/* Grant — multiselect including "No grant (N/A)" */}
+          <MultiCheckFilter label="Grant" options={grantOptions} selected={grantFilter}
+            onToggle={v => { setGrantFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+            onClear={() => { setGrantFilter(new Set()); setPage(1) }}/>
           {/* Amount range */}
           <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
             onMin={v => { setAmtMin(v); setPage(1) }}
