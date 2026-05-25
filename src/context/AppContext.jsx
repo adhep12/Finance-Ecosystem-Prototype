@@ -250,34 +250,12 @@ export function AppProvider({ children }) {
         bPage++
       }
 
-      {
-        const bySc   = budgetRows.reduce((m, r) => { m[r.scenario] = (m[r.scenario]||0) + 1; return m }, {})
-        const fyRows = budgetRows.filter(r => r.period && r.period >= '2025-10' && r.period <= '2026-09')
-        const fyTotal = fyRows.reduce((s, r) => s + (r.amount || 0), 0)
-        const noAcct  = budgetRows.filter(r => !r.account_id).length
-        console.log('[AppContext] budget loaded:', budgetRows.length, 'rows | by scenario:', bySc)
-        console.log('[AppContext] budget FY Oct25-Sep26 rows:', fyRows.length, '| raw total $:', fyTotal.toLocaleString())
-        console.log('[AppContext] budget rows without account_id:', noAcct, '(these default record_type=expense)')
-        // After mapping, log income vs expense split for FY Budget scenario
-        const mapped = mapBudgetFlatDirect(budgetRows, deptMap, acctMap)
-        const fyMapped = mapped.filter(r => r.scenario === 'Budget' && r.period >= '2025-10' && r.period <= '2026-09')
-        const fyExpense = fyMapped.filter(r => r.record_type !== 'income').reduce((s,r) => s+(r.amount||0), 0)
-        const fyIncome  = fyMapped.filter(r => r.record_type === 'income').reduce((s,r) => s+(r.amount||0), 0)
-        console.log('[AppContext] FY Budget scenario — expense: $' + fyExpense.toLocaleString() + ' | income: $' + fyIncome.toLocaleString())
-        setBudgetFlat(mapped)
-      }
+      setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap))
 
-      // ── Org summary: v_org_summary — used by ELT dashboard ───────────────────
-      // Non-fatal: if it times out, ELT summary widgets show empty but app stays up.
-      const { data: summaryRows, error: sumErr } = await supabase
-        .from('v_org_summary').select('*').eq('org_id', resolvedOrgId)
-
-      if (sumErr) {
-        console.warn('[AppContext] v_org_summary failed (ELT summary will be empty):', sumErr.message)
-        setOrgSummary([])
-      } else {
-        setOrgSummary(summaryRows || [])
-      }
+      // v_org_summary was removed — the view times out (complex JOIN, no index)
+      // and no component reads orgSummary anyway.  All dashboard widgets derive
+      // their data directly from actuals + budgetFlat which are already loaded.
+      setOrgSummary([])
 
     } catch (err) {
       console.error('[AppContext] DB load error:', err)
