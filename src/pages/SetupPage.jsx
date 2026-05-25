@@ -838,11 +838,13 @@ function AccountsRegistry() {
         setCategoryHints(cats.sort())
       })
 
-    // Transaction counts per account_code
-    supabase.from('transactions').select('account_code').eq('org_id', ORG_ID).eq('deleted', false)
+    // Transaction counts per account_id (the FK stored on the transaction row)
+    supabase.from('transactions').select('account_id').eq('org_id', ORG_ID).eq('deleted', false)
       .then(({ data }) => {
         const counts = {}
-        for (const r of (data || [])) counts[r.account_code] = (counts[r.account_code] || 0) + 1
+        for (const r of (data || [])) {
+          if (r.account_id) counts[r.account_id] = (counts[r.account_id] || 0) + 1
+        }
         setTxCounts(counts)
       })
   }, [])
@@ -1026,9 +1028,13 @@ function AccountsRegistry() {
                   </select>
                 </td>
                 <td className="px-3 py-2 text-center">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${txCounts[row.account_code] ? 'bg-teal-50 text-teal-700' : 'text-gray-300'}`}>
-                    {txCounts[row.account_code] || 0}
-                  </span>
+                  {txCounts[row.id]
+                    ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 cursor-default"
+                        title={`${txCounts[row.id]} transaction${txCounts[row.id]!==1?'s':''} linked to this account`}>
+                        {txCounts[row.id]}
+                      </span>
+                    : <span className="text-gray-300 text-xs">0</span>
+                  }
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-1">
