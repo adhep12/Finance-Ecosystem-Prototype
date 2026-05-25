@@ -499,7 +499,7 @@ export default function CommentsPage() {
       {/* Header */}
       <div>
         <div className="text-[10px] font-bold uppercase tracking-widest text-teal-600 mb-1">
-          COMMENTS & REQUESTS · {(teamName || 'Team').toUpperCase()}
+          COMMENTS & REQUESTS · {team ? (teamName || 'Team').toUpperCase() : 'ALL TEAMS'}
         </div>
         <h1 className="text-2xl font-bold text-gray-900">Comments & requests</h1>
         <p className="text-sm text-gray-500">{totalVisible} item{totalVisible !== 1 ? 's' : ''} in view</p>
