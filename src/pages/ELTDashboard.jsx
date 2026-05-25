@@ -8,7 +8,7 @@ import {
   ChevronDown, Pencil, Plus, X, Check, ChevronRight, ChevronLeft,
   ChevronUp, TrendingUp, TrendingDown, Minus, Info, Upload,
   FileText, Users, BarChart2, LayoutDashboard, Settings,
-  GripVertical, AlertCircle, Eye, CheckCircle, Quote,
+  GripVertical, AlertCircle, AlertTriangle, Eye, CheckCircle, Quote,
   ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen,
   Download, Calendar, Trash2
 } from 'lucide-react'
@@ -16,6 +16,7 @@ import { useApp } from '../context/AppContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
+import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -1244,7 +1245,7 @@ function ChartTypeToggle({ type, onChange }) {
 // P&L Table
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date' }) {
+function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date', warnItems = {} }) {
   const [expanded, setExpanded] = useState(new Set())
   function toggle(id) { setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n }) }
 
@@ -1383,6 +1384,12 @@ function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date' }) 
           <tbody>{rows}</tbody>
         </table>
       </div>
+      {/* Unresolved warnings — shown below the P&L table when data issues exist */}
+      {Object.values(warnItems).some(v => (v?.actual || 0) + (v?.budget || 0) > 0) && (
+        <div className="px-6 py-4 border-t border-gray-100">
+          <UnresolvedSection warnMap={warnItems}/>
+        </div>
+      )}
     </div>
   )
 }
@@ -2157,6 +2164,31 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     {id:'net-operating',type:'total',label:'Net Operating Income',actual:netPosition,budget:netForecast,group:'net'},
   ]
 
+  // Unresolved rows — summarise _warnings for the current date range
+  const plWarnItems = useMemo(() => {
+    const startP = (dateRange.startDate || '').substring(0, 7)
+    const endP   = (dateRange.endDate   || '').substring(0, 7)
+    const map = {}
+    for (const t of actuals) {
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!p || p < startP || p > endP) continue
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
+    }
+    for (const b of budgetFlat) {
+      if (b.scenario !== scenario) continue
+      if (!b.period || b.period < startP || b.period > endP) continue
+      for (const w of (b._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, budget: 0, count: 0 }
+        map[w].budget = (map[w].budget || 0) + Math.abs(b.amount || 0)
+      }
+    }
+    return map
+  }, [actuals, budgetFlat, scenario, dateRange])
+
   // Account-level rows for P&L expand — groups actuals by account within each category bucket
   const plAccounts = computePLAccounts(actuals, {
     contributions: d.budget.contributions,
@@ -2325,7 +2357,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel}/></section>
+      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/></section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
@@ -2680,6 +2712,12 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
                   </div>
                 )
               })}
+              {/* Unresolved warnings for this team */}
+              {Object.values(team.warnItems || {}).some(v => (v?.actual || 0) + (v?.budget || 0) > 0) && (
+                <div className="px-2 pt-2">
+                  <UnresolvedSection warnMap={team.warnItems}/>
+                </div>
+              )}
             </div>
 
             {/* ── Right: chart + table + notes ── */}
@@ -3042,6 +3080,23 @@ function TeamsTab({ dateRange, activeBudget }) {
       return { ...row, month: new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'})+' '+y.slice(2) }
     })
 
+    // Warning summary for this team's actuals in range
+    const teamWarnItems = {}
+    for (const t of teamTxs) {
+      for (const w of (t._warnings || [])) {
+        if (!teamWarnItems[w]) teamWarnItems[w] = { actual: 0, count: 0 }
+        teamWarnItems[w].actual += Math.abs(t.amount || 0)
+        teamWarnItems[w].count++
+      }
+    }
+    // Also budget unresolved for this team
+    for (const b of teamBudTxs) {
+      for (const w of (b._warnings || [])) {
+        if (!teamWarnItems[w]) teamWarnItems[w] = { actual: 0, budget: 0, count: 0 }
+        teamWarnItems[w].budget = (teamWarnItems[w].budget || 0) + Math.abs(b.amount || 0)
+      }
+    }
+
     return {
       name:       teamRow.name,
       id:         teamRow.id,
@@ -3052,6 +3107,7 @@ function TeamsTab({ dateRange, activeBudget }) {
       spreadKey:  'flat',
       cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: pyTeamTxs.reduce((s,t)=>s+Math.abs(t.amount||0),0) } },
       realMonthly,
+      warnItems:  teamWarnItems,
     }
   }
 
@@ -3235,18 +3291,32 @@ function TeamsTab({ dateRange, activeBudget }) {
         </table>
       </div>
 
-      {/* Unassigned footnote */}
+      {/* Unassigned footnote — now with actionable warning links */}
       {hasUnassigned && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-4 py-3">
-          <AlertCircle size={14} className="text-amber-500 mt-0.5 flex-shrink-0"/>
-          <div className="text-xs text-amber-700 leading-relaxed">
-            <span className="font-semibold">Why are transactions unassigned?</span> Transactions appear here when:
-            (1) they were imported without a department code,
-            (2) the department exists but hasn't been mapped to a team, or
-            (3) the team was deleted and the cascade set the department's team reference to null.
-            These amounts are included in the totals row so the page reconciles to actual org spend.
-          </div>
-        </div>
+        <UnresolvedSection
+          warnMap={(() => {
+            // Aggregate unassigned actuals by specific warn type
+            const map = {}
+            for (const t of actuals) {
+              if (!t.date || t.date < startDate || t.date > endDate) continue
+              if (t.record_type === 'income') continue
+              if (t.team_name) continue  // assigned — skip
+              for (const w of (t._warnings || [])) {
+                if (!map[w]) map[w] = { actual: 0, count: 0 }
+                map[w].actual += Math.abs(t.amount || 0)
+                map[w].count++
+              }
+              // Fallback: if no _warnings but still unassigned, treat as no_team
+              if (!(t._warnings?.length)) {
+                if (!map.no_team) map.no_team = { actual: 0, count: 0 }
+                map.no_team.actual += Math.abs(t.amount || 0)
+                map.no_team.count++
+              }
+            }
+            return map
+          })()}
+          className="mt-3"
+        />
       )}
 
     </div>

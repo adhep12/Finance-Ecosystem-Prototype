@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -31,6 +31,7 @@ import {
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { supabase, ORG_ID } from '../lib/supabase'
+import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1531,6 +1532,7 @@ function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
   const { deptNames, incomeMonths, orgConfig, comments } = useApp()
+  const navigate = useNavigate()
 
   // Drill order: category is always first (P&L rows are categories)
   const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','grant','vendor'])
@@ -1617,6 +1619,30 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const totalExpBudget   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.budget,0), [expenseGroups])
   const netActual        = totalIncActual - totalExpActual
   const netBudget        = totalIncBudget - totalExpBudget
+
+  // Unresolved rows — actuals with _warnings in range
+  const unresolvedMap = useMemo(() => {
+    const startP = (startDate || '').substring(0, 7)
+    const endP   = (endDate   || '').substring(0, 7)
+    const map = {}
+    for (const t of searched) {
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
+    }
+    // Also surface budget unresolved rows so the admin knows the budget impact
+    for (const b of budgetFlat) {
+      if (b.scenario !== scenario) continue
+      if (!b.period || b.period < startP || b.period > endP) continue
+      for (const w of (b._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, budget: 0, count: 0 }
+        map[w].budget = (map[w].budget || 0) + Math.abs(b.amount || 0)
+      }
+    }
+    return map
+  }, [searched, budgetFlat, scenario, startDate, endDate])
 
   // Sub-drill order (everything below category)
   const subDrillOrder = useMemo(() => drillOrder.filter(f => f !== 'category'), [drillOrder])
@@ -1944,6 +1970,49 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
 
                 {/* ── NET OPERATING INCOME ── */}
                 <PLTotalRow label="Net Operating Income" actual={netActual} budget={netBudget} isNet/>
+
+                {/* ── UNRESOLVED ITEMS ── */}
+                {Object.entries(unresolvedMap).some(([, v]) => (v.actual || 0) + (v.budget || 0) > 0) && (
+                  <>
+                    <tr><td colSpan={5} className="py-1"/></tr>
+                    <tr className="bg-amber-50/80">
+                      <td colSpan={5} className="px-4 py-2">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle size={11} className="text-amber-500"/>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Unresolved Items</span>
+                          <span className="text-[10px] text-amber-400 ml-1">· click any row to fix</span>
+                        </div>
+                      </td>
+                    </tr>
+                    {Object.entries(unresolvedMap).map(([type, vals]) => {
+                      if (!vals || (vals.actual || 0) + (vals.budget || 0) === 0) return null
+                      const cfg = WARN_CONFIG[type]
+                      if (!cfg) return null
+                      const total = (vals.actual || 0) + (vals.budget || 0)
+                      return (
+                        <tr key={type}
+                          onClick={() => navigate(cfg.url)}
+                          className="border-b border-amber-100 bg-amber-50/40 hover:bg-amber-100 cursor-pointer transition-colors group">
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-start gap-2" style={{ paddingLeft: 8 }}>
+                              <AlertTriangle size={12} className="text-amber-500 flex-shrink-0 mt-0.5"/>
+                              <div>
+                                <div className="text-sm font-medium text-amber-800">{cfg.label}</div>
+                                <div className="text-xs text-amber-500 underline group-hover:no-underline">{cfg.action}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-sm font-semibold text-amber-700">
+                            {formatCurrency(total, {compact: false})}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs text-amber-300">—</td>
+                          <td className="px-4 py-2.5 text-right text-xs text-amber-300">—</td>
+                          <td className="px-6 py-2.5 text-right text-xs text-amber-400 font-medium">fix →</td>
+                        </tr>
+                      )
+                    })}
+                  </>
+                )}
               </tbody>
             </table>
           </div>
@@ -2608,8 +2677,24 @@ export default function MasterDashboard(){
   // Load org settings for fiscal year config (used by MasterTransactionsEditor)
   const { settings: orgSettings } = useOrgSettings()
 
+  const location = useLocation()
+
   const [activeTab,   setActiveTab]   = useState('overview')
   const [activeDepts, setActiveDepts] = useState(null) // null = all
+
+  // Deep-link support: /master?tab=setup&setup=accounts navigates directly
+  // to a specific tab (and setup subtab) — used by UnresolvedWarning links.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const tab = params.get('tab')
+    if (tab) setActiveTab(tab)
+  }, [location.search])
+
+  // Extract setup subtab from URL to pass to SetupPage
+  const setupInitialTab = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('setup') || null
+  }, [location.search])
 
   // Local date range (master dashboard has its own, independent of AppContext global)
   const [dateRange, setDateRange] = useState(() => ({
@@ -2662,7 +2747,7 @@ export default function MasterDashboard(){
       {activeTab==='teams'         && <TeamsTab {...tabProps}/>}
       {activeTab==='comments'      && <div className="flex-1"><CommentsPage/></div>}
       {activeTab==='import'        && <MasterImportTab/>}
-      {activeTab==='setup'         && <SetupPage/>}
+      {activeTab==='setup'         && <SetupPage initialTab={setupInitialTab}/>}
     </div>
   )
 }

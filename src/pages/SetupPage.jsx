@@ -1861,8 +1861,13 @@ function FieldMappingsRegistry() {
 // SetupPage — top-level component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function SetupPage() {
-  const [activeTab, setActiveTab] = useState('org')
+export default function SetupPage({ initialTab = null }) {
+  const [activeTab, setActiveTab] = useState(initialTab || 'org')
+
+  // Sync when deep-link changes (e.g. navigating from warning → setup tab)
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab)
+  }, [initialTab])
 
   return (
     <div className="flex flex-col min-h-screen bg-white">

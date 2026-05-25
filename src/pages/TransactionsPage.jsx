@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   ArrowUp, ArrowDown, ArrowUpDown, FileDown, XCircle, Search,
   MessageSquare, X, ChevronDown, Check, SlidersHorizontal,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeam } from '../context/TeamContext'
+import { UnresolvedChip } from '../components/UnresolvedWarning'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -547,8 +549,29 @@ export default function TransactionsPage() {
                       i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     }`}>
                     <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.dept_name || row.department || '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[140px] truncate">{row.category || '—'}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row._warnings?.includes('no_dept') ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-gray-400 text-xs">{row.dept_name || row.department || '—'}</span>
+                          <UnresolvedChip warnType="no_dept"/>
+                        </div>
+                      ) : (
+                        <span className="text-gray-700">{row.dept_name || row.department || '—'}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 max-w-[160px]">
+                      {(row._warnings?.length > 0) ? (
+                        <div className="flex flex-col gap-0.5">
+                          {row.category && <span className="text-gray-600 text-xs truncate">{row.category}</span>}
+                          {(row._warnings || [])
+                            .filter(w => w !== 'no_dept')  // no_dept shown in dept column
+                            .map(w => <UnresolvedChip key={w} warnType={w}/>)
+                          }
+                        </div>
+                      ) : (
+                        <span className="text-gray-700 whitespace-nowrap truncate">{row.category || '—'}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
                     <td className="px-3 py-2 text-gray-800 max-w-[200px] truncate">{row.vendor || '—'}</td>
                     <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
