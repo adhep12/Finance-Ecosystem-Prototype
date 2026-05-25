@@ -406,20 +406,21 @@ export default function PatronImportFlow() {
       const dbRows = validRows.map(({ _rowNum, ...r }) => r)
       const periodsInFile = [...new Set(dbRows.map(r => r.period))]
 
-      // 2. Soft-delete based on mode
+      // 2. Remove existing rows for replace modes.
+      //    Hard-delete (not soft-delete) because patron_data has a unique constraint on
+      //    (org_id, period) — soft-deleting then re-inserting the same period would
+      //    violate that constraint even though deleted=true.
       if (importMode === 'replace_full') {
-        await supabase.from('patron_data')
-          .update({ deleted: true })
+        const { error } = await supabase.from('patron_data')
+          .delete()
           .eq('org_id', ORG_ID)
-          .eq('deleted', false)
+        if (error) throw error
       } else if (importMode === 'replace_period') {
-        for (const period of periodsInFile) {
-          await supabase.from('patron_data')
-            .update({ deleted: true })
-            .eq('org_id', ORG_ID)
-            .eq('period', period)
-            .eq('deleted', false)
-        }
+        const { error } = await supabase.from('patron_data')
+          .delete()
+          .eq('org_id', ORG_ID)
+          .in('period', periodsInFile)
+        if (error) throw error
       } else if (importMode === 'append') {
         // Skip periods that already exist
         const { data: existing } = await supabase.from('patron_data')
