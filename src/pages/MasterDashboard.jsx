@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  ReferenceLine, Cell,
 } from 'recharts'
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
@@ -28,26 +29,17 @@ import {
 } from '../utils/dataProcessing'
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
+import { supabase, ORG_ID } from '../lib/supabase'
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEPT_COLORS  = { '101':'#0EA5A0','102':'#C05A2F','103':'#E8A838' }
+// Colour rotation for team spend stacked bar
+const TEAM_PALETTE = ['#0EA5A0','#C05A2F','#E8A838','#4A2E5A','#6366F1','#10B981','#EC4899','#9BA8B5']
 const FIELD_COLORS = { department:'#0EA5A0', category:'#C05A2F', account:'#E8A838', grant:'#4A2E5A', vendor:'#9BA8B5' }
 const FIELD_LABELS = { department:'Department', category:'Category', account:'Account', grant:'Grant', vendor:'Vendor' }
 const ALL_DRILL_FIELDS = ['department','category','account','grant','vendor']
-
-// Chart preset catalogue
-const CHART_PRESETS = [
-  { id:'monthly-income',   title:'Monthly Income Trend',   type:'area', xKey:'label', yKeys:['contributions','merch','other'],  source:'income',   colors:['#0EA5A0','#C05A2F','#E8A838'], stacked:false },
-  { id:'monthly-expense',  title:'Monthly Expenses',       type:'bar',  xKey:'label', yKeys:['total'],                          source:'expenses', colors:['#C05A2F'],                    stacked:false },
-  { id:'budget-vs-actual', title:'Budget vs Actual',       type:'bar',  xKey:'label', yKeys:['actual','budget'],                source:'bva',      colors:['#0EA5A0','#9BA8B5'],          stacked:false },
-  { id:'dept-breakdown',   title:'Spending by Team',       type:'bar',  xKey:'dept',  yKeys:['amount'],                         source:'dept',     colors:['#0EA5A0'],                    stacked:false },
-  { id:'cat-breakdown',    title:'Spend by Category',      type:'bar',  xKey:'category', yKeys:['amount'],                      source:'category', colors:['#E8A838'],                    stacked:false },
-  { id:'net-position',     title:'Net Position Trend',     type:'line', xKey:'label', yKeys:['net'],                            source:'net',      colors:['#10B981'],                    stacked:false },
-]
-
-const DEFAULT_CHART_IDS = ['monthly-income','monthly-expense','budget-vs-actual','dept-breakdown','cat-breakdown','net-position']
 
 const KPI_DEFS = [
   { id:'total-income',    label:'Total Income',    icon:'TrendingUp',  color:'#0EA5A0' },
@@ -94,138 +86,9 @@ function getIncomeInRange(incomeMonths, startDate, endDate){
   return incomeMonths.filter(m => m.date >= startDate && m.date <= endDate)
 }
 
-// group by YYYY-MM period — uses t.period (from v_transactions_enriched) with
-// fallback to t.date for legacy compat. Skips rows with no period identifier.
-function groupByMonth(actuals){
-  return actuals.reduce((acc,t)=>{
-    const k = t.period || (t.date ? monthKey(t.date) : null)
-    if(!k) return acc
-    acc[k] = (acc[k]||0) + t.amount
-    return acc
-  },{})
-}
-
 function numMonthsInRange(startDate, endDate){
   const s=new Date(startDate), e=new Date(endDate)
   return (e.getFullYear()-s.getFullYear())*12 + (e.getMonth()-s.getMonth()) + 1
-}
-
-/**
- * Build Recharts-ready data array for a chart preset.
- * incomeMonths comes from AppContext — all income charts update on import.
- *
- * Key design:
- *  - inRange = all actuals in date range (income + expenses)
- *  - expRange = expense-only actuals (record_type !== 'income')
- *  - incMonths = income months from context (pre-aggregated by category bucket)
- *  - income source uses incMonths; expense/bva/net sources use expRange so
- *    income amounts are not double-counted in expense figures.
- *  - 'bva' budget: filtered to expense-only scenario rows so the comparison
- *    is expense-actual vs expense-budget (apples to apples).
- */
-function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths){
-  const { startDate, endDate } = dateRange
-  const inRange   = filterActualsByRange(actuals, startDate, endDate)
-  // Expense-only: exclude income rows so expense charts don't double-count
-  const expRange  = inRange.filter(t => t.record_type !== 'income')
-  const incMonths = getIncomeInRange(incomeMonths, startDate, endDate)
-
-  // Helper: monthly key from an incomeMonth entry (m.period is YYYY-MM)
-  const mKey = m => m.period || (m.date ? m.date.slice(0,7) : null)
-
-  if(preset.source==='income'){
-    return incMonths.map(m=>({
-      label: m.label,
-      contributions: Math.round(m.contributions/1000),
-      merch:         Math.round(m.merch/1000),
-      other:         Math.round(m.other/1000),
-    }))
-  }
-  if(preset.source==='expenses'){
-    // Use expense-only actuals; x-axis driven by incMonths so labels align
-    // If no incMonths, fall back to building x-axis from expense months
-    const byMonth = groupByMonth(expRange)
-    if(incMonths.length > 0){
-      return incMonths.map(m=>({
-        label: m.label,
-        total: Math.round((byMonth[mKey(m)]||0)/1000),
-      }))
-    }
-    // Fallback: build from available expense months
-    return Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([ym,amt])=>{
-      const [y,mo]=ym.split('-')
-      const lbl = new Date(parseInt(y),parseInt(mo)-1,1).toLocaleString('en-US',{month:'short'})
-      return { label:lbl, total:Math.round(amt/1000) }
-    })
-  }
-  if(preset.source==='bva'){
-    // Use expense-only actuals vs expense-only budget
-    const byMonth    = groupByMonth(expRange)
-    const budgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income')
-    const budgetByMonth = {}
-    let legacyMonthly = 0
-    for(const b of budgetRows){
-      if(b.period != null) budgetByMonth[b.period] = (budgetByMonth[b.period]||0) + (b.amount||0)
-      else legacyMonthly += (b.monthlyAmount||0)
-    }
-    const hasPeriod = Object.keys(budgetByMonth).length > 0
-    if(incMonths.length > 0){
-      return incMonths.map(m=>({
-        label:  m.label,
-        actual: Math.round((byMonth[mKey(m)]||0)/1000),
-        budget: Math.round((hasPeriod ? (budgetByMonth[mKey(m)]||0) : legacyMonthly)/1000),
-      }))
-    }
-    // Fallback: union of all months in byMonth and budgetByMonth
-    const allMonths = [...new Set([...Object.keys(byMonth),...Object.keys(budgetByMonth)])].sort()
-    return allMonths.map(ym=>{
-      const [y,mo]=ym.split('-')
-      const lbl = new Date(parseInt(y),parseInt(mo)-1,1).toLocaleString('en-US',{month:'short'})
-      return {
-        label: lbl,
-        actual: Math.round((byMonth[ym]||0)/1000),
-        budget: Math.round((hasPeriod ? (budgetByMonth[ym]||0) : legacyMonthly)/1000),
-      }
-    })
-  }
-  if(preset.source==='dept'){
-    // Expense-only dept breakdown
-    const byDept = expRange.reduce((acc,t)=>{
-      if(!t.department) return acc
-      acc[t.department]=(acc[t.department]||0)+t.amount; return acc
-    },{})
-    return Object.entries(byDept).map(([dept,amt])=>({
-      dept, amount: Math.round(amt/1000),
-    })).sort((a,b)=>b.amount-a.amount)
-  }
-  if(preset.source==='category'){
-    // Expense-only category breakdown
-    const byCat = expRange.reduce((acc,t)=>{
-      if(!t.category) return acc
-      acc[t.category]=(acc[t.category]||0)+t.amount; return acc
-    },{})
-    return Object.entries(byCat).map(([cat,amt])=>({
-      category: cat, amount: Math.round(amt/1000),
-    })).sort((a,b)=>b.amount-a.amount)
-  }
-  if(preset.source==='net'){
-    // income (from incMonths) minus expenses (from expRange)
-    const byMonth = groupByMonth(expRange)
-    if(incMonths.length > 0){
-      return incMonths.map(m=>{
-        const income = m.contributions + m.merch + m.other
-        const exp    = byMonth[mKey(m)]||0
-        return { label:m.label, net:Math.round((income-exp)/1000) }
-      })
-    }
-    // No income months — net = 0 - expenses
-    return Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([ym,exp])=>{
-      const [y,mo]=ym.split('-')
-      const lbl = new Date(parseInt(y),parseInt(mo)-1,1).toLocaleString('en-US',{month:'short'})
-      return { label:lbl, net:Math.round(-exp/1000) }
-    })
-  }
-  return []
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -464,47 +327,7 @@ const TOOLTIP_STYLE = { fontSize:11, borderRadius:8, border:'1px solid #E5E7EB',
 const fmtK = v => v>=1000?`$${(v/1000).toFixed(1)}M`:`$${v}K`
 const axisStyle = { fontSize:10, fill:'#9CA3AF' }
 
-function PresetChartRender({ preset, data }){
-  if(!data || data.length===0) return (
-    <div className="flex items-center justify-center h-full text-gray-300 text-xs">No data in range</div>
-  )
-  const { type, xKey, yKeys=[], colors=[], stacked } = preset
-  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
-  const xAxis = <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false}/>
-  const yAxis = <YAxis tick={axisStyle} tickFormatter={fmtK} axisLine={false} tickLine={false} width={44}/>
-  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[fmtK(v),n]}/>
-  const leg   = yKeys.length>1 ? <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/> : null
-  const common = { data, margin:{top:4,right:4,left:0,bottom:0} }
-
-  if(type==='area') return (
-    <AreaChart {...common}>
-      {grid}{xAxis}{yAxis}{tip}{leg}
-      {yKeys.map((k,i)=>(
-        <Area key={k} type="monotone" dataKey={k} name={k}
-          fill={colors[i]+'33'} stroke={colors[i]} strokeWidth={2}
-          stackId={stacked?'a':undefined}/>
-      ))}
-    </AreaChart>
-  )
-  if(type==='line') return (
-    <LineChart {...common}>
-      {grid}{xAxis}{yAxis}{tip}{leg}
-      {yKeys.map((k,i)=>(
-        <Line key={k} type="monotone" dataKey={k} name={k}
-          stroke={colors[i]} strokeWidth={2} dot={false} activeDot={{r:4}}/>
-      ))}
-    </LineChart>
-  )
-  // default bar
-  return (
-    <BarChart {...common}>
-      {grid}{xAxis}{yAxis}{tip}{leg}
-      {yKeys.map((k,i)=>(
-        <Bar key={k} dataKey={k} name={k} fill={colors[i]} radius={[3,3,0,0]}/>
-      ))}
-    </BarChart>
-  )
-}
+// (PresetChartRender removed — replaced by 4 hardwired chart components below)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Chart Panel wrapper
@@ -528,241 +351,251 @@ function ChartPanel({ title, subtitle, editMode, onRemove, children }){
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chart Builder Wizard
+// Finance Overview — 4 preset chart components
 // ─────────────────────────────────────────────────────────────────────────────
 
-const APP_SOURCES = CHART_PRESETS.map(p=>({ id:p.id, label:p.title, type:p.type }))
+function periodLabel(ym){ // 'YYYY-MM' → 'Jan'
+  if(!ym) return ''
+  const [y,m] = ym.split('-')
+  return new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'})
+}
 
-function ChartBuilderWizard({ onSave, onClose, actuals, budgetFlat, scenario, incomeMonths, dateRange }){
-  // step 0 = series type, 1 = data mode, 2 = app source or manual rows, 3 = title + type + save
-  const [step,      setStep]      = useState(0)
-  const [isMulti,   setIsMulti]   = useState(false)
-  const [dataMode,  setDataMode]  = useState(null)   // 'app' | 'manual'
-  const [appSource, setAppSource] = useState(null)   // preset id
-  const [chartType, setChartType] = useState('bar')
-  const [title,     setTitle]     = useState('')
-  const [rows,      setRows]      = useState([{label:'',v0:'',v1:''}])
-  const [series,    setSeries]    = useState(['Series A','Series B'])
+function fmtCompact(v){ // raw dollars → compact string
+  if(v==null) return '—'
+  const abs=Math.abs(v)
+  if(abs>=1e6) return `$${(v/1e6).toFixed(1)}M`
+  if(abs>=1e3) return `$${(v/1e3).toFixed(0)}K`
+  return `$${Math.round(v)}`
+}
 
-  function addRow(){ setRows(r=>[...r,{label:'',v0:'',v1:''}]) }
-  function removeRow(i){ setRows(r=>r.filter((_,j)=>j!==i)) }
-  function updateRow(i,field,val){ setRows(r=>r.map((row,j)=>j===i?{...row,[field]:val}:row)) }
+// Chart 1: Monthly Spend vs Planned — full width, line chart, with stats + toggle
+function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
+  const [mode, setMode] = useState('monthly')
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
 
-  // Preview data for app-source charts
-  const previewData = useMemo(()=>{
-    if(dataMode!=='app'||!appSource) return []
-    const preset = CHART_PRESETS.find(p=>p.id===appSource)
-    if(!preset) return []
-    return buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths)
-  },[dataMode,appSource,actuals,dateRange,budgetFlat,scenario,incomeMonths])
+  const expActuals = useMemo(()=>
+    filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income')
+  ,[actuals,startDate,endDate])
 
-  function handleSave(){
-    if(dataMode==='app' && appSource){
-      const preset = CHART_PRESETS.find(p=>p.id===appSource)
-      if(!preset) return
-      onSave({ ...preset, id:'custom-app-'+Date.now(), title:title||preset.title, type:chartType, source:appSource, manualData:null })
-    } else {
-      const yKeys   = isMulti ? ['v0','v1'] : ['v0']
-      const names   = isMulti ? { v0:series[0]||'A', v1:series[1]||'B' } : { v0:series[0]||'Value' }
-      const data    = rows.filter(r=>r.label).map(r=>({ label:r.label, v0:parseFloat(r.v0)||0, v1:isMulti?parseFloat(r.v1)||0:undefined }))
-      onSave({ id:'custom-manual-'+Date.now(), title:title||'Custom Chart', type:chartType, source:'manual',
-        xKey:'label', yKeys, seriesNames:names, colors:['#0EA5A0','#C05A2F'], manualData:data })
+  const expBudget = useMemo(()=>
+    budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income')
+  ,[budgetFlat,scenario])
+
+  const chartData = useMemo(()=>{
+    const actualByP={}, budgetByP={}
+    for(const t of expActuals){
+      const p=t.period||(t.date?t.date.slice(0,7):null); if(!p) continue
+      actualByP[p]=(actualByP[p]||0)+Math.abs(t.amount||0)
     }
-    onClose()
-  }
+    for(const b of expBudget){
+      if(b.period) budgetByP[b.period]=(budgetByP[b.period]||0)+Math.abs(b.amount||0)
+    }
+    const periods=[...new Set([...Object.keys(actualByP),...Object.keys(budgetByP)])]
+      .filter(p=>p>=startP&&p<=endP).sort()
+    let cumA=0,cumB=0
+    return periods.map(p=>{
+      const a=actualByP[p]||0, b=budgetByP[p]||0
+      cumA+=a; cumB+=b
+      return { period:p, label:periodLabel(p),
+        actual: mode==='cumulative'?cumA:a,
+        budget: mode==='cumulative'?cumB:b }
+    })
+  },[expActuals,expBudget,startP,endP,mode])
 
-  const canSave = (dataMode==='app'&&appSource) || (dataMode==='manual'&&title&&rows.some(r=>r.label))
+  const totalActual = useMemo(()=>expActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0),[expActuals])
+  const totalBudget = useMemo(()=>expBudget.filter(b=>b.period>=startP&&b.period<=endP).reduce((s,b)=>s+Math.abs(b.amount||0),0),[expBudget,startP,endP])
+  const delta = totalActual - totalBudget
+  const avgMonthly = chartData.length>0 ? expActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0)/chartData.length : 0
+  const peakRow = [...chartData].sort((a,b)=>b.actual-a.actual)[0]
+
+  const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v)]}/>
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/30" onClick={onClose}/>
-      <div className="w-[440px] bg-white shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            {step>0 && <button onClick={()=>setStep(s=>s-1)} className="text-gray-400 hover:text-gray-600"><ChevronLeft size={18}/></button>}
-            <span className="font-semibold text-gray-800 text-sm">Add Chart</span>
-            <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">Step {step+1} of 3</span>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-
-          {/* ── Step 0: Series type ── */}
-          {step===0 && (
-            <>
-              <p className="text-sm font-semibold text-gray-700">How many data series?</p>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { id:false, label:'Simple', sub:'One X axis + one Y axis', icon:<BarChart2 size={22}/> },
-                  { id:true,  label:'Multi-series', sub:'Compare two or more series', icon:<Layers size={22}/> },
-                ].map(opt=>(
-                  <button key={String(opt.id)} onClick={()=>{ setIsMulti(opt.id); setStep(1) }}
-                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${isMulti===opt.id?'border-teal-500 bg-teal-50':'border-gray-200 hover:border-gray-300'}`}>
-                    <div className="text-teal-600">{opt.icon}</div>
-                    <div className="font-semibold text-sm text-gray-800">{opt.label}</div>
-                    <div className="text-[11px] text-gray-400 text-center">{opt.sub}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-
-          {/* ── Step 1: Data mode ── */}
-          {step===1 && (
-            <>
-              <p className="text-sm font-semibold text-gray-700">Where does the data come from?</p>
-              <div className="space-y-2">
-                <button onClick={()=>{ setDataMode('app'); setStep(2) }}
-                  className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition-all text-left">
-                  <Activity size={20} className="text-teal-600 flex-shrink-0"/>
-                  <div>
-                    <div className="font-semibold text-sm text-gray-800">From app data</div>
-                    <div className="text-[11px] text-gray-400">Auto-updates when you import · actuals, budget, income</div>
-                  </div>
-                </button>
-                <button onClick={()=>{ setDataMode('manual'); setStep(2) }}
-                  className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-gray-200 hover:border-teal-400 hover:bg-teal-50 transition-all text-left">
-                  <FileText size={20} className="text-teal-600 flex-shrink-0"/>
-                  <div>
-                    <div className="font-semibold text-sm text-gray-800">Enter manually</div>
-                    <div className="text-[11px] text-gray-400">Type in your own numbers · stored locally</div>
-                  </div>
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* ── Step 2a: App source picker ── */}
-          {step===2 && dataMode==='app' && (
-            <>
-              <p className="text-sm font-semibold text-gray-700">Pick a data source</p>
-              <div className="space-y-1.5">
-                {APP_SOURCES.map(src=>{
-                  const preset = CHART_PRESETS.find(p=>p.id===src.id)
-                  const preview = preset ? buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths) : []
-                  const hasData = preview.length > 0
-                  return (
-                    <button key={src.id} onClick={()=>setAppSource(src.id)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${appSource===src.id?'border-teal-500 bg-teal-50':'border-gray-100 hover:border-gray-200'}`}>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-medium text-gray-800">{src.label}</div>
-                        <div className="text-[10px] text-gray-400">{src.type} · {hasData?`${preview.length} points`:'no data in range'}</div>
-                      </div>
-                      {appSource===src.id && <Check size={14} className="text-teal-600 flex-shrink-0"/>}
-                    </button>
-                  )
-                })}
-              </div>
-              {appSource && previewData.length>0 && (
-                <div className="mt-3 p-3 bg-gray-50 rounded-xl">
-                  <div className="text-[10px] text-gray-400 mb-2 font-semibold uppercase tracking-wider">Preview</div>
-                  <ResponsiveContainer width="100%" height={100}>
-                    <PresetChartRender preset={{...CHART_PRESETS.find(p=>p.id===appSource), type:chartType}} data={previewData}/>
-                  </ResponsiveContainer>
-                </div>
-              )}
-              {appSource && <button onClick={()=>setStep(3)} className="w-full bg-teal-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-teal-700 transition-colors mt-2">Continue →</button>}
-            </>
-          )}
-
-          {/* ── Step 2b: Manual entry ── */}
-          {step===2 && dataMode==='manual' && (
-            <>
-              <p className="text-sm font-semibold text-gray-700">Enter your data</p>
-              {isMulti && (
-                <div className="grid grid-cols-2 gap-2">
-                  {[0,1].map(i=>(
-                    <div key={i}>
-                      <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Series {i+1} name</label>
-                      <input value={series[i]} onChange={e=>setSeries(s=>s.map((v,j)=>j===i?e.target.value:v))}
-                        className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" placeholder={`Series ${i+1}`}/>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="grid bg-gray-50 border-b border-gray-200 text-[10px] font-bold text-gray-400 uppercase tracking-wider"
-                  style={{gridTemplateColumns:isMulti?'1fr 1fr 1fr auto':'1fr 1fr auto'}}>
-                  <div className="px-3 py-2">Label</div>
-                  <div className="px-3 py-2">{isMulti?(series[0]||'Series A'):'Value'}</div>
-                  {isMulti && <div className="px-3 py-2">{series[1]||'Series B'}</div>}
-                  <div className="px-3 py-2"/>
-                </div>
-                {rows.map((row,i)=>(
-                  <div key={i} className="grid border-b border-gray-100 last:border-0"
-                    style={{gridTemplateColumns:isMulti?'1fr 1fr 1fr auto':'1fr 1fr auto'}}>
-                    <input value={row.label} onChange={e=>updateRow(i,'label',e.target.value)} placeholder="e.g. Oct"
-                      className="px-3 py-2 text-sm border-r border-gray-100 focus:outline-none focus:bg-teal-50"/>
-                    <input value={row.v0} onChange={e=>updateRow(i,'v0',e.target.value)} placeholder="0"
-                      className="px-3 py-2 text-sm border-r border-gray-100 focus:outline-none focus:bg-teal-50"/>
-                    {isMulti && <input value={row.v1} onChange={e=>updateRow(i,'v1',e.target.value)} placeholder="0"
-                      className="px-3 py-2 text-sm border-r border-gray-100 focus:outline-none focus:bg-teal-50"/>}
-                    <button onClick={()=>removeRow(i)} className="px-2 text-gray-300 hover:text-red-400"><X size={12}/></button>
-                  </div>
-                ))}
-              </div>
-              <button onClick={addRow} className="text-sm text-teal-600 font-medium hover:underline flex items-center gap-1">
-                <Plus size={13}/> Add row
-              </button>
-              <button onClick={()=>setStep(3)} className="w-full bg-teal-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-teal-700 transition-colors">Continue →</button>
-            </>
-          )}
-
-          {/* ── Step 3: Title + chart type + save ── */}
-          {step===3 && (
-            <>
-              <p className="text-sm font-semibold text-gray-700">Finish up</p>
-              <div>
-                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Chart title</label>
-                <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Monthly Revenue"
-                  className="w-full mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-400"/>
-              </div>
-              <div>
-                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Chart type</label>
-                <div className="flex gap-2 mt-1">
-                  {[['bar','Bar'],['line','Line'],['area','Area']].map(([id,lbl])=>(
-                    <button key={id} onClick={()=>setChartType(id)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-all ${chartType===id?'border-teal-500 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Preview */}
-              {dataMode==='app' && appSource && previewData.length>0 && (
-                <div className="p-3 bg-gray-50 rounded-xl">
-                  <div className="text-[10px] text-gray-400 mb-2 font-semibold uppercase tracking-wider">Preview</div>
-                  <ResponsiveContainer width="100%" height={120}>
-                    <PresetChartRender preset={{...CHART_PRESETS.find(p=>p.id===appSource),type:chartType}} data={previewData}/>
-                  </ResponsiveContainer>
-                </div>
-              )}
-              {dataMode==='manual' && rows.some(r=>r.label) && (
-                <div className="p-3 bg-gray-50 rounded-xl">
-                  <div className="text-[10px] text-gray-400 mb-2 font-semibold uppercase tracking-wider">Preview</div>
-                  <ResponsiveContainer width="100%" height={120}>
-                    <PresetChartRender
-                      preset={{ type:chartType, xKey:'label', yKeys:isMulti?['v0','v1']:['v0'], colors:['#0EA5A0','#C05A2F'], stacked:false }}
-                      data={rows.filter(r=>r.label).map(r=>({label:r.label,v0:parseFloat(r.v0)||0,v1:isMulti?parseFloat(r.v1)||0:undefined}))}/>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Footer — save on step 3 */}
-        {step===3 && (
-          <div className="px-5 py-4 border-t border-gray-100">
-            <button onClick={handleSave} disabled={!canSave}
-              className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${canSave?'bg-teal-600 text-white hover:bg-teal-700':'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
-              Add to dashboard
+    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Monthly Spend vs Planned</div>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+          {['monthly','cumulative'].map(m=>(
+            <button key={m} onClick={()=>setMode(m)}
+              className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+              {m==='monthly'?'Monthly':'Cumulative'}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
       </div>
+      {/* Stats */}
+      <div className="grid grid-cols-5 gap-3 mb-4 pb-4 border-b border-gray-100">
+        {[
+          {label:'Period Spend', val:fmtCompact(totalActual), cls:'text-gray-900'},
+          {label:'Planned Spend', val:fmtCompact(totalBudget), cls:'text-gray-900'},
+          {label:'Over / Under', val:(delta>0?'+':'')+fmtCompact(Math.abs(delta)), cls:delta>0?'text-red-600':'text-teal-600'},
+          {label:'Monthly Avg', val:fmtCompact(avgMonthly), cls:'text-gray-900'},
+          {label:'Peak Month', val:peakRow?.label||'—', sub:peakRow?fmtCompact(peakRow.actual):null, cls:'text-gray-900'},
+        ].map(s=>(
+          <div key={s.label}>
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">{s.label}</div>
+            <div className={`text-sm font-bold ${s.cls}`}>{s.val}</div>
+            {s.sub&&<div className="text-[10px] text-gray-400">{s.sub}</div>}
+          </div>
+        ))}
+      </div>
+      {/* Chart */}
+      {chartData.length===0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <div style={{height:200}}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                {grid}{xa}{ya}{tip}
+                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                <Line type="monotone" dataKey="actual" name="Actual" stroke="#0EA5A0" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+      }
+    </div>
+  )
+}
+
+// Chart 2: Net Position by Month — bar chart, green/red conditional coloring
+function NetPositionCard({ actuals, incomeMonths, dateRange }){
+  const { startDate, endDate } = dateRange
+  const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
+
+  const chartData = useMemo(()=>{
+    const incRange = getIncomeInRange(incomeMonths,startDate,endDate)
+    const expRange = filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income')
+    const expByP={}
+    for(const t of expRange){
+      const p=t.period||(t.date?t.date.slice(0,7):null); if(!p) continue
+      expByP[p]=(expByP[p]||0)+Math.abs(t.amount||0)
+    }
+    const incByP={}
+    for(const m of incRange){
+      const p=m.period||(m.date?m.date.slice(0,7):null); if(!p) continue
+      incByP[p]=(incByP[p]||0)+(m.contributions+m.merch+m.other)
+    }
+    const periods=[...new Set([...Object.keys(incByP),...Object.keys(expByP)])]
+      .filter(p=>p>=startP&&p<=endP).sort()
+    return periods.map(p=>({ period:p, label:periodLabel(p), net:(incByP[p]||0)-(expByP[p]||0) }))
+  },[actuals,incomeMonths,startDate,endDate,startP,endP])
+
+  const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v),'Net']}/>
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Net Position by Month</div>
+      {chartData.length===0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <div style={{height:180}}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                {grid}{xa}{ya}{tip}
+                <ReferenceLine y={0} stroke="#E5E7EB" strokeWidth={1}/>
+                <Bar dataKey="net" radius={[3,3,0,0]}>
+                  {chartData.map((d,i)=><Cell key={i} fill={d.net>=0?'#10B981':'#EF4444'}/>)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+      }
+    </div>
+  )
+}
+
+// Chart 3: Cash Position Over Time — line chart, cash_balance + reserve_floor
+function CashPositionCard({ cashFlowData, dateRange }){
+  const { startDate, endDate } = dateRange
+  const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
+
+  const chartData = useMemo(()=>
+    cashFlowData
+      .filter(r=>r.period>=startP&&r.period<=endP)
+      .sort((a,b)=>a.period.localeCompare(b.period))
+      .map(r=>({ label:periodLabel(r.period), cash:r.cash_balance, floor:r.reserve_floor }))
+  ,[cashFlowData,startP,endP])
+
+  const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[fmtCompact(v),n]}/>
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Cash Position</div>
+      {chartData.length===0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No cash flow data</div>
+        : <div style={{height:180}}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                {grid}{xa}{ya}{tip}
+                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke="#0EA5A0" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="floor" name="Reserve Floor"  stroke="#EF4444" strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+      }
+    </div>
+  )
+}
+
+// Chart 4: Team Spend Comparison — stacked bar chart, one segment per team
+function TeamSpendCard({ actuals, dateRange }){
+  const { startDate, endDate } = dateRange
+  const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
+  const { deptNames } = useApp()
+
+  const { chartData, teams } = useMemo(()=>{
+    const expRange = filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income')
+    // group by period + department
+    const byPeriodTeam={}
+    const teamSet=new Set()
+    for(const t of expRange){
+      const p=t.period||(t.date?t.date.slice(0,7):null); if(!p) continue
+      if(p<startP||p>endP) continue
+      const team=deptNames[t.department]||t.department||'Other'
+      teamSet.add(team)
+      if(!byPeriodTeam[p]) byPeriodTeam[p]={}
+      byPeriodTeam[p][team]=(byPeriodTeam[p][team]||0)+Math.abs(t.amount||0)
+    }
+    const teams=[...teamSet].sort()
+    const data=Object.entries(byPeriodTeam).sort(([a],[b])=>a.localeCompare(b)).map(([p,tm])=>({
+      label:periodLabel(p), ...tm
+    }))
+    return { chartData:data, teams }
+  },[actuals,startDate,endDate,startP,endP,deptNames])
+
+  const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[fmtCompact(v),n]}/>
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-5" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Team Spend Comparison</div>
+      {chartData.length===0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <div style={{height:180}}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                {grid}{xa}{ya}{tip}
+                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                {teams.map((t,i)=>(
+                  <Bar key={t} dataKey={t} name={t} stackId="a"
+                    fill={TEAM_PALETTE[i%TEAM_PALETTE.length]} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+      }
     </div>
   )
 }
@@ -811,51 +644,20 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
-  const [visibleKPIs,   setVisibleKPIs]   = useLocalStorage('master-kpi-ids',    DEFAULT_KPI_IDS)
-  const [visibleCharts, setVisibleCharts] = useLocalStorage('master-chart-ids',  DEFAULT_CHART_IDS)
-  const [savedCharts,   setSavedCharts]   = useLocalStorage('master-saved-charts',[])
-  const [showBuilder,   setShowBuilder]   = useState(false)
-  const [editKPI,       setEditKPI]       = useState(false)
-  const [editCharts,    setEditCharts]    = useState(false)
-  const [editWatch,     setEditWatch]     = useState(false)
-  const [showWatch,     setShowWatch]     = useLocalStorage('master-show-watch',  true)
+  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('master-kpi-ids', DEFAULT_KPI_IDS)
+  const [editKPI,     setEditKPI]     = useState(false)
+  const [editWatch,   setEditWatch]   = useState(false)
 
-  // All charts = presets + custom saved
-  const allCharts = useMemo(()=>[
-    ...CHART_PRESETS.map(p=>({...p,isPreset:true})),
-    ...savedCharts,
-  ],[savedCharts])
+  // Cash flow data — fetched once on mount (needed by CashPositionCard)
+  const [cashFlowData, setCashFlowData] = useState([])
+  useEffect(()=>{
+    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
+      .then(({ data })=>setCashFlowData(data||[]))
+  },[]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const activeCharts = useMemo(()=>
-    allCharts.filter(c=>visibleCharts.includes(c.id))
-  ,[allCharts,visibleCharts])
-
-  // Build chart data — all charts share this map; income is live from AppContext
-  const chartDataMap = useMemo(()=>{
-    const map={}
-    for(const c of allCharts){
-      if(c.source==='manual') map[c.id] = c.manualData||[]
-      else map[c.id] = buildChartData(c, actuals, dateRange, budgetFlat, scenario, incomeMonths)
-    }
-    return map
-  },[allCharts,actuals,dateRange,budgetFlat,scenario,incomeMonths])
-
-  function addPresetChart(id){
-    if(!visibleCharts.includes(id)) setVisibleCharts(p=>[...p,id])
-  }
-  function addCustomChart(chart){
-    setSavedCharts(p=>[...p,chart])
-    setVisibleCharts(p=>[...p,chart.id])
-  }
-  function removeChart(id){
-    setVisibleCharts(p=>p.filter(v=>v!==id))
-    setSavedCharts(p=>p.filter(c=>c.id!==id))
-  }
   function removeKPI(id){ setVisibleKPIs(p=>p.filter(v=>v!==id)) }
   function addKPI(id){ if(!visibleKPIs.includes(id)) setVisibleKPIs(p=>[...p,id]) }
-
-  const hiddenPresets = CHART_PRESETS.filter(p=>!visibleCharts.includes(p.id))
-  const hiddenKPIs    = KPI_DEFS.filter(k=>!visibleKPIs.includes(k.id))
+  const hiddenKPIs = KPI_DEFS.filter(k=>!visibleKPIs.includes(k.id))
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
@@ -885,52 +687,18 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
         </div>
       </section>
 
-      {/* ── Charts Section ── */}
+      {/* ── Charts Section — 4 hardwired preset charts ── */}
       <section>
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-4">
           <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Charts</span>
-          <div className="flex items-center gap-2">
-            <button onClick={()=>setShowBuilder(true)}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-teal-400 text-teal-600 hover:bg-teal-50 transition-colors">
-              <Plus size={11}/> Add Chart
-            </button>
-            <button onClick={()=>setEditCharts(p=>!p)}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editCharts?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-              <Settings size={11}/> {editCharts?'Done':'Edit'}
-            </button>
-          </div>
         </div>
-        {/* Hidden preset restore bar */}
-        {editCharts && hiddenPresets.length>0 && (
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-[10px] text-gray-400">Hidden:</span>
-            {hiddenPresets.map(p=>(
-              <button key={p.id} onClick={()=>addPresetChart(p.id)} className="text-[10px] px-2 py-1 rounded-full border border-dashed border-gray-400 text-gray-500 hover:bg-gray-50">
-                + {p.title}
-              </button>
-            ))}
-          </div>
-        )}
-        {activeCharts.length===0 && (
-          <div className="text-center py-16 text-gray-400 text-sm">
-            No charts visible — <button onClick={()=>setShowBuilder(true)} className="text-teal-600 underline">add one</button>
-          </div>
-        )}
-        <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))'}}>
-          {activeCharts.map(chart=>{
-            const data   = chartDataMap[chart.id]||[]
-            const preset = CHART_PRESETS.find(p=>p.id===chart.id)||chart
-            return (
-              <ChartPanel key={chart.id} title={chart.title} subtitle={`${presetLabel(dateRange.preset)} · ${data.length} points`}
-                editMode={editCharts} onRemove={()=>removeChart(chart.id)}>
-                <div style={{height:200}}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PresetChartRender preset={preset} data={data}/>
-                  </ResponsiveContainer>
-                </div>
-              </ChartPanel>
-            )
-          })}
+        {/* Chart 1: full width */}
+        <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+        {/* Charts 2-4: 3 columns */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+          <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
+          <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
+          <TeamSpendCard actuals={actuals} dateRange={dateRange}/>
         </div>
       </section>
 
@@ -938,28 +706,16 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       <section>
         <div className="flex items-center justify-between mb-3">
           <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Watch Areas</span>
-          <div className="flex items-center gap-2">
-            <button onClick={()=>setEditWatch(p=>!p)}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editWatch?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-              <Settings size={11}/> {editWatch?'Done':'Edit'}
-            </button>
-          </div>
+          <button onClick={()=>setEditWatch(p=>!p)}
+            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${editWatch?'border-teal-400 bg-teal-50 text-teal-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+            <Settings size={11}/> {editWatch?'Done':'Edit'}
+          </button>
         </div>
         <div className="max-w-sm">
-          <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={editWatch} onRemove={()=>setShowWatch(false)}/>
+          <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={editWatch} onRemove={()=>{}}/>
         </div>
       </section>
 
-      {showBuilder && (
-        <ChartBuilderWizard
-          onSave={addCustomChart}
-          onClose={()=>setShowBuilder(false)}
-          actuals={actuals}
-          budgetFlat={budgetFlat}
-          scenario={scenario}
-          incomeMonths={incomeMonths}
-          dateRange={dateRange}/>
-      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -219,11 +219,6 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
     rangeLabel,
   }
 }
-
-// PATRON_MONTHLY_YEARS / PATRON_BASE_YEARLY removed — populated from v_patron_trends
-// Placeholder empty arrays used until real data loads
-const PATRON_MONTHLY_DATA = []
-const PATRON_BASE_YEARLY  = []
 
 // BUDGET_SCENARIOS removed — populated from AppContext.availableScenarios
 
@@ -976,31 +971,10 @@ const KPI_CATALOG = [
   ]},
 ]
 
-const CHART_CATALOG = [
-  { group: 'Giving & Supporters', items: [
-    { id:'new-patron-chart',   label:'New Supporters by Month',    description:'Year-over-year monthly new supporter comparison' },
-    { id:'patron-base-chart',  label:'Monthly Supporter Base',     description:'Total active supporters each month' },
-    { id:'giving-trend',       label:'Giving Trend',               description:'Monthly giving over time vs prior year' },
-    { id:'avg-gift-trend',     label:'Avg Gift Size Trend',        description:'Average gift amount month-over-month' },
-  ]},
-  { group: 'Expenses & Operations', items: [
-    { id:'expense-trend',      label:'Expense Trend',              description:'Monthly expenses vs budget over time' },
-    { id:'expense-breakdown',  label:'Expense Breakdown',          description:'Spending by category as stacked bars' },
-    { id:'budget-utilization', label:'Budget Utilization',         description:'% of budget consumed each month, cumulative' },
-    { id:'staff-ratio-trend',  label:'Staff Cost Ratio Trend',     description:'Staff % of income over time' },
-  ]},
-  { group: 'Net & Cash', items: [
-    { id:'net-income-trend',   label:'Net Income Trend',           description:'Monthly net operating income over time' },
-    { id:'cash-position',      label:'Cash Position Trend',        description:'Cash balance over time' },
-    { id:'giving-vs-budget',   label:'Giving vs Budget',           description:'Actual giving vs budget line — monthly' },
-  ]},
-]
-
-// IDs that have live data wired — used to flag "No data" in catalog
+// KPI_DATA_AVAILABLE — used by AddCardPanel to flag live-wired cards
 const KPI_DATA_AVAILABLE = new Set([
   'giving','expenses','net-position','cash',
   'total-patrons','new-patrons','avg-gift','retention','recurring-ratio',
-  'new-patron-chart','patron-base-chart',
 ])
 
 const PATRON_KPI_CATALOG = [
@@ -1432,105 +1406,170 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
 
 const TOOLTIP_STYLE = { backgroundColor:'#fff', border:'1px solid var(--neutral-10)', borderRadius:'10px', fontSize:'12px', boxShadow:'0 4px 16px rgba(24,20,14,0.10)' }
 
-function NewPatronChartCard({ editMode, onRemove }) {
-  const [chartType, setChartType] = useState('line')
-  const years = ['2026','2025','2024','2023','2022']
-  const sharedProps = { data: PATRON_MONTHLY_DATA, margin:{top:5,right:5,left:-20,bottom:0} }
-  const xAxis = <XAxis dataKey="month" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
-  const yAxis = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
-  const grid  = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)"/>
-  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE}/>
-  const leg   = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
-
-  function renderSeries(type) {
-    return years.map((yr,i) => {
-      const color = yearColor(yr)
-      const isCurrent = yr === String(CURRENT_FY)
-      const strokeW = isCurrent ? 2.5 : 1.8
-      const opacity = isCurrent ? 1 : 0.7
-      if (type === 'bar') return (
-        <Bar key={yr} dataKey={`y${yr}`} name={yr} fill={color} radius={[3,3,0,0]} opacity={opacity}/>
-      )
-      if (type === 'area') return (
-        <Area key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color} fill={color}
-          strokeWidth={strokeW} fillOpacity={isCurrent ? 0.15 : 0.05} connectNulls={false}/>
-      )
-      return (
-        <Line key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color}
-          strokeWidth={strokeW} dot={false} activeDot={isCurrent?{r:4}:false}
-          strokeDasharray={isCurrent ? undefined : i===1?undefined:'5 3'}
-          opacity={opacity} connectNulls={false}/>
-      )
+// Chart 1: New Supporters by Month — year-over-year comparison, live from patron_data
+function NewPatronChartCard({ patronData, dateRange }) {
+  // Build YoY dataset: x-axis = months Jan–Dec, one line per calendar year
+  const chartData = useMemo(() => {
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const byYear = {}
+    for (const row of patronData) {
+      if (!row.period) continue
+      const [yr, mo] = row.period.split('-')
+      if (!byYear[yr]) byYear[yr] = {}
+      byYear[yr][parseInt(mo)] = row.new_patrons_total || 0
+    }
+    const years = Object.keys(byYear).sort()
+    return MONTHS.map((m, i) => {
+      const row = { month: m }
+      for (const yr of years) row[`y${yr}`] = byYear[yr]?.[i + 1] ?? null
+      return row
     })
-  }
+  }, [patronData])
+
+  const years = useMemo(() => {
+    const yrSet = new Set()
+    for (const row of patronData) { if (row.period) yrSet.add(row.period.slice(0, 4)) }
+    return [...yrSet].sort()
+  }, [patronData])
+
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false}/>
+  const xa   = <XAxis dataKey="month" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
+  const tip  = <Tooltip contentStyle={TOOLTIP_STYLE}/>
+  const leg  = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+  const common = { data: chartData, margin:{top:5,right:5,left:-20,bottom:0} }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
-      {editMode&&onRemove&&<button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors z-10"><X size={11}/></button>}
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
-          <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
-        </div>
-        <ChartTypeToggle type={chartType} onChange={setChartType}/>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+      <div className="mb-4">
+        <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
+        <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
       </div>
-      <ResponsiveContainer width="100%" height={200}>
-        {chartType==='bar' ? (
-          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}{renderSeries('bar')}</BarChart>
-        ) : chartType==='area' ? (
-          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}{renderSeries('area')}</AreaChart>
-        ) : (
-          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}{leg}{renderSeries('line')}</LineChart>
-        )}
-      </ResponsiveContainer>
+      {chartData.every(r => years.every(yr => r[`y${yr}`] == null))
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data imported yet</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <LineChart {...common}>{grid}{xa}{ya}{tip}{leg}
+              {years.map((yr,i) => {
+                const color = yearColor(yr)
+                const isCurr = i === years.length - 1
+                return <Line key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color}
+                  strokeWidth={isCurr?2.5:1.8} dot={false} activeDot={isCurr?{r:4}:false}
+                  strokeDasharray={isCurr?undefined:'5 3'} opacity={isCurr?1:0.7} connectNulls={false}/>
+              })}
+            </LineChart>
+          </ResponsiveContainer>
+      }
     </div>
   )
 }
 
-function PatronBaseChartCard({ editMode, onRemove }) {
-  const [chartType, setChartType] = useState('bar')
-  const sharedProps = { data: PATRON_BASE_YEARLY, margin:{top:5,right:5,left:-20,bottom:0} }
-  const xAxis = <XAxis dataKey="year" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
-  const yAxis = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}
-    tickFormatter={v=>v>=1000000?`$${(v/1000000).toFixed(1)}M`:v>=1000?`$${(v/1000).toFixed(0)}K`:v}/>
-  const grid  = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false}/>
-  const tip   = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>formatCurrency(v,{compact:true})}/>
+// Chart 2: Monthly Supporter Base — recurring_patron_count by period, bar chart
+function PatronBaseChartCard({ patronData, dateRange }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
 
-  // Custom bar shape — each bar gets its own year color
-  function ColoredBar(props) {
-    const { x, y, width, height, year } = props
-    return <rect x={x} y={y} width={width} height={height} fill={yearColor(year)} rx={4} ry={4}/>
-  }
+  const chartData = useMemo(() =>
+    patronData
+      .filter(r => r.period >= startP && r.period <= endP)
+      .sort((a,b) => a.period.localeCompare(b.period))
+      .map(r => {
+        const [y, m] = r.period.split('-')
+        const label = new Date(parseInt(y), parseInt(m)-1, 1).toLocaleString('en-US', {month:'short'})
+        return { label, count: r.recurring_patron_count || 0 }
+      })
+  , [patronData, startP, endP])
+
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
+  const tip  = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[v.toLocaleString(),'Patrons']}/>
 
   return (
-    <div className="relative bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
-      {editMode&&onRemove&&<button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors z-10"><X size={11}/></button>}
+    <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+      <div className="mb-4">
+        <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
+        <div className="text-[10px] text-gray-400">Recurring patrons in range</div>
+      </div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} margin={{top:5,right:5,left:-20,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <Bar dataKey="count" name="Patrons" fill="var(--color-accent)" radius={[4,4,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+      }
+    </div>
+  )
+}
+
+// Chart 3: Monthly Giving vs Budget — income actual vs budget, with cumulative toggle
+function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange }) {
+  const [mode, setMode] = useState('monthly')
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+
+  const chartData = useMemo(() => {
+    const incActuals = actuals.filter(t => {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null)
+      return p && p >= startP && p <= endP && t.record_type === 'income'
+    })
+    const incBudget = budgetFlat.filter(b => b.scenario === scenario && b.record_type === 'income')
+
+    const actualByP = {}, budgetByP = {}
+    for (const t of incActuals) {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null); if (!p) continue
+      actualByP[p] = (actualByP[p] || 0) + Math.abs(t.amount || 0)
+    }
+    for (const b of incBudget) {
+      if (b.period) budgetByP[b.period] = (budgetByP[b.period] || 0) + Math.abs(b.amount || 0)
+    }
+
+    const periods = [...new Set([...Object.keys(actualByP), ...Object.keys(budgetByP)])]
+      .filter(p => p >= startP && p <= endP).sort()
+
+    let cumA = 0, cumB = 0
+    return periods.map(p => {
+      const [y, m] = p.split('-')
+      const label = new Date(parseInt(y), parseInt(m)-1, 1).toLocaleString('en-US', {month:'short'})
+      const a = actualByP[p] || 0, b = budgetByP[p] || 0
+      cumA += a; cumB += b
+      return { label, actual: mode === 'cumulative' ? cumA : a, budget: mode === 'cumulative' ? cumB : b }
+    })
+  }, [actuals, budgetFlat, scenario, startDate, endDate, startP, endP, mode])
+
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} tickFormatter={v=>v>=1e6?`$${(v/1e6).toFixed(1)}M`:v>=1e3?`$${(v/1e3).toFixed(0)}K`:`$${v}`} axisLine={false} tickLine={false}/>
+  const tip  = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[formatCurrency(v,{compact:true}),n]}/>
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'var(--shadow-sm)'}}>
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
-          <div className="text-[10px] text-gray-400">Recurring giving $ per fiscal year</div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Giving vs Budget</div>
+          <div className="text-[10px] text-gray-400">Actual income vs {scenario||'budget'}</div>
         </div>
-        <ChartTypeToggle type={chartType} onChange={setChartType}/>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+          {['monthly','cumulative'].map(m=>(
+            <button key={m} onClick={()=>setMode(m)}
+              className={`px-2.5 py-1 text-[10px] font-semibold transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+              {m==='monthly'?'Mo':'Cu'}
+            </button>
+          ))}
+        </div>
       </div>
-      <ResponsiveContainer width="100%" height={200}>
-        {chartType==='line' ? (
-          <LineChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}
-            <Line type="monotone" dataKey="total" name="Recurring $" stroke="var(--color-accent)" strokeWidth={2.5} dot={{fill:'var(--color-accent)',r:4}} activeDot={{r:5}}/>
-          </LineChart>
-        ) : chartType==='area' ? (
-          <AreaChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}
-            <Area type="monotone" dataKey="total" name="Recurring $" stroke="var(--color-accent)" fill="var(--color-accent)" strokeWidth={2.5} fillOpacity={0.15}/>
-          </AreaChart>
-        ) : (
-          <BarChart {...sharedProps}>{grid}{xAxis}{yAxis}{tip}
-            <Bar dataKey="total" name="Recurring $" radius={[4,4,0,0]} label={{position:'top',fontSize:10,fill:'var(--chart-tick)',formatter:v=>formatCurrency(v,{compact:true})}}>
-              {PATRON_BASE_YEARLY.map(d => (
-                <Cell key={d.year} fill={yearColor(d.year)}/>
-              ))}
-            </Bar>
-          </BarChart>
-        )}
-      </ResponsiveContainer>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{top:5,right:5,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+              <Line type="monotone" dataKey="actual" name="Actual" stroke="#0EA5A0" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+              <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+            </LineChart>
+          </ResponsiveContainer>
+      }
     </div>
   )
 }
@@ -1937,9 +1976,8 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 // Dashboard Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_KPI_CARDS     = ['giving','expenses','net-position','cash']
+const DEFAULT_KPI_CARDS      = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
-const DEFAULT_PATRON_CHARTS  = ['new-patron-chart','patron-base-chart']
 
 function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
   const { budgetFlat, availableScenarios } = useApp()
@@ -1952,13 +1990,10 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
 
   const [editKPI,            setEditKPI]            = useState(false)
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
-  const [editPatronCharts,   setEditPatronCharts]   = useState(false)
   const [kpiCards,           setKpiCards]           = useState(DEFAULT_KPI_CARDS)
   const [patronMetricCards,  setPatronMetricCards]  = useState(DEFAULT_PATRON_METRICS)
-  const [patronChartCards,   setPatronChartCards]   = useState(DEFAULT_PATRON_CHARTS)
   const [showAddKPI,         setShowAddKPI]         = useState(false)
   const [showAddPatronMetric,setShowAddPatronMetric]= useState(false)
-  const [showAddPatronChart, setShowAddPatronChart] = useState(false)
   const [manualCards,        setManualCards]        = useState({})
 
   // Supabase: cash flow + patron trends
@@ -2088,30 +2123,6 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     return null
   }
 
-  // ── Trend Chart cards
-  function renderPatronChartCard(cardId) {
-    const p = d.patrons
-    const removeChart = () => setPatronChartCards(c=>c.filter(x=>x!==cardId))
-    if(cardId==='new-patron-chart') return <NewPatronChartCard key={cardId} editMode={editPatronCharts} onRemove={removeChart}/>
-    if(cardId==='patron-base-chart') return <PatronBaseChartCard key={cardId} editMode={editPatronCharts} onRemove={removeChart}/>
-    // Catalog chart not yet implemented — show placeholder
-    const chartDef = CHART_CATALOG.flatMap(g=>g.items).find(c=>c.id===cardId)
-    return (
-      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        {editPatronCharts&&<button onClick={removeChart} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center z-10"><X size={11}/></button>}
-        <div className="text-xs font-semibold text-gray-700 mb-0.5">{chartDef?.label||cardId}</div>
-        <div className="text-[10px] text-gray-400 mb-4">{chartDef?.description||''}</div>
-        <div className="flex items-center justify-center h-44 rounded-xl bg-gray-50">
-          <div className="text-center">
-            <Activity size={28} className="mx-auto mb-2 text-gray-300"/>
-            <div className="text-xs text-gray-400 font-medium">Chart coming soon</div>
-            <div className="text-[10px] text-gray-300 mt-0.5">Wire to data source to enable</div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="p-6 space-y-8 max-w-screen-xl mx-auto">
 
@@ -2159,16 +2170,15 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         </div>
       </section>
 
-      {/* Trend Charts — 2 per row */}
+      {/* Trend Charts — hardwired preset charts */}
       <section>
-        <SectionHeader title="Trend Charts" editMode={editPatronCharts} onToggleEdit={()=>setEditPatronCharts(v=>!v)} onAdd={()=>setShowAddPatronChart(true)}/>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>Trend Charts</h2>
+        </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {patronChartCards.map(id=>renderPatronChartCard(id))}
-          {editPatronCharts&&(
-            <button onClick={()=>setShowAddPatronChart(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 text-gray-300 hover:text-gray-500">
-              <Plus size={20}/><span className="text-xs font-medium">Add chart</span>
-            </button>
-          )}
+          <NewPatronChartCard patronData={patronData} dateRange={dateRange}/>
+          <PatronBaseChartCard patronData={patronData} dateRange={dateRange}/>
+          <MonthlyGivingVsBudgetCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
         </div>
       </section>
 
@@ -2181,9 +2191,6 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       {showAddPatronMetric&&<AddCardPanel title="Add Supporter Metric" catalog={PATRON_KPI_CATALOG} existingIds={patronMetricCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setPatronMetricCards(p=>[...p,card.id])}}
         onClose={()=>setShowAddPatronMetric(false)}/>}
-      {showAddPatronChart&&<AddCardPanel title="Add Trend Chart" catalog={CHART_CATALOG} existingIds={patronChartCards}
-        onAdd={card=>setPatronChartCards(p=>[...p,card.id])}
-        onClose={()=>setShowAddPatronChart(false)} isChart/>}
     </div>
   )
 }
