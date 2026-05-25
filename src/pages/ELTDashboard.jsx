@@ -231,7 +231,7 @@ const PATRON_BASE_YEARLY  = []
 // P&L Account-level drill-down — populated dynamically from actuals/budget
 // ─────────────────────────────────────────────────────────────────────────────
 
-// PL_ACCOUNTS: keys kept for component compatibility; data cleared — derived from actuals/budget
+// Empty fallback — used when real data not yet computed
 const PL_ACCOUNTS = {
   'contributions': [],
   'merch':         [],
@@ -241,6 +241,86 @@ const PL_ACCOUNTS = {
   'technology':    [],
   'travel':        [],
   'other-exp':     [],
+}
+
+// Category keyword lists — mirror filterELTByRange + AppContext derivedIncomeMonths
+const _MERCH_W    = ['merch', 'merchandise', 'store', 'product', 'retail', 'wholesale']
+const _OTHER_W    = ['other', 'misc', 'miscellaneous', 'licensing', 'royalt', 'speaking']
+const _STAFF_W    = ['staff','payroll','salaries','compensation']
+const _CONTRACT_W = ['contract','professional services','consulting','legal']
+const _TECH_W     = ['software','computers','technology','infrastructure','hosting']
+const _TRAVEL_W   = ['travel','lodging','meals','transportation']
+const _ALL_EXP_W  = [..._STAFF_W, ..._CONTRACT_W, ..._TECH_W, ..._TRAVEL_W]
+
+function _catMatch(cat, words) {
+  const c = (cat || '').toLowerCase()
+  return words.some(w => c.includes(w))
+}
+
+/**
+ * Compute account-level rows for each P&L category.
+ * Groups transactions by account name, proportionally allocates category budget.
+ *
+ * @param {Array}  actuals       from AppContext (v_transactions_enriched)
+ * @param {Object} catBudgets    { 'contributions': N, 'merch': N, … } — category budgets from d.budget
+ * @param {Object} dateRange     { startDate, endDate }
+ * @returns {Object}  { categoryId: [{label, actual, budget}] }
+ */
+function computePLAccounts(actuals, catBudgets, dateRange) {
+  const startP = (dateRange.startDate || '').substring(0, 7)
+  const endP   = (dateRange.endDate   || '').substring(0, 7)
+
+  // Split actuals into income and expense rows in range
+  const incActuals = actuals.filter(t => {
+    const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+    return p && p >= startP && p <= endP && t.record_type === 'income'
+  })
+  const expActuals = actuals.filter(t => {
+    const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+    return p && p >= startP && p <= endP && t.record_type !== 'income'
+  })
+
+  // Build account rows from a set of transactions + a category budget total
+  function makeAcctRows(txs, catBudget, isIncome) {
+    const map = {}
+    for (const t of txs) {
+      const acct = t.account || t.account_name || 'Unassigned'
+      map[acct] = (map[acct] || 0) + (isIncome ? Math.abs(t.amount || 0) : (t.amount || 0))
+    }
+    const totalActual = Object.values(map).reduce((s, v) => s + v, 0)
+    return Object.entries(map)
+      .filter(([, actual]) => actual > 0)
+      .map(([label, actual]) => ({
+        label,
+        actual,
+        // Proportional budget allocation: account's share of category actual × category budget
+        budget: totalActual > 0 ? (catBudget || 0) * (actual / totalActual) : 0,
+      }))
+      .sort((a, b) => b.actual - a.actual)
+  }
+
+  // Income: split into Contributions / Merch / Other by keyword
+  const contribTx  = incActuals.filter(t => !_catMatch(t.category, _MERCH_W) && !_catMatch(t.category, _OTHER_W))
+  const merchTx    = incActuals.filter(t =>  _catMatch(t.category, _MERCH_W))
+  const otherIncTx = incActuals.filter(t => !_catMatch(t.category, _MERCH_W) &&  _catMatch(t.category, _OTHER_W))
+
+  // Expenses: split by category buckets (same as filterELTByRange)
+  const staffTx    = expActuals.filter(t => _catMatch(t.category, _STAFF_W))
+  const contractTx = expActuals.filter(t => _catMatch(t.category, _CONTRACT_W) && !_catMatch(t.category, _STAFF_W))
+  const techTx     = expActuals.filter(t => _catMatch(t.category, _TECH_W) && !_catMatch(t.category, _STAFF_W) && !_catMatch(t.category, _CONTRACT_W))
+  const travelTx   = expActuals.filter(t => _catMatch(t.category, _TRAVEL_W))
+  const otherExpTx = expActuals.filter(t => !_catMatch(t.category, _ALL_EXP_W))
+
+  return {
+    'contributions': makeAcctRows(contribTx,  catBudgets.contributions || 0, true),
+    'merch':         makeAcctRows(merchTx,     catBudgets.merch         || 0, true),
+    'other-inc':     makeAcctRows(otherIncTx,  catBudgets['other-inc']  || 0, true),
+    'staff':         makeAcctRows(staffTx,     catBudgets.staff         || 0, false),
+    'contract':      makeAcctRows(contractTx,  catBudgets.contract      || 0, false),
+    'technology':    makeAcctRows(techTx,      catBudgets.technology    || 0, false),
+    'travel':        makeAcctRows(travelTx,    catBudgets.travel        || 0, false),
+    'other-exp':     makeAcctRows(otherExpTx,  catBudgets['other-exp']  || 0, false),
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1251,7 +1331,11 @@ function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date' }) 
           <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
           <p className="text-xs text-gray-400 mt-0.5">{rangeLabel} · Actual vs. budget · Click a category row to expand accounts</p>
         </div>
-        <button onClick={()=>setExpanded(prev=>prev.size>0?new Set():new Set(Object.keys(accounts)))}
+        <button onClick={()=>{
+            // Only expand rows that actually have account data
+            const expandable = Object.entries(accounts).filter(([,v])=>v.length>0).map(([k])=>k)
+            setExpanded(prev=>prev.size>0?new Set():new Set(expandable))
+          }}
           className="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
           {expanded.size>0?<><ChevronUp size={12}/> Collapse all</>:<><ChevronDown size={12}/> Expand all</>}
         </button>
@@ -1917,6 +2001,18 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     {id:'net-operating',type:'total',label:'Net Operating Income',actual:netPosition,budget:netForecast,group:'net'},
   ]
 
+  // Account-level rows for P&L expand — groups actuals by account within each category bucket
+  const plAccounts = computePLAccounts(actuals, {
+    contributions: d.budget.contributions,
+    merch:         d.budget.merchandiseRevenue,
+    'other-inc':   d.budget.otherIncome,
+    staff:         d.budget.staff,
+    contract:      d.budget.contract,
+    technology:    d.budget.technology,
+    travel:        d.budget.travel,
+    'other-exp':   Math.max(0, d.budget.otherGenAdmin),
+  }, dateRange)
+
   function renderKPICard(cardId) {
     if(cardId==='giving') {
       const d1=totalGiving-totalForecast,d2=totalGiving-totalPriorGiv
@@ -2077,7 +2173,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData} rangeLabel={rangeLabel}/></section>
+      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel}/></section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
