@@ -1591,7 +1591,13 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
       const p = t.period || (t.date ? t.date.slice(0,7) : null)
       return p && p >= startP && p <= endP && t.record_type === 'income'
     })
-    const incBudget = budgetFlat.filter(b => b.scenario === scenario && b.record_type === 'income')
+    // Apply the same period filter to income budget as to expense budget —
+    // without this, ALL income budget rows across all years are summed.
+    const incBudget = budgetFlat.filter(b =>
+      b.scenario === scenario &&
+      b.record_type === 'income' &&
+      b.period && b.period >= startP && b.period <= endP
+    )
 
     const actualByP = {}, budgetByP = {}
     for (const t of incActuals) {
@@ -2095,9 +2101,10 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   // activeBudget is a scenario string from AppContext.availableScenarios
   const scenario = activeBudget || availableScenarios[0] || ''
 
-  const now = new Date()
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+  // Derive period label from the END of the selected date range, not "last month".
+  // e.g. Fiscal YTD ending May 2026 → "May 2026"; Full Fiscal Year ending May 2026 → "May 2026"
+  const endDateStr = dateRange?.endDate || new Date().toISOString().slice(0, 10)
+  const currentMonthDisplay = new Date(endDateStr + 'T00:00:00').toLocaleString('en-US', { month: 'long', year: 'numeric' })
 
   const [editKPI,            setEditKPI]            = useState(false)
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
@@ -2985,10 +2992,12 @@ function TeamsTab({ dateRange, activeBudget }) {
       const key = catGroup(t)
       catActualTotals[key] = (catActualTotals[key] || 0) + Math.abs(t.amount || 0)
     }
-    // Per-category budget totals
+    // Per-category budget totals — exclude orphaned rows (account_id not in chart_of_accounts)
+    // so they don't inflate "Uncategorized" with $0 actual / phantom budget.
     const teamBudTxs = budgetFlat.filter(b =>
       b.team_name === teamRow.name && b.scenario === activeBudget &&
-      b.record_type !== 'income' && b.period && b.period >= startM && b.period <= endM
+      b.record_type !== 'income' && b.period && b.period >= startM && b.period <= endM &&
+      b._hasAccount !== false   // skip orphaned budget rows
     )
     const catBudgetTotals = {}
     for (const b of teamBudTxs) {
@@ -3012,6 +3021,12 @@ function TeamsTab({ dateRange, activeBudget }) {
     const cats = {}
     for (const key of allCatKeys) {
       cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: catPYTotals[key]||0 }
+    }
+    // Remove categories where BOTH actual and budget are $0 — these are orphaned
+    // budget rows that slipped through (e.g. account_id with no matching chart entry)
+    // or historical categories with no activity in the selected range.
+    for (const key of Object.keys(cats)) {
+      if (cats[key].actual === 0 && cats[key].budget === 0) delete cats[key]
     }
     // Real monthly data per category (for the category chart)
     const byPeriod = {}
