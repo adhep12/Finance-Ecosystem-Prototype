@@ -57,13 +57,26 @@ function pad2(n){ return String(n).padStart(2,'0') }
 function ymd(y,m,d){ return `${y}-${pad2(m)}-${pad2(d)}` }
 function monthKey(dateStr){ return dateStr.slice(0,7) }
 
-function getMasterPresetRange(preset){
+function getMasterPresetRange(preset, org = {}){
   const today = new Date()
   const todayStr = ymd(today.getFullYear(), today.getMonth()+1, today.getDate())
-  if(preset==='full-fiscal')    return { startDate:'2025-10-01', endDate:'2026-09-30' }
-  if(preset==='fiscal-ytd')     return { startDate:'2025-10-01', endDate:todayStr }
-  if(preset==='full-operating') return { startDate:'2025-05-01', endDate:'2026-04-30' }
-  if(preset==='operating-ytd')  return { startDate:'2025-05-01', endDate:todayStr }
+
+  const fy  = org.fiscalYearStartMonth    || 10
+  const fyY = org.fiscalYearStartYear     || 2025
+  const oy  = org.operatingYearStartMonth || 5
+  const oyY = org.operatingYearStartYear  || 2025
+
+  // End of fiscal year = month before start, next year (Jan start = Dec same year)
+  const fyeY = fy===1?fyY:fyY+1, fyeM = fy===1?12:fy-1
+  const fyeD = new Date(fyeY, fyeM, 0).getDate()   // last day of fyeM (1-indexed trick)
+  // End of operating year
+  const oyeY = oy===1?oyY:oyY+1, oyeM = oy===1?12:oy-1
+  const oyeD = new Date(oyeY, oyeM, 0).getDate()
+
+  if(preset==='full-fiscal')    return { startDate:ymd(fyY,fy,1), endDate:ymd(fyeY,fyeM,fyeD) }
+  if(preset==='fiscal-ytd')     return { startDate:ymd(fyY,fy,1), endDate:todayStr }
+  if(preset==='full-operating') return { startDate:ymd(oyY,oy,1), endDate:ymd(oyeY,oyeM,oyeD) }
+  if(preset==='operating-ytd')  return { startDate:ymd(oyY,oy,1), endDate:todayStr }
   if(preset==='last-month'){
     const d=new Date(today.getFullYear(),today.getMonth()-1,1)
     const last=new Date(today.getFullYear(),today.getMonth(),0).getDate()
@@ -72,7 +85,7 @@ function getMasterPresetRange(preset){
   if(preset==='last-3'){ const d=new Date(today); d.setMonth(d.getMonth()-3); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
   if(preset==='last-6'){ const d=new Date(today); d.setMonth(d.getMonth()-6); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
   if(preset==='last-12'){ const d=new Date(today); d.setFullYear(d.getFullYear()-1); return { startDate:ymd(d.getFullYear(),d.getMonth()+1,d.getDate()), endDate:todayStr } }
-  return { startDate:'2025-10-01', endDate:todayStr }
+  return { startDate:ymd(fyY,fy,1), endDate:todayStr }
 }
 function presetLabel(p){
   return {'full-fiscal':'Full fiscal year','fiscal-ytd':'Fiscal YTD','full-operating':'Full operating year','operating-ytd':'Operating YTD','last-month':'Last month','last-3':'Last 3 months','last-6':'Last 6 months','last-12':'Last 12 months','custom':'Custom range'}[p]||'Date range'
@@ -83,7 +96,13 @@ function presetLabel(p){
 // ─────────────────────────────────────────────────────────────────────────────
 
 function getIncomeInRange(incomeMonths, startDate, endDate){
-  return incomeMonths.filter(m => m.date >= startDate && m.date <= endDate)
+  // Compare by YYYY-MM period prefix so mid-month end dates include the full end month
+  const startP = startDate.slice(0,7)
+  const endP   = endDate.slice(0,7)
+  return incomeMonths.filter(m => {
+    const p = m.period || (m.date ? m.date.slice(0,7) : null)
+    return p && p >= startP && p <= endP
+  })
 }
 
 function numMonthsInRange(startDate, endDate){
@@ -95,24 +114,48 @@ function numMonthsInRange(startDate, endDate){
 // MasterDatePicker
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PRESET_GROUPS = [
-  { label:'Fiscal Year', items:[['full-fiscal','Full fiscal year'],['fiscal-ytd','Fiscal YTD']] },
-  { label:'Operating Year', items:[['full-operating','Full operating year'],['operating-ytd','Operating YTD']] },
-  { label:'Rolling', items:[['last-month','Last month'],['last-3','Last 3 months'],['last-6','Last 6 months'],['last-12','Last 12 months']] },
-]
-
 function MasterDatePicker({ dateRange, onApplyPreset, onApplyCustom, onClose }){
+  const { orgConfig } = useApp()
   const [start, setStart] = useState(dateRange.startDate||'')
   const [end,   setEnd]   = useState(dateRange.endDate||'')
+
+  // Compute date-range sub-labels from org fiscal / operating year settings
+  const fy  = orgConfig.fiscalYearStartMonth    || 10
+  const fyY = orgConfig.fiscalYearStartYear     || 2025
+  const oy  = orgConfig.operatingYearStartMonth || 5
+  const oyY = orgConfig.operatingYearStartYear  || 2025
+  const fyeY = fy===1?fyY:fyY+1, fyeM = fy===1?12:fy-1
+  const oyeY = oy===1?oyY:oyY+1, oyeM = oy===1?12:oy-1
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const mn = m => MN[m-1]
+
+  const groups = [
+    { label:'Fiscal Year', items:[
+      ['full-fiscal',    'Full fiscal year',    `${mn(fy)} ${fyY} → ${mn(fyeM)} ${fyeY}`],
+      ['fiscal-ytd',     'Fiscal YTD',          `${mn(fy)} ${fyY} → Today`],
+    ]},
+    { label:'Operating Year', items:[
+      ['full-operating', 'Full operating year', `${mn(oy)} ${oyY} → ${mn(oyeM)} ${oyeY}`],
+      ['operating-ytd',  'Operating YTD',       `${mn(oy)} ${oyY} → Today`],
+    ]},
+    { label:'Rolling', items:[
+      ['last-month', 'Last month',    ''],
+      ['last-3',     'Last 3 months', ''],
+      ['last-6',     'Last 6 months', ''],
+      ['last-12',    'Last 12 months',''],
+    ]},
+  ]
+
   return (
     <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-72 p-4">
-      {PRESET_GROUPS.map(g=>(
+      {groups.map(g=>(
         <div key={g.label} className="mb-3">
           <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1.5">{g.label}</div>
-          {g.items.map(([id,lbl])=>(
+          {g.items.map(([id,lbl,sub])=>(
             <button key={id} onClick={()=>{onApplyPreset(id);onClose()}}
-              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm hover:bg-teal-50 hover:text-teal-700 transition-colors ${dateRange.preset===id?'bg-teal-50 text-teal-700 font-semibold':''}`}>
-              {lbl}
+              className={`w-full text-left px-3 py-1.5 rounded-lg hover:bg-teal-50 hover:text-teal-700 transition-colors ${dateRange.preset===id?'bg-teal-50 text-teal-700 font-semibold':''}`}>
+              <div className="text-sm">{lbl}</div>
+              {sub && <div className="text-[10px] text-gray-400 mt-0.5">{sub}</div>}
             </button>
           ))}
         </div>
@@ -1700,10 +1743,22 @@ export default function MasterDashboard(){
   const [activeDepts, setActiveDepts] = useState(null) // null = all
 
   // Local date range (master dashboard has its own, independent of AppContext global)
-  const defaultRange = getMasterPresetRange('fiscal-ytd')
-  const [dateRange, setDateRange] = useState({ preset:'fiscal-ytd', ...defaultRange })
+  const [dateRange, setDateRange] = useState(() => ({
+    preset: 'fiscal-ytd',
+    ...getMasterPresetRange('fiscal-ytd', orgConfig),
+  }))
 
-  function applyPreset(p){ setDateRange({ preset:p, ...getMasterPresetRange(p) }) }
+  // Re-sync when org fiscal/operating year settings load from Supabase
+  useEffect(()=>{
+    setDateRange(prev => {
+      if(prev.preset === 'custom') return prev
+      return { ...prev, ...getMasterPresetRange(prev.preset, orgConfig) }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgConfig.fiscalYearStartMonth, orgConfig.fiscalYearStartYear,
+      orgConfig.operatingYearStartMonth, orgConfig.operatingYearStartYear])
+
+  function applyPreset(p){ setDateRange({ preset:p, ...getMasterPresetRange(p, orgConfig) }) }
   function applyCustom(s,e){ setDateRange({ preset:'custom', startDate:s, endDate:e }) }
 
   function toggleDept(code){
