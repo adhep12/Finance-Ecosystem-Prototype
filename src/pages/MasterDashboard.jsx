@@ -41,13 +41,25 @@ const FIELD_COLORS = { department:'#0EA5A0', category:'#C05A2F', account:'#E8A83
 const FIELD_LABELS = { department:'Department', category:'Category', account:'Account', grant:'Grant', vendor:'Vendor' }
 const ALL_DRILL_FIELDS = ['department','category','account','grant','vendor']
 
-const KPI_DEFS = [
-  { id:'total-income',    label:'Total Income',    icon:'TrendingUp',  color:'#0EA5A0' },
-  { id:'total-expenses',  label:'Total Expenses',  icon:'TrendingDown',color:'#C05A2F' },
-  { id:'net-position',    label:'Net Position',    icon:'DollarSign',  color:'#10B981' },
-  { id:'budget-variance', label:'Budget Variance', icon:'AlertTriangle',color:'#E8A838' },
+// ── Full 15-card Finance KPI catalog ─────────────────────────────────────────
+const FINANCE_KPI_CATALOG = [
+  { id:'total-giving',       label:'Total Giving',              group:'Giving & Revenue'  },
+  { id:'total-expenses',     label:'Total Expenses',            group:'Expenses'          },
+  { id:'net-position',       label:'Net Position',              group:'Net & Cash'        },
+  { id:'cash-position',      label:'Cash Position',             group:'Net & Cash'        },
+  { id:'cash-above-floor',   label:'Cash Above Floor',          group:'Net & Cash'        },
+  { id:'teams-over-budget',  label:'Teams Over Budget',         group:'Operations'        },
+  { id:'total-supporters',   label:'Total Active Supporters',   group:'Supporter Metrics' },
+  { id:'new-supporters',     label:'New Supporters',            group:'Supporter Metrics' },
+  { id:'avg-gift',           label:'Avg Gift Size',             group:'Supporter Metrics' },
+  { id:'recurring-patrons',  label:'Recurring Patrons',         group:'Supporter Metrics' },
+  { id:'recurring-giving',   label:'Recurring Giving',          group:'Giving & Revenue'  },
+  { id:'spontaneous-giving', label:'Spontaneous Giving',        group:'Giving & Revenue'  },
+  { id:'total-transactions', label:'Total Transactions',        group:'Operations'        },
+  { id:'budget-utilization', label:'Budget Utilization',        group:'Operations'        },
+  { id:'open-comments',      label:'Open Comments & Requests',  group:'Operations'        },
 ]
-const DEFAULT_KPI_IDS = ['total-income','total-expenses','net-position','budget-variance']
+const DEFAULT_FINANCE_KPI_IDS = FINANCE_KPI_CATALOG.map(k => k.id)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Date helpers (self-contained)
@@ -360,67 +372,205 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// KPI Card
+// Finance KPI Card — 15 data-wired cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, editMode, onRemove }){
+function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
+  cashFlowData, patronData, dateRange, orgConfig, editMode, onRemove }){
+  const { deptNames, comments } = useApp()
   const { startDate, endDate } = dateRange
-  const startM = startDate.substring(0,7)
-  const endM   = endDate.substring(0,7)
-  const inRange = useMemo(()=>filterActualsByRange(actuals, startDate, endDate),[actuals,startDate,endDate])
-  const incomeInRange = useMemo(()=>getIncomeInRange(incomeMonths, startDate, endDate),[incomeMonths,startDate,endDate])
+  const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
+  const catalogDef = FINANCE_KPI_CATALOG.find(k => k.id === id)
 
-  // Expenses = non-income actuals only; income is tracked separately via incomeMonths
-  const expRange = useMemo(()=>inRange.filter(t=>t.record_type!=='income'),[inRange])
-  const totalExpenses = useMemo(()=>expRange.reduce((s,t)=>s+t.amount,0),[expRange])
-  const totalIncome   = useMemo(()=>incomeInRange.reduce((s,m)=>s+(m.contributions+m.merch+m.other),0),[incomeInRange])
+  // ── Shared derived values ─────────────────────────────────────────────────
+  const incInRange = useMemo(() =>
+    getIncomeInRange(incomeMonths, startDate, endDate)
+  , [incomeMonths, startDate, endDate])
 
-  // Budget totals
-  const expBudget = useMemo(()=>
-    budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income' && b.period>=startM && b.period<=endM)
-      .reduce((s,b)=>s+(b.amount||0),0)
-  ,[budgetFlat,scenario,startM,endM])
-  const incBudget = useMemo(()=>
-    budgetFlat.filter(b=>b.scenario===scenario && b.record_type==='income' && b.period>=startM && b.period<=endM)
-      .reduce((s,b)=>s+(b.amount||0),0)
-  ,[budgetFlat,scenario,startM,endM])
+  const expInRange = useMemo(() =>
+    filterActualsByRange(actuals, startDate, endDate).filter(t => t.record_type !== 'income')
+  , [actuals, startDate, endDate])
 
-  // Per-card computed values
-  let mainValue, cmpLabel, cmpDelta, cmpBase, isInverse
+  const allInRange = useMemo(() =>
+    filterActualsByRange(actuals, startDate, endDate)
+  , [actuals, startDate, endDate])
 
-  if(def.id==='total-income'){
-    mainValue  = formatCurrency(totalIncome)
-    cmpLabel   = 'vs Budget'
-    cmpDelta   = totalIncome - incBudget
-    cmpBase    = incBudget
-    isInverse  = false
-  } else if(def.id==='total-expenses'){
-    mainValue  = formatCurrency(totalExpenses)
-    cmpLabel   = 'vs Budget'
-    cmpDelta   = expBudget - totalExpenses  // positive = under budget = good
-    cmpBase    = expBudget
-    isInverse  = false  // under budget is good (positive delta)
-  } else if(def.id==='net-position'){
-    const net  = totalIncome - totalExpenses
-    mainValue  = formatCurrency(net)
-    const budgetNet = incBudget - expBudget
-    cmpLabel   = budgetNet !== 0 ? 'vs Budget' : null
-    cmpDelta   = net - budgetNet
-    cmpBase    = budgetNet
-    isInverse  = false
-  } else if(def.id==='budget-variance'){
-    const delta= totalExpenses - expBudget
-    mainValue  = formatOverUnder(delta)
-    cmpLabel   = null  // variance is already a comparison
-    isInverse  = false
+  const totalGiving   = useMemo(() =>
+    incInRange.reduce((s,m) => s + (m.contributions||0) + (m.merch||0) + (m.other||0), 0)
+  , [incInRange])
+
+  const totalExpenses = useMemo(() =>
+    expInRange.reduce((s,t) => s + Math.abs(t.amount||0), 0)
+  , [expInRange])
+
+  const expBudget = useMemo(() =>
+    budgetFlat.filter(b => b.scenario===scenario && b.record_type!=='income' && b.period>=startM && b.period<=endM)
+      .reduce((s,b) => s+(b.amount||0), 0)
+  , [budgetFlat, scenario, startM, endM])
+
+  const incBudget = useMemo(() =>
+    budgetFlat.filter(b => b.scenario===scenario && b.record_type==='income' && b.period>=startM && b.period<=endM)
+      .reduce((s,b) => s+(b.amount||0), 0)
+  , [budgetFlat, scenario, startM, endM])
+
+  const latestCash = useMemo(() => {
+    const rows = cashFlowData.filter(r => r.period>=startM && r.period<=endM)
+      .sort((a,b) => a.period.localeCompare(b.period))
+    return rows.length > 0 ? rows[rows.length-1] : null
+  }, [cashFlowData, startM, endM])
+
+  const patronInRange = useMemo(() =>
+    patronData.filter(p => p.period>=startM && p.period<=endM)
+      .sort((a,b) => a.period.localeCompare(b.period))
+  , [patronData, startM, endM])
+
+  const latestPatron = patronInRange.length > 0 ? patronInRange[patronInRange.length-1] : null
+
+  // ── Per-card value + comparison rows ─────────────────────────────────────
+  let mainValue = '—'
+  let cmp1 = null   // { label, delta, base } — primary comparison
+  let cmp2 = null   // secondary comparison
+  let isInverse = false
+  let subNote = null
+
+  const makePct = (delta, base) =>
+    base && Math.abs(base) > 0
+      ? formatPercent(delta / Math.abs(base) * 100, {showSign:true, decimals:1})
+      : '—'
+
+  switch (id) {
+    case 'total-giving': {
+      mainValue = formatCurrency(totalGiving)
+      if (incBudget > 0) cmp1 = { label:'vs Budget', delta: totalGiving - incBudget, base: incBudget }
+      break
+    }
+    case 'total-expenses': {
+      mainValue = formatCurrency(totalExpenses)
+      isInverse = true
+      // "good" direction = under budget (expBudget - totalExpenses positive = good)
+      if (expBudget > 0) cmp1 = { label:'vs Budget', delta: expBudget - totalExpenses, base: expBudget }
+      break
+    }
+    case 'net-position': {
+      const net = totalGiving - totalExpenses
+      mainValue = formatCurrency(net)
+      const budgetNet = incBudget - expBudget
+      if (Math.abs(budgetNet) > 0) cmp1 = { label:'vs Budget', delta: net - budgetNet, base: budgetNet }
+      subNote = net >= 0 ? 'Surplus' : 'Deficit'
+      break
+    }
+    case 'cash-position': {
+      if (latestCash) {
+        mainValue = formatCurrency(latestCash.cash_balance)
+        if (latestCash.prior_month_balance)
+          cmp1 = { label:'vs Prior Month', delta: latestCash.cash_balance - latestCash.prior_month_balance, base: latestCash.prior_month_balance }
+        if (latestCash.prior_year_balance)
+          cmp2 = { label:'vs Prior Year', delta: latestCash.cash_balance - latestCash.prior_year_balance, base: latestCash.prior_year_balance }
+      }
+      break
+    }
+    case 'cash-above-floor': {
+      if (latestCash) {
+        const floor = latestCash.reserve_floor || orgConfig?.reserveFloor || 0
+        const above = latestCash.cash_balance - floor
+        mainValue = formatCurrency(above)
+        subNote = floor > 0 ? `Reserve floor: ${formatCurrency(floor)}` : null
+        if (above < 0) subNote = `${formatCurrency(Math.abs(above))} below reserve floor`
+      }
+      break
+    }
+    case 'teams-over-budget': {
+      const allCodes = [...new Set(actuals.map(t => t.department).filter(Boolean))]
+      const overCount = allCodes.filter(code => {
+        const act = expInRange.filter(t => t.department===code).reduce((s,t) => s+Math.abs(t.amount||0), 0)
+        const bud = budgetFlat.filter(b => b.scenario===scenario && b.department===code && b.record_type!=='income' && b.period>=startM && b.period<=endM)
+          .reduce((s,b) => s+(b.amount||0), 0)
+        return bud > 0 && act > bud
+      }).length
+      mainValue = `${overCount} / ${allCodes.length}`
+      isInverse = overCount > 0
+      subNote = overCount === 0 ? 'All teams on budget ✓' : `${overCount} team${overCount!==1?'s':''} over budget`
+      break
+    }
+    case 'total-supporters': {
+      const total = latestPatron?.total_active_patrons || 0
+      mainValue = total > 0 ? total.toLocaleString() : '—'
+      subNote = latestPatron ? `as of ${latestPatron.period}` : 'No patron data'
+      break
+    }
+    case 'new-supporters': {
+      const newTotal = patronInRange.reduce((s,p) => s + (p.new_patrons_total||0), 0)
+      mainValue = newTotal > 0 ? newTotal.toLocaleString() : '—'
+      subNote = `${patronInRange.length} month${patronInRange.length!==1?'s':''} in range`
+      break
+    }
+    case 'avg-gift': {
+      mainValue = latestPatron?.avg_gift_size > 0 ? formatCurrency(latestPatron.avg_gift_size) : '—'
+      subNote = latestPatron ? `as of ${latestPatron.period}` : 'No patron data'
+      break
+    }
+    case 'recurring-patrons': {
+      const count = latestPatron?.recurring_patron_count || 0
+      mainValue = count > 0 ? count.toLocaleString() : '—'
+      const totalBase = latestPatron?.total_active_patrons || 0
+      subNote = totalBase > 0 ? `${Math.round(count/totalBase*100)}% of active base` : 'No patron data'
+      break
+    }
+    case 'recurring-giving': {
+      // Recurring giving breakdown not tracked in current import — show patron count
+      const recPatrons = patronInRange.reduce((s,p) => s + (p.new_patrons_recurring||0), 0)
+      mainValue = recPatrons > 0 ? `${recPatrons.toLocaleString()} new` : '—'
+      subNote = 'New recurring patrons in range'
+      break
+    }
+    case 'spontaneous-giving': {
+      const spPatrons = patronInRange.reduce((s,p) => s + (p.new_patrons_spontaneous||0), 0)
+      mainValue = spPatrons > 0 ? `${spPatrons.toLocaleString()} new` : '—'
+      subNote = 'New spontaneous patrons in range'
+      break
+    }
+    case 'total-transactions': {
+      mainValue = allInRange.length.toLocaleString()
+      subNote = 'transactions in range'
+      break
+    }
+    case 'budget-utilization': {
+      const pct = expBudget > 0 ? totalExpenses / expBudget * 100 : 0
+      mainValue = expBudget > 0 ? `${pct.toFixed(1)}%` : '—'
+      isInverse = pct > 100
+      subNote = expBudget > 0 ? `${formatCurrency(totalExpenses)} of ${formatCurrency(expBudget)}` : 'No budget data'
+      break
+    }
+    case 'open-comments': {
+      const open = (comments||[]).filter(c => c.status !== 'resolved' && c.status !== 'closed').length
+      mainValue = open.toLocaleString()
+      subNote = `${(comments||[]).length} total`
+      break
+    }
+    default:
+      mainValue = '—'
   }
 
-  const cmpPct = cmpBase && Math.abs(cmpBase) > 0
-    ? formatPercent(Math.abs(cmpDelta) / Math.abs(cmpBase) * 100 * (cmpDelta>=0?1:-1), {showSign:true,decimals:1})
-    : null
+  // ── Comparison row renderer ───────────────────────────────────────────────
+  function CmpRow({ cmp }) {
+    if (!cmp) return null
+    const pct = makePct(cmp.delta, cmp.base)
+    return (
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp.label}</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <TrendBadge delta={cmp.delta} inverse={isInverse} label={pct}/>
+          <span className={`text-sm font-semibold ${varColor(cmp.delta, isInverse)}`}>
+            {cmp.delta >= 0 ? '+' : ''}{formatCurrency(cmp.delta)}
+          </span>
+          <span className="text-xs text-gray-400">vs {formatCurrency(cmp.base)}</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[200px]"
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5"
       style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       {editMode && (
         <button onClick={onRemove}
@@ -429,28 +579,76 @@ function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, 
         </button>
       )}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1"
-        style={{color:'var(--neutral-60)'}}>{def.label}</div>
-      <div className="text-3xl font-bold text-gray-900 mb-4">{mainValue||'—'}</div>
-      {cmpLabel && cmpBase !== 0 && (
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmpLabel}</div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <TrendBadge delta={cmpDelta} inverse={isInverse} label={cmpPct||'—'}/>
-            <span className={`text-sm font-semibold ${varColor(cmpDelta,isInverse)}`}>
-              {cmpDelta>0?'+':''}{formatCurrency(cmpDelta)}
-            </span>
-            <span className="text-xs text-gray-400">vs {formatCurrency(cmpBase)}</span>
-          </div>
+        style={{color:'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
+      <div className="text-3xl font-bold text-gray-900 mb-3">{mainValue}</div>
+      {(cmp1 || cmp2) && (
+        <div className="space-y-2.5">
+          <CmpRow cmp={cmp1}/>
+          <CmpRow cmp={cmp2}/>
         </div>
       )}
-      {def.id==='budget-variance' && (
-        <div className="text-xs text-gray-400 mt-1">
-          {totalExpenses > expBudget
-            ? <span className="text-red-600 font-medium">{formatPercent((totalExpenses-expBudget)/(expBudget||1)*100,{decimals:1})} over budget</span>
-            : <span className="text-emerald-600 font-medium">{formatPercent((expBudget-totalExpenses)/(expBudget||1)*100,{decimals:1})} under budget</span>
-          }
+      {subNote && (
+        <div className={`text-xs mt-2 ${isInverse && id==='teams-over-budget' && mainValue!=='0 / '+mainValue.split('/')[1]?.trim() ? 'text-red-500' : 'text-gray-400'}`}>
+          {subNote}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Finance KPI Panel — catalog browser
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AddFinanceKPIPanel({ existingIds, onAdd, onClose }) {
+  // Group catalog by group key
+  const grouped = useMemo(() => {
+    const m = {}
+    FINANCE_KPI_CATALOG.forEach(k => {
+      if (!m[k.group]) m[k.group] = []
+      m[k.group].push(k)
+    })
+    return m
+  }, [])
+
+  const hasAvailable = FINANCE_KPI_CATALOG.some(k => !existingIds.includes(k.id))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[480px] max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-900">Add KPI Card</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={16}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {!hasAvailable && (
+            <p className="text-sm text-gray-400 text-center py-6">All cards are already visible.</p>
+          )}
+          {Object.entries(grouped).map(([group, cards]) => {
+            const available = cards.filter(k => !existingIds.includes(k.id))
+            if (available.length === 0) return null
+            return (
+              <div key={group}>
+                <div className="text-[10px] font-bold uppercase tracking-widest mb-2"
+                  style={{color:'var(--neutral-60)'}}>{group}</div>
+                <div className="space-y-1.5">
+                  {available.map(card => (
+                    <button key={card.id} onClick={() => { onAdd(card.id); onClose() }}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-all group">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-800">{card.label}</span>
+                        <Plus size={14} className="text-gray-300 group-hover:text-gray-600 flex-shrink-0 transition-colors"/>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
@@ -780,20 +978,43 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
-  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('master-kpi-ids', DEFAULT_KPI_IDS)
+  const { orgConfig } = useApp()
+  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('finance-kpi-ids', DEFAULT_FINANCE_KPI_IDS)
   const [editKPI,     setEditKPI]     = useState(false)
+  const [showAddKPI,  setShowAddKPI]  = useState(false)
   const [editWatch,   setEditWatch]   = useState(false)
 
-  // Cash flow data — fetched once on mount (needed by CashPositionCard)
-  const [cashFlowData, setCashFlowData] = useState([])
-  useEffect(()=>{
-    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
-      .then(({ data })=>setCashFlowData(data||[]))
-  },[]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Drag-to-reorder state
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dropIdx, setDropIdx] = useState(null)
 
-  function removeKPI(id){ setVisibleKPIs(p=>p.filter(v=>v!==id)) }
-  function addKPI(id){ if(!visibleKPIs.includes(id)) setVisibleKPIs(p=>[...p,id]) }
-  const hiddenKPIs = KPI_DEFS.filter(k=>!visibleKPIs.includes(k.id))
+  // Remote data fetches (once on mount)
+  const [cashFlowData, setCashFlowData] = useState([])
+  const [patronData,   setPatronData]   = useState([])
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
+      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
+    ]).then(([cashRes, patronRes]) => {
+      setCashFlowData(cashRes.data || [])
+      setPatronData(patronRes.data || [])
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Drag handlers
+  function handleDragStart(i){ setDragIdx(i) }
+  function handleDragOver(e, i){ e.preventDefault(); setDropIdx(i) }
+  function handleDrop(i){
+    if(dragIdx===null || dragIdx===i){ setDragIdx(null); setDropIdx(null); return }
+    const next = [...visibleKPIs]
+    const [moved] = next.splice(dragIdx, 1)
+    next.splice(i, 0, moved)
+    setVisibleKPIs(next)
+    setDragIdx(null); setDropIdx(null)
+  }
+
+  const kpiProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
@@ -803,35 +1024,58 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
         <div className="flex items-center justify-between mb-4">
           <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Key Metrics</span>
           <div className="flex items-center gap-2">
-            {editKPI && hiddenKPIs.length>0 && hiddenKPIs.map(k=>(
-              <button key={k.id} onClick={()=>addKPI(k.id)}
-                className="text-[10px] px-2 py-1 rounded-full border border-dashed border-gray-400 text-gray-500 hover:border-gray-600 hover:text-gray-700">
-                + {k.label}
+            {editKPI && (
+              <button onClick={()=>setShowAddKPI(true)}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
+                <Plus size={11}/> Add Card
               </button>
-            ))}
+            )}
             <button onClick={()=>setEditKPI(p=>!p)}
               className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${editKPI?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
               <Edit2 size={11}/> {editKPI?'Done':'Edit'}
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-4">
-          {visibleKPIs.map(id=>{
-            const def = KPI_DEFS.find(k=>k.id===id)
-            if(!def) return null
-            return <KPICard key={id} def={def} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} incomeMonths={incomeMonths} dateRange={dateRange} editMode={editKPI} onRemove={()=>removeKPI(id)}/>
-          })}
-        </div>
+
+        {/* KPI grid — draggable in edit mode */}
+        {visibleKPIs.length === 0 ? (
+          <div className="text-sm text-gray-400 text-center py-10 bg-white rounded-2xl border border-gray-100">
+            No cards visible. Click <strong>Edit → Add Card</strong> to add some.
+          </div>
+        ) : (
+          <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))'}}>
+            {visibleKPIs.map((id, i) => (
+              <div key={id}
+                draggable={editKPI}
+                onDragStart={()=>handleDragStart(i)}
+                onDragOver={e=>handleDragOver(e,i)}
+                onDrop={()=>handleDrop(i)}
+                onDragEnd={()=>{ setDragIdx(null); setDropIdx(null) }}
+                className={`relative transition-opacity ${editKPI?'cursor-grab active:cursor-grabbing':''} ${dragIdx===i?'opacity-40':''}`}>
+                {/* Drop indicator */}
+                {editKPI && dropIdx===i && dragIdx!==null && dragIdx!==i && (
+                  <div className="absolute -top-1 left-0 right-0 h-0.5 bg-gray-900 rounded-full z-10"/>
+                )}
+                {/* Drag handle — show in edit mode */}
+                {editKPI && (
+                  <div className="absolute top-3 left-3 z-10 opacity-30 pointer-events-none">
+                    <GripVertical size={13} className="text-gray-600"/>
+                  </div>
+                )}
+                <FinanceKPICard id={id} {...kpiProps} editMode={editKPI}
+                  onRemove={()=>setVisibleKPIs(p=>p.filter(v=>v!==id))}/>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* ── Charts Section — 4 hardwired preset charts ── */}
+      {/* ── Charts Section ── */}
       <section>
         <div className="mb-4">
           <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Charts</span>
         </div>
-        {/* Chart 1: full width */}
         <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
-        {/* Charts 2-4: 3 columns */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
           <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
           <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
@@ -852,6 +1096,14 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
           <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={editWatch} onRemove={()=>{}}/>
         </div>
       </section>
+
+      {/* ── Add KPI Modal ── */}
+      {showAddKPI && (
+        <AddFinanceKPIPanel
+          existingIds={visibleKPIs}
+          onAdd={id => setVisibleKPIs(p => [...p, id])}
+          onClose={() => setShowAddKPI(false)}/>
+      )}
 
     </div>
   )
