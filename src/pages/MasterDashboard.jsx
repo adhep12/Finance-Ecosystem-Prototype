@@ -847,7 +847,7 @@ function NetPositionCard({ actuals, incomeMonths, dateRange }){
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
-                <ReferenceLine y={0} stroke="#E5E7EB" strokeWidth={1}/>
+                <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="0" label={{ value:'$0', position:'insideLeft', fontSize:9, fill:'#9CA3AF', dy:-6 }}/>
                 <Bar dataKey="net" radius={[3,3,0,0]}>
                   {chartData.map((d,i)=><Cell key={i} fill={d.net>=0?'#10B981':'#EF4444'}/>)}
                 </Bar>
@@ -1122,12 +1122,14 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
         <div className="mb-4">
           <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Charts</span>
         </div>
+        {/* Chart 1: full-width spend vs planned */}
         <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+        {/* Charts 2 & 3: side-by-side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
           <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
           <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
-          <TeamSpendCard actuals={actuals} dateRange={dateRange}/>
         </div>
+        {/* Team Spend chart moved to Teams tab */}
       </section>
 
       {/* ── Watch Areas Section ── */}
