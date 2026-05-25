@@ -1375,7 +1375,7 @@ function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
-  const { deptNames } = useApp()
+  const { deptNames, incomeMonths, orgConfig, comments } = useApp()
 
   // Drill order: category is always first (P&L rows are categories)
   const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','grant','vendor'])
@@ -1390,6 +1390,22 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Sub-path state: {catValue: openPath[]} for drill within each expanded category
   const [incSubPaths, setIncSubPaths] = useState({})
   const [expSubPaths, setExpSubPaths] = useState({})
+
+  // Right-panel KPI cards
+  const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
+  const [showAddPanel, setShowAddPanel] = useState(false)
+  const [cashFlowData, setCashFlowData] = useState([])
+  const [patronData,   setPatronData]   = useState([])
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
+      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
+    ]).then(([cf, pd]) => {
+      if (!cf.error) setCashFlowData(cf.data || [])
+      if (!pd.error) setPatronData(pd.data || [])
+    })
+  }, [])
 
   const { startDate, endDate } = dateRange
 
@@ -1835,6 +1851,54 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* KPI Cards panel */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>KPI Cards</p>
+                <div className="space-y-2">
+                  {panelKPIs.map(id => (
+                    <div key={id} className="relative group">
+                      <FinanceKPICard
+                        id={id}
+                        actuals={actuals}
+                        budgetFlat={budgetFlat}
+                        scenario={scenario}
+                        incomeMonths={incomeMonths}
+                        cashFlowData={cashFlowData}
+                        patronData={patronData}
+                        dateRange={dateRange}
+                        orgConfig={orgConfig}
+                        editMode={false}
+                        onRemove={null}
+                      />
+                      {/* X button on hover */}
+                      <button
+                        onClick={() => setPanelKPIs(prev => prev.filter(k => k !== id))}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 hover:text-red-500 flex items-center justify-center text-gray-500"
+                      >
+                        <X size={10}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add card button */}
+                <button
+                  onClick={() => setShowAddPanel(true)}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-gray-500 border border-dashed border-gray-300 hover:border-gray-400 hover:text-gray-700 transition-colors"
+                >
+                  <Plus size={12}/> Add Card
+                </button>
+              </div>
+
+              {/* AddFinanceKPIPanel modal */}
+              {showAddPanel && (
+                <AddFinanceKPIPanel
+                  existingIds={panelKPIs}
+                  onAdd={id => { setPanelKPIs(prev => [...prev, id]); setShowAddPanel(false) }}
+                  onClose={() => setShowAddPanel(false)}
+                />
               )}
             </div>
           </div>
