@@ -266,9 +266,12 @@ export function AppProvider({ children }) {
       const acct = (t.account  || '').toLowerCase()
       const isMerch = MERCH_WORDS.some(w => cat.includes(w) || acct.includes(w))
       const isOther = OTHER_WORDS.some(w => cat.includes(w) || acct.includes(w))
-      if (isMerch)      byMonth[ym].merch        += t.amount
-      else if (isOther) byMonth[ym].other         += t.amount
-      else              byMonth[ym].contributions += t.amount
+      // Use Math.abs to ensure positive values — handles both sign conventions:
+      // v_org_summary flips income positive; v_transactions_enriched may not.
+      const amt = Math.abs(t.amount || 0)
+      if (isMerch)      byMonth[ym].merch        += amt
+      else if (isOther) byMonth[ym].other         += amt
+      else              byMonth[ym].contributions += amt
     }
     return Object.entries(byMonth)
       .sort(([a], [b]) => a.localeCompare(b))

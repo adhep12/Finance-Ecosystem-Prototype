@@ -94,9 +94,12 @@ function getIncomeInRange(incomeMonths, startDate, endDate){
   return incomeMonths.filter(m => m.date >= startDate && m.date <= endDate)
 }
 
+// group by YYYY-MM period — uses t.period (from v_transactions_enriched) with
+// fallback to t.date for legacy compat. Skips rows with no period identifier.
 function groupByMonth(actuals){
   return actuals.reduce((acc,t)=>{
-    const k = monthKey(t.date)
+    const k = t.period || (t.date ? monthKey(t.date) : null)
+    if(!k) return acc
     acc[k] = (acc[k]||0) + t.amount
     return acc
   },{})
@@ -110,11 +113,25 @@ function numMonthsInRange(startDate, endDate){
 /**
  * Build Recharts-ready data array for a chart preset.
  * incomeMonths comes from AppContext — all income charts update on import.
+ *
+ * Key design:
+ *  - inRange = all actuals in date range (income + expenses)
+ *  - expRange = expense-only actuals (record_type !== 'income')
+ *  - incMonths = income months from context (pre-aggregated by category bucket)
+ *  - income source uses incMonths; expense/bva/net sources use expRange so
+ *    income amounts are not double-counted in expense figures.
+ *  - 'bva' budget: filtered to expense-only scenario rows so the comparison
+ *    is expense-actual vs expense-budget (apples to apples).
  */
 function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, incomeMonths){
   const { startDate, endDate } = dateRange
   const inRange   = filterActualsByRange(actuals, startDate, endDate)
+  // Expense-only: exclude income rows so expense charts don't double-count
+  const expRange  = inRange.filter(t => t.record_type !== 'income')
   const incMonths = getIncomeInRange(incomeMonths, startDate, endDate)
+
+  // Helper: monthly key from an incomeMonth entry (m.period is YYYY-MM)
+  const mKey = m => m.period || (m.date ? m.date.slice(0,7) : null)
 
   if(preset.source==='income'){
     return incMonths.map(m=>({
@@ -125,16 +142,26 @@ function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, income
     }))
   }
   if(preset.source==='expenses'){
-    const byMonth = groupByMonth(inRange)
-    return incMonths.map(m=>({
-      label: m.label,
-      total: Math.round((byMonth[monthKey(m.date)]||0)/1000),
-    }))
+    // Use expense-only actuals; x-axis driven by incMonths so labels align
+    // If no incMonths, fall back to building x-axis from expense months
+    const byMonth = groupByMonth(expRange)
+    if(incMonths.length > 0){
+      return incMonths.map(m=>({
+        label: m.label,
+        total: Math.round((byMonth[mKey(m)]||0)/1000),
+      }))
+    }
+    // Fallback: build from available expense months
+    return Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([ym,amt])=>{
+      const [y,mo]=ym.split('-')
+      const lbl = new Date(parseInt(y),parseInt(mo)-1,1).toLocaleString('en-US',{month:'short'})
+      return { label:lbl, total:Math.round(amt/1000) }
+    })
   }
   if(preset.source==='bva'){
-    const byMonth    = groupByMonth(inRange)
-    const budgetRows = budgetFlat.filter(b=>b.scenario===scenario)
-    // Build per-month budget map (new period-based shape) or legacy flat total
+    // Use expense-only actuals vs expense-only budget
+    const byMonth    = groupByMonth(expRange)
+    const budgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income')
     const budgetByMonth = {}
     let legacyMonthly = 0
     for(const b of budgetRows){
@@ -142,14 +169,29 @@ function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, income
       else legacyMonthly += (b.monthlyAmount||0)
     }
     const hasPeriod = Object.keys(budgetByMonth).length > 0
-    return incMonths.map(m=>({
-      label:  m.label,
-      actual: Math.round((byMonth[monthKey(m.date)]||0)/1000),
-      budget: Math.round((hasPeriod ? (budgetByMonth[monthKey(m.date)]||0) : legacyMonthly)/1000),
-    }))
+    if(incMonths.length > 0){
+      return incMonths.map(m=>({
+        label:  m.label,
+        actual: Math.round((byMonth[mKey(m)]||0)/1000),
+        budget: Math.round((hasPeriod ? (budgetByMonth[mKey(m)]||0) : legacyMonthly)/1000),
+      }))
+    }
+    // Fallback: union of all months in byMonth and budgetByMonth
+    const allMonths = [...new Set([...Object.keys(byMonth),...Object.keys(budgetByMonth)])].sort()
+    return allMonths.map(ym=>{
+      const [y,mo]=ym.split('-')
+      const lbl = new Date(parseInt(y),parseInt(mo)-1,1).toLocaleString('en-US',{month:'short'})
+      return {
+        label: lbl,
+        actual: Math.round((byMonth[ym]||0)/1000),
+        budget: Math.round((hasPeriod ? (budgetByMonth[ym]||0) : legacyMonthly)/1000),
+      }
+    })
   }
   if(preset.source==='dept'){
-    const byDept = inRange.reduce((acc,t)=>{
+    // Expense-only dept breakdown
+    const byDept = expRange.reduce((acc,t)=>{
+      if(!t.department) return acc
       acc[t.department]=(acc[t.department]||0)+t.amount; return acc
     },{})
     return Object.entries(byDept).map(([dept,amt])=>({
@@ -157,7 +199,9 @@ function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, income
     })).sort((a,b)=>b.amount-a.amount)
   }
   if(preset.source==='category'){
-    const byCat = inRange.reduce((acc,t)=>{
+    // Expense-only category breakdown
+    const byCat = expRange.reduce((acc,t)=>{
+      if(!t.category) return acc
       acc[t.category]=(acc[t.category]||0)+t.amount; return acc
     },{})
     return Object.entries(byCat).map(([cat,amt])=>({
@@ -165,11 +209,20 @@ function buildChartData(preset, actuals, dateRange, budgetFlat, scenario, income
     })).sort((a,b)=>b.amount-a.amount)
   }
   if(preset.source==='net'){
-    const byMonth = groupByMonth(inRange)
-    return incMonths.map(m=>{
-      const income = m.contributions + m.merch + m.other
-      const exp    = byMonth[monthKey(m.date)]||0
-      return { label:m.label, net:Math.round((income-exp)/1000) }
+    // income (from incMonths) minus expenses (from expRange)
+    const byMonth = groupByMonth(expRange)
+    if(incMonths.length > 0){
+      return incMonths.map(m=>{
+        const income = m.contributions + m.merch + m.other
+        const exp    = byMonth[mKey(m)]||0
+        return { label:m.label, net:Math.round((income-exp)/1000) }
+      })
+    }
+    // No income months — net = 0 - expenses
+    return Object.entries(byMonth).sort(([a],[b])=>a.localeCompare(b)).map(([ym,exp])=>{
+      const [y,mo]=ym.split('-')
+      const lbl = new Date(parseInt(y),parseInt(mo)-1,1).toLocaleString('en-US',{month:'short'})
+      return { label:lbl, net:Math.round(-exp/1000) }
     })
   }
   return []
@@ -352,13 +405,16 @@ function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, 
   const inRange = useMemo(()=>filterActualsByRange(actuals, startDate, endDate),[actuals,startDate,endDate])
   const incomeInRange = useMemo(()=>getIncomeInRange(incomeMonths, startDate, endDate),[incomeMonths,startDate,endDate])
 
-  const totalExpenses = useMemo(()=>inRange.reduce((s,t)=>s+t.amount,0),[inRange])
+  // Expenses = non-income actuals only; income is tracked separately via incomeMonths
+  const expRange = useMemo(()=>inRange.filter(t=>t.record_type!=='income'),[inRange])
+  const totalExpenses = useMemo(()=>expRange.reduce((s,t)=>s+t.amount,0),[expRange])
   const totalIncome   = useMemo(()=>incomeInRange.reduce((s,m)=>s+(m.contributions+m.merch+m.other),0),[incomeInRange])
   const totalBudget   = useMemo(()=>{
     const startM = startDate.substring(0,7)
     const endM   = endDate.substring(0,7)
     const n      = numMonthsInRange(startDate, endDate)
-    return budgetFlat.filter(b=>b.scenario===scenario).reduce((s,b)=>{
+    // Budget comparison is expense-only — exclude income budget rows
+    return budgetFlat.filter(b=>b.scenario===scenario && b.record_type!=='income').reduce((s,b)=>{
       if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
       return s + (b.monthlyAmount||0) * n
     }, 0)
@@ -370,7 +426,7 @@ function KPICard({ def, actuals, budgetFlat, scenario, incomeMonths, dateRange, 
     sub   = `${incomeInRange.length} months`
   } else if(def.id==='total-expenses'){
     value = formatCurrency(totalExpenses)
-    sub   = `${inRange.length} transactions`
+    sub   = `${expRange.length} transactions`
   } else if(def.id==='net-position'){
     const net = totalIncome - totalExpenses
     value = formatCurrency(net)
