@@ -358,21 +358,23 @@ export function AppProvider({ children }) {
   // Replaces the slow mapBudgetFlat(view) path which timed out at ~5000/16000 rows.
   function mapBudgetFlatDirect(rows, deptMap, acctMap, teamMap = {}) {
     return rows.map(row => {
-      const dept     = deptMap[row.department_id] || {}
-      const acct     = acctMap[row.account_id]    || {}
-      const deptCode = dept.dept_code != null ? String(dept.dept_code) : null
-      const teamName = dept.team_id ? (teamMap[dept.team_id] || null) : null
+      const dept       = deptMap[row.department_id] || {}
+      const acct       = acctMap[row.account_id]    || {}
+      const deptCode   = dept.dept_code != null ? String(dept.dept_code) : null
+      const teamName   = dept.team_id ? (teamMap[dept.team_id] || null) : null
+      const hasAccount = !!acctMap[row.account_id]   // false → orphaned account_id (not in chart_of_accounts)
       return {
         ...row,
-        dept_code:   deptCode,
-        department:  deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
-        dept_name:   dept.dept_name || null,
-        team_id:     dept.team_id   || null,
-        team_name:   teamName,           // TeamsTab groups budgetFlat by b.team_name
-        record_type: acct.record_type || 'expense',  // income budget rows link to income accounts
-        category:    row.category || acct.category || null,
+        dept_code:    deptCode,
+        department:   deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
+        dept_name:    dept.dept_name || null,
+        team_id:      dept.team_id   || null,
+        team_name:    teamName,           // TeamsTab groups budgetFlat by b.team_name
+        record_type:  acct.record_type || 'expense',  // income budget rows link to income accounts
+        category:     row.category || acct.category || null,
         // 'amount' is the correct column name in the budgets table (no rename needed)
-        period:      row.period ? String(row.period).substring(0, 7) : null,
+        period:       row.period ? String(row.period).substring(0, 7) : null,
+        _hasAccount:  hasAccount,         // used to exclude orphaned rows from team detail modal
       }
     })
   }
