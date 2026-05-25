@@ -571,18 +571,26 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
     )
   }
 
+  const isDark = id === 'net-position'
+
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5"
-      style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+    <div className={`relative rounded-2xl p-5 ${isDark ? '' : 'bg-white border border-gray-100'}`}
+      style={{
+        ...(isDark ? {backgroundColor:'var(--ink-900)',border:'1px solid var(--ink-800)'} : {}),
+        boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
+      }}>
       {editMode && (
         <button onClick={onRemove}
-          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
+          className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+          style={isDark
+            ? {backgroundColor:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.4)'}
+            : {backgroundColor:'#F3F4F6',color:'#9CA3AF'}}>
           <X size={11}/>
         </button>
       )}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1"
-        style={{color:'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
-      <div className="text-3xl font-bold text-gray-900 mb-3">{mainValue}</div>
+        style={{color: isDark ? 'rgba(255,255,255,0.45)' : 'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
+      <div className="text-3xl font-bold mb-3" style={{color: isDark ? '#FFFFFF' : '#111827'}}>{mainValue}</div>
       {(cmp1 || cmp2) && (
         <div className="space-y-2.5">
           <CmpRow cmp={cmp1}/>
@@ -590,7 +598,7 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
         </div>
       )}
       {subNote && (
-        <div className={`text-xs mt-2 ${isInverse && id==='teams-over-budget' && mainValue!=='0 / '+mainValue.split('/')[1]?.trim() ? 'text-red-500' : 'text-gray-400'}`}>
+        <div className="text-xs mt-2" style={{color: isDark ? 'rgba(255,255,255,0.45)' : (isInverse && id==='teams-over-budget' ? '#EF4444' : '#9CA3AF')}}>
           {subNote}
         </div>
       )}

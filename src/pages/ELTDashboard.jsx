@@ -854,7 +854,7 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         </div>
       </div>
       {/* Big value */}
-      <div className="text-3xl font-bold text-white mb-4">{formatCurrency(value)}</div>
+      <div className="text-3xl font-bold mb-4" style={{color:'#FFFFFF'}}>{formatCurrency(value)}</div>
       {/* Comparisons */}
       <div className="space-y-2.5">
         {[
@@ -2700,49 +2700,84 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TeamsTab({ dateRange, activeBudget }) {
-  const teams = TEAMS_MOCK
+  const { actuals, budgetFlat } = useApp()
+  const navigate = useNavigate()
+
+  const { startDate, endDate } = dateRange
+  const startM = (startDate || '2025-10-01').slice(0,7)
+  const endM   = (endDate   || '2026-09-30').slice(0,7)
   const rangeLabel = presetLabel(dateRange?.preset)
-  const monthsInRange = (() => {
-    const s = dateRange?.startDate || '2025-06-01'
-    const e = dateRange?.endDate   || '2026-05-31'
-    return FISCAL_MONTHS.filter(m => m.date >= s && m.date <= e).length
-  })()
-  const fraction = monthsInRange / 12
-  const scaledTeams = teams.map(t => ({
-    ...t,
-    actual:  Math.round(t.actual  * fraction),
-    budget:  Math.round(t.budget  * fraction),
-    cats: Object.fromEntries(
-      Object.entries(t.cats).map(([k,v]) => [k, {
-        budget:    Math.round(v.budget    * fraction),
-        actual:    Math.round(v.actual    * fraction),
-        priorYear: Math.round(v.priorYear * fraction),
-      }])
-    ),
-  }))
 
-  const totalActual   = scaledTeams.reduce((s,t) => s+t.actual,  0)
-  const totalBudget   = scaledTeams.reduce((s,t) => s+t.budget,  0)
+  // Fetch team manager names once
+  const [teamManagers, setTeamManagers] = useState({})
+  useEffect(() => {
+    supabase.from('teams').select('team_name, manager_name')
+      .then(({ data }) => {
+        if (!data) return
+        const m = {}
+        data.forEach(t => { if (t.team_name) m[t.team_name] = t.manager_name || '' })
+        setTeamManagers(m)
+      })
+  }, [])
+
+  // Build per-team actuals (expenses only, in date range)
+  const { teamActualMap, teamIdMap } = useMemo(() => {
+    const actualMap = {}, idMap = {}
+    for (const t of actuals) {
+      if (!t.date || t.date < startDate || t.date > endDate) continue
+      if (t.record_type === 'income') continue
+      const name = t.team_name || 'Unknown'
+      actualMap[name] = (actualMap[name] || 0) + Math.abs(t.amount || 0)
+      if (t.team_id && !idMap[name]) idMap[name] = t.team_id
+    }
+    return { teamActualMap: actualMap, teamIdMap: idMap }
+  }, [actuals, startDate, endDate])
+
+  // Build per-team budget (selected scenario, in date range)
+  const teamBudgetMap = useMemo(() => {
+    const m = {}
+    for (const b of budgetFlat) {
+      if (b.scenario !== activeBudget) continue
+      if (b.record_type === 'income') continue
+      if (!b.period || b.period < startM || b.period > endM) continue
+      const name = b.team_name || 'Unknown'
+      m[name] = (m[name] || 0) + Math.abs(b.amount || 0)
+    }
+    return m
+  }, [budgetFlat, activeBudget, startM, endM])
+
+  // Merge into team rows
+  const teams = useMemo(() => {
+    const allNames = new Set([...Object.keys(teamActualMap), ...Object.keys(teamBudgetMap)])
+    return [...allNames].map(name => ({
+      name,
+      id:     teamIdMap[name] || null,
+      actual: teamActualMap[name] || 0,
+      budget: teamBudgetMap[name] || 0,
+    }))
+  }, [teamActualMap, teamBudgetMap, teamIdMap])
+
+  const totalActual   = teams.reduce((s,t) => s + t.actual,  0)
+  const totalBudget   = teams.reduce((s,t) => s + t.budget,  0)
   const totalVariance = totalActual - totalBudget
-  const overBudget    = scaledTeams.filter(t => t.actual > t.budget).length
+  const overBudget    = teams.filter(t => t.budget > 0 && t.actual > t.budget).length
 
-  const [sortKey,  setSortKey]  = useState('name')
-  const [sortDir,  setSortDir]  = useState(1)
-  const [selected, setSelected] = useState(null)
+  const [sortKey, setSortKey] = useState('actual')
+  const [sortDir, setSortDir] = useState(-1)
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir(d => -d)
-    else { setSortKey(key); setSortDir(1) }
+    else { setSortKey(key); setSortDir(key === 'name' ? 1 : -1) }
   }
 
-  const sorted = [...scaledTeams].sort((a,b) => {
+  const sorted = [...teams].sort((a,b) => {
     let av, bv
-    if (sortKey==='name')    { av=a.name;                 bv=b.name }
-    if (sortKey==='actual')  { av=a.actual;               bv=b.actual }
-    if (sortKey==='budget')  { av=a.budget;               bv=b.budget }
-    if (sortKey==='variance'){ av=a.actual-a.budget;      bv=b.actual-b.budget }
-    if (sortKey==='pct')     { av=a.actual/a.budget;      bv=b.actual/b.budget }
-    if (sortKey==='share')   { av=a.actual/totalActual;   bv=b.actual/totalActual }
+    if (sortKey==='name')    { av=a.name;               bv=b.name }
+    if (sortKey==='actual')  { av=a.actual;             bv=b.actual }
+    if (sortKey==='budget')  { av=a.budget;             bv=b.budget }
+    if (sortKey==='variance'){ av=a.actual-a.budget;    bv=b.actual-b.budget }
+    if (sortKey==='pct')     { av=a.budget>0?a.actual/a.budget:0; bv=b.budget>0?b.actual/b.budget:0 }
+    if (sortKey==='share')   { av=totalActual>0?a.actual/totalActual:0; bv=totalActual>0?b.actual/totalActual:0 }
     if (typeof av === 'string') return sortDir * av.localeCompare(bv)
     return sortDir * (av - bv)
   })
@@ -2822,30 +2857,32 @@ function TeamsTab({ dateRange, activeBudget }) {
               const v    = team.actual - team.budget
               const vPct = team.budget > 0 ? (v/team.budget*100) : 0
               const share = totalActual > 0 ? (team.actual/totalActual*100) : 0
-              const overBudget = v > 0
+              const isOverBudget = team.budget > 0 && v > 0
               return (
-                <tr key={team.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
+                <tr key={team.name} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <button onClick={()=>setSelected(team)}
-                        className="font-medium text-gray-800 hover:text-gray-600 hover:underline text-left transition-colors">
-                        {team.name}
-                      </button>
-                      <button disabled title="Dashboard not yet created"
-                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-gray-200 text-gray-400 cursor-not-allowed transition-all">
-                        <ExternalLink size={9}/> Dashboard
-                      </button>
+                      <span className="font-medium text-gray-800">{team.name}</span>
+                      {team.id && (
+                        <button
+                          onClick={() => navigate(`/team/${team.id}/briefing`)}
+                          className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-teal-200 text-teal-600 hover:bg-teal-50 transition-all">
+                          <ExternalLink size={9}/> Dashboard
+                        </button>
+                      )}
                     </div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">{team.manager}</div>
+                    {teamManagers[team.name] && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">{teamManagers[team.name]}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium text-gray-700">{formatCurrency(team.actual,{compact:false})}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-gray-400">{formatCurrency(team.budget,{compact:false})}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${overBudget?'text-red-600':'text-emerald-600'}`}>
+                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${isOverBudget?'text-red-600':'text-emerald-600'}`}>
                     {v>0?'+':''}{formatCurrency(v,{compact:false})}
                   </td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-medium text-xs ${overBudget?'text-red-500':'text-emerald-500'}`}>
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${overBudget?'bg-red-50':'bg-emerald-50'}`}>
-                      {vPct>0?'+':''}{vPct.toFixed(1)}%
+                  <td className={`px-4 py-3 text-right tabular-nums font-medium text-xs ${isOverBudget?'text-red-500':'text-emerald-500'}`}>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${isOverBudget?'bg-red-50':'bg-emerald-50'}`}>
+                      {vPct>0?'+':''}{team.budget > 0 ? vPct.toFixed(1)+'%' : '—'}
                     </span>
                   </td>
                   <td className="px-6 py-3">
@@ -2878,7 +2915,6 @@ function TeamsTab({ dateRange, activeBudget }) {
         </table>
       </div>
 
-      {selected && <TeamDetailDrawer team={selected} globalDateRange={dateRange} onClose={()=>setSelected(null)}/>}
     </div>
   )
 }

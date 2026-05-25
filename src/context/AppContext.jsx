@@ -214,7 +214,7 @@ export function AppProvider({ children }) {
       // (scenario IS NOT NULL) so we don't re-fetch all the actuals rows.
       const { data: budgetViewRows, error: budgetErr } = await supabase
         .from('v_actuals_vs_budget')
-        .select('org_id, dept_code, category, record_type, period, budget, scenario')
+        .select('org_id, dept_code, team_name, team_id, category, record_type, period, budget, scenario')
         .eq('org_id', resolvedOrgId)
         .not('scenario', 'is', null)
 

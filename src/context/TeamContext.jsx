@@ -16,7 +16,7 @@ const TeamContext = createContext(null)
 
 export function TeamProvider({ children }) {
   const { teamId } = useParams()
-  const { actuals } = useApp()
+  const { actuals, budgetFlat } = useApp()
 
   const [team,          setTeam]          = useState(null)
   const [teamDepts,     setTeamDepts]     = useState([])    // full dept rows
@@ -81,12 +81,21 @@ export function TeamProvider({ children }) {
     return actuals.filter(t => codeSet.has(t.dept_code))
   }, [actuals, teamDeptCodes])
 
+  // teamBudget — org-wide budgetFlat filtered to only this team's dept codes
+  // Without this, every team dashboard shows the org-wide total budget.
+  const teamBudget = useMemo(() => {
+    if (!teamDeptCodes.length) return []
+    const codeSet = new Set(teamDeptCodes)
+    return budgetFlat.filter(b => codeSet.has(b.department))
+  }, [budgetFlat, teamDeptCodes])
+
   const value = {
     teamId,
     team,
     teamDepts,        // full dept rows (id, code, name) for this team
     teamDeptCodes,    // just the code strings — used by DeptFilterBar
     teamActuals,      // actuals scoped to this team
+    teamBudget,       // budgetFlat scoped to this team's departments
     isLoading,
     teamNotFound,
   }

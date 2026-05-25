@@ -633,10 +633,10 @@ function TransactionModal({ transaction: t, onClose, onAddComment }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function BreakdownPage() {
-  const { budgetFlat, selectedScenario, dateRange, addComment, deptNames } = useApp()
+  const { selectedScenario, dateRange, addComment, deptNames } = useApp()
 
-  // Scope all actuals to this team's departments only
-  const { teamActuals: actuals } = useTeam()
+  // Scope all actuals + budget to this team's departments only
+  const { teamActuals: actuals, teamBudget: budgetFlat } = useTeam()
 
   // ── Persistent state (survives navigation & reload) ───────────────────────
   const [drillOrder,      setDrillOrder]      = useLocalStorage('bd-drill-order',   ['category', 'account', 'grant', 'vendor'])

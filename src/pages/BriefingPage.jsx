@@ -593,15 +593,14 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
 
 export default function BriefingPage() {
   const {
-    budgetFlat,
     selectedScenario,
     dateRange,
     briefingExclusions,
     setBriefingExclusions,
   } = useApp()
 
-  // Scope all actuals to this team's departments only
-  const { teamActuals: actuals } = useTeam()
+  // Scope all actuals + budget to this team's departments only
+  const { teamActuals: actuals, teamBudget: budgetFlat } = useTeam()
 
   const [sortMode, setSortMode] = useState('spend')
   const [selectedCategory, setSelectedCategory] = useState(null)
