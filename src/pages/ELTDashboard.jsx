@@ -2575,7 +2575,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Team Detail</p>
             <h2 className="text-xl font-bold text-gray-900">{team.name}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager}{team.code ? ` · ${team.code}` : ''}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Local date range control */}
@@ -2879,15 +2879,22 @@ function TeamsTab({ dateRange, activeBudget }) {
   const endM   = (endDate   || '2026-09-30').slice(0,7)
   const rangeLabel = presetLabel(dateRange?.preset)
 
-  // Fetch team manager names once
+  // Fetch team manager names + codes once
   const [teamManagers, setTeamManagers] = useState({})
+  const [teamCodes,    setTeamCodes]    = useState({})
   useEffect(() => {
-    supabase.from('teams').select('team_name, manager_name')
+    supabase.from('teams').select('team_name, manager_name, team_code')
       .then(({ data }) => {
         if (!data) return
-        const m = {}
-        data.forEach(t => { if (t.team_name) m[t.team_name] = t.manager_name || '' })
+        const m = {}, c = {}
+        data.forEach(t => {
+          if (t.team_name) {
+            m[t.team_name] = t.manager_name || ''
+            c[t.team_name] = t.team_code    || ''
+          }
+        })
         setTeamManagers(m)
+        setTeamCodes(c)
       })
   }, [])
 
@@ -3010,6 +3017,7 @@ function TeamsTab({ dateRange, activeBudget }) {
     return {
       name:       teamRow.name,
       id:         teamRow.id,
+      code:       teamCodes[teamRow.name] || '',
       manager:    teamManagers[teamRow.name] || 'Not assigned',
       actual:     teamRow.actual,
       budget:     teamRow.budget,
