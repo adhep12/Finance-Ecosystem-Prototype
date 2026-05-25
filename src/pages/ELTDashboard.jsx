@@ -377,14 +377,15 @@ function computePLAccounts(actuals, catBudgets, dateRange) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TEAM_CATEGORIES = [
-  { key: 'staff',      label: 'Staff & Benefits',     color: '#00B3E5' },
-  { key: 'contract',   label: 'Contract Services',    color: '#E8A838' },
-  { key: 'technology', label: 'Technology',            color: '#C05A2F' },
-  { key: 'travel',     label: 'Travel & Expense',      color: '#D98F1C' },
-  { key: 'marketing',  label: 'Marketing',             color: '#2A7B8C' },
-  { key: 'facilities', label: 'Facilities',            color: '#4E6B3A' },
-  { key: 'supplies',   label: 'Supplies & Materials',  color: '#7A8A3E' },
-  { key: 'training',   label: 'Training & Dev',        color: '#4A2E5A' },
+  { key: 'staff',        label: 'Staff & Benefits',     color: '#00B3E5' },
+  { key: 'contract',     label: 'Contract Services',    color: '#E8A838' },
+  { key: 'technology',   label: 'Technology',            color: '#C05A2F' },
+  { key: 'travel',       label: 'Travel & Expense',      color: '#D98F1C' },
+  { key: 'marketing',    label: 'Marketing',             color: '#2A7B8C' },
+  { key: 'facilities',   label: 'Facilities',            color: '#4E6B3A' },
+  { key: 'supplies',     label: 'Supplies & Materials',  color: '#7A8A3E' },
+  { key: 'training',     label: 'Training & Dev',        color: '#4A2E5A' },
+  { key: 'other',        label: 'Uncategorized',         color: '#9BA8B5' },
 ]
 const TEAM_CAT_MAP = Object.fromEntries(TEAM_CATEGORIES.map(c => [c.key, c]))
 
@@ -2575,7 +2576,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Team Detail</p>
             <h2 className="text-xl font-bold text-gray-900">{team.name}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager}{team.code ? ` · ${team.code}` : ''}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Local date range control */}
@@ -2879,15 +2880,22 @@ function TeamsTab({ dateRange, activeBudget }) {
   const endM   = (endDate   || '2026-09-30').slice(0,7)
   const rangeLabel = presetLabel(dateRange?.preset)
 
-  // Fetch team manager names once
+  // Fetch team manager names + codes once
   const [teamManagers, setTeamManagers] = useState({})
+  const [teamCodes,    setTeamCodes]    = useState({})
   useEffect(() => {
-    supabase.from('teams').select('team_name, manager_name')
+    supabase.from('teams').select('team_name, manager_name, team_code')
       .then(({ data }) => {
         if (!data) return
-        const m = {}
-        data.forEach(t => { if (t.team_name) m[t.team_name] = t.manager_name || '' })
+        const m = {}, c = {}
+        data.forEach(t => {
+          if (t.team_name) {
+            m[t.team_name] = t.manager_name || ''
+            c[t.team_name] = t.team_code    || ''
+          }
+        })
         setTeamManagers(m)
+        setTeamCodes(c)
       })
   }, [])
 
@@ -2946,7 +2954,7 @@ function TeamsTab({ dateRange, activeBudget }) {
     }))
   }, [teamActualMap, teamBudgetMap, teamIdMap])
 
-  const hasUnassigned   = unassignedActual > 0 || unassignedBudget > 0
+  const hasUnassigned   = unassignedActual > 0
   // Totals include unassigned so the page reconciles to real org spend
   const totalActual   = teams.reduce((s,t) => s + t.actual,  0) + unassignedActual
   const totalBudget   = teams.reduce((s,t) => s + t.budget,  0) + unassignedBudget
@@ -2987,11 +2995,23 @@ function TeamsTab({ dateRange, activeBudget }) {
       const key = catGroup(b)
       catBudgetTotals[key] = (catBudgetTotals[key] || 0) + Math.abs(b.amount || 0)
     }
+    // Per-category prior year actuals (same date range, one year back)
+    const pyStartM = `${parseInt(startM.slice(0,4))-1}${startM.slice(4)}`
+    const pyEndM   = `${parseInt(endM.slice(0,4))-1}${endM.slice(4)}`
+    const pyTeamTxs = actuals.filter(t => {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null)
+      return t.team_name === teamRow.name && t.record_type !== 'income' && p && p >= pyStartM && p <= pyEndM
+    })
+    const catPYTotals = {}
+    for (const t of pyTeamTxs) {
+      const key = catGroup(t)
+      catPYTotals[key] = (catPYTotals[key] || 0) + Math.abs(t.amount || 0)
+    }
     // Merge into cats shape TeamDetailDrawer expects
     const allCatKeys = new Set([...Object.keys(catActualTotals), ...Object.keys(catBudgetTotals)])
     const cats = {}
     for (const key of allCatKeys) {
-      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: 0 }
+      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: catPYTotals[key]||0 }
     }
     // Real monthly data per category (for the category chart)
     const byPeriod = {}
@@ -3010,11 +3030,12 @@ function TeamsTab({ dateRange, activeBudget }) {
     return {
       name:       teamRow.name,
       id:         teamRow.id,
+      code:       teamCodes[teamRow.name] || '',
       manager:    teamManagers[teamRow.name] || 'Not assigned',
       actual:     teamRow.actual,
       budget:     teamRow.budget,
       spreadKey:  'flat',
-      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: 0 } },
+      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: pyTeamTxs.reduce((s,t)=>s+Math.abs(t.amount||0),0) } },
       realMonthly,
     }
   }
@@ -3145,7 +3166,7 @@ function TeamsTab({ dateRange, activeBudget }) {
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-accent)'}}/>
+                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-primary)'}}/>
                       </div>
                       <span className="text-xs tabular-nums text-gray-500 w-10 text-right">{share.toFixed(1)}%</span>
                     </div>
@@ -4211,7 +4232,7 @@ export default function ELTDashboard() {
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
-        {activeTab==='comments'  && <CommentsPage />}
+        {activeTab==='comments'  && <CommentsPage context="executive" />}
       </main>
     </div>
   )
