@@ -150,6 +150,27 @@ function parseCSVText(text) {
   return { headers, rows }
 }
 
+function downloadTransactionTemplate() {
+  const headers = 'date,amount,account_code,dept_code,vendor,description,transaction_id,grant_code'
+  const example = '2025-01-15,5000.00,4000,MEDIA,Vendor Name,Description here,TXN-001,'
+  const blob = new Blob([headers + '\n' + example + '\n'], { type: 'text/csv' })
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'transaction_import_template.csv' })
+  a.click()
+}
+
+function downloadTransactionSample() {
+  const headers = 'date,amount,account_code,dept_code,vendor,description,transaction_id,grant_code'
+  const rows = [
+    '2025-01-15,5000.00,4000,MEDIA,Acme Corp,January consulting,TXN-001,',
+    '2025-01-20,12500.00,4100,DIGITAL,Platform Inc,Digital ads Q1,TXN-002,',
+    '2025-02-01,3200.00,5000,MEDIA,Office Supplies Co,Office supplies,TXN-003,GRANT-01',
+    '2025-02-14,8750.00,4200,EDUCATION,Ministry Partner,Education grant income,TXN-004,GRANT-02',
+  ]
+  const blob = new Blob([headers + '\n' + rows.join('\n') + '\n'], { type: 'text/csv' })
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'transaction_import_sample.csv' })
+  a.click()
+}
+
 function downloadCSV(filename, rows, columns) {
   const header = columns.map(c => c.label).join(',')
   const body = rows.map(r => columns.map(c => {
@@ -885,6 +906,28 @@ export default function TransactionImportFlow() {
               <p className="text-xs text-gray-400 mt-1">All existing transactions in this calendar month will be soft-deleted and replaced.</p>
             </div>
           )}
+
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Download Template</p>
+            <p className="text-xs text-gray-500 mb-3">
+              Required columns: <code className="bg-gray-100 px-1 rounded text-gray-700">date</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">amount</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">account_code</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">dept_code</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">vendor</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">description</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">transaction_id</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">grant_code</code>
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={downloadTransactionTemplate} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
+                <Download size={12}/> Blank Template
+              </button>
+              <button onClick={downloadTransactionSample} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
+                <Download size={12}/> Sample Data
+              </button>
+            </div>
+          </div>
 
           <button
             onClick={() => setStep('upload')}

@@ -200,6 +200,28 @@ function detectMapping(headers, savedMappings) {
   return best
 }
 
+function downloadBudgetTemplate() {
+  const headers = 'dept_code,account_code,scenario,period,amount,period_type'
+  const example = 'MEDIA,4000,Planned Spend,2025-01,50000,monthly'
+  const blob = new Blob([headers + '\n' + example + '\n'], { type: 'text/csv' })
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'budget_import_template.csv' })
+  a.click()
+}
+
+function downloadBudgetSample() {
+  const headers = 'dept_code,account_code,scenario,period,amount,period_type'
+  const rows = [
+    'MEDIA,4000,Planned Spend,2025-01,50000,monthly',
+    'MEDIA,4000,Planned Spend,2025-02,50000,monthly',
+    'MEDIA,5000,Planned Spend,2025-01,12000,monthly',
+    'DIGITAL,4000,Planned Spend,2025,600000,annual',
+    'DIGITAL,5000,Planned Spend,2025-Q1,45000,quarterly',
+  ]
+  const blob = new Blob([headers + '\n' + rows.join('\n') + '\n'], { type: 'text/csv' })
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'budget_import_sample.csv' })
+  a.click()
+}
+
 function downloadCSV(filename, rows, columns) {
   const header = columns.map(c => c.label).join(',')
   const body = rows.map(r => columns.map(c => {
@@ -744,6 +766,26 @@ export default function BudgetImportFlow() {
             <p>• <strong>Quarterly</strong> (YYYY-Q1..Q4): amount ÷ 3 per month</p>
             <p>• <strong>Annual</strong> (YYYY or blank): amount ÷ 12 across fiscal year months (FY starts {['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][fyStartMonth]}, default year: FY{defaultFYYear})</p>
             <p>• <strong>More granular always wins</strong>: monthly overrides quarterly overrides annual for the same dept/account/scenario/period</p>
+          </div>
+
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Download Template</p>
+            <p className="text-xs text-gray-500 mb-3">
+              Required columns: <code className="bg-gray-100 px-1 rounded text-gray-700">dept_code</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">account_code</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">scenario</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">period</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">amount</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">period_type</code>
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={downloadBudgetTemplate} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
+                <Download size={12}/> Blank Template
+              </button>
+              <button onClick={downloadBudgetSample} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
+                <Download size={12}/> Sample Data
+              </button>
+            </div>
           </div>
 
           <button

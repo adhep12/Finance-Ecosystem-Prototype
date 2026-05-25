@@ -1407,7 +1407,7 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
 const TOOLTIP_STYLE = { backgroundColor:'#fff', border:'1px solid var(--neutral-10)', borderRadius:'10px', fontSize:'12px', boxShadow:'0 4px 16px rgba(24,20,14,0.10)' }
 
 // Chart 1: New Supporters by Month — year-over-year comparison, live from patron_data
-function NewPatronChartCard({ patronData, dateRange }) {
+function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=false, onChangeType, onRemove }) {
   // Build YoY dataset: x-axis = months Jan–Dec, one line per calendar year
   const chartData = useMemo(() => {
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -1438,33 +1438,48 @@ function NewPatronChartCard({ patronData, dateRange }) {
   const tip  = <Tooltip contentStyle={TOOLTIP_STYLE}/>
   const leg  = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
   const common = { data: chartData, margin:{top:5,right:5,left:-20,bottom:0} }
+  const noData = chartData.every(r => years.every(yr => r[`y${yr}`] == null))
+
+  function renderLines() {
+    return years.map((yr,i) => {
+      const color = yearColor(yr), isCurr = i === years.length - 1
+      return { line: <Line key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color}
+        strokeWidth={isCurr?2.5:1.8} dot={false} activeDot={isCurr?{r:4}:false}
+        strokeDasharray={isCurr?undefined:'5 3'} opacity={isCurr?1:0.7} connectNulls={false}/>,
+        area: <Area key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color}
+          fill={color} fillOpacity={isCurr?0.15:0.07} strokeWidth={isCurr?2:1.5} dot={false} connectNulls={false}/>,
+        bar: <Bar key={yr} dataKey={`y${yr}`} name={yr} fill={color} radius={[3,3,0,0]} opacity={isCurr?1:0.6}/>,
+      }
+    })
+  }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
-      <div className="mb-4">
-        <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
-        <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
+    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
+          <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
+        </div>
+        {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
       </div>
-      {chartData.every(r => years.every(yr => r[`y${yr}`] == null))
+      {noData
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data imported yet</div>
         : <ResponsiveContainer width="100%" height={200}>
-            <LineChart {...common}>{grid}{xa}{ya}{tip}{leg}
-              {years.map((yr,i) => {
-                const color = yearColor(yr)
-                const isCurr = i === years.length - 1
-                return <Line key={yr} type="monotone" dataKey={`y${yr}`} name={yr} stroke={color}
-                  strokeWidth={isCurr?2.5:1.8} dot={false} activeDot={isCurr?{r:4}:false}
-                  strokeDasharray={isCurr?undefined:'5 3'} opacity={isCurr?1:0.7} connectNulls={false}/>
-              })}
-            </LineChart>
+            {chartType === 'bar'
+              ? <BarChart {...common}>{grid}{xa}{ya}{tip}{leg}{renderLines().map(r=>r.bar)}</BarChart>
+              : chartType === 'area'
+              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}{leg}{renderLines().map(r=>r.area)}</AreaChart>
+              : <LineChart {...common}>{grid}{xa}{ya}{tip}{leg}{renderLines().map(r=>r.line)}</LineChart>
+            }
           </ResponsiveContainer>
       }
     </div>
   )
 }
 
-// Chart 2: Monthly Supporter Base — recurring_patron_count by period, bar chart
-function PatronBaseChartCard({ patronData, dateRange }) {
+// Chart 2: Monthly Supporter Base — recurring_patron_count by period
+function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=false, onChangeType, onRemove }) {
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
 
@@ -1483,20 +1498,27 @@ function PatronBaseChartCard({ patronData, dateRange }) {
   const xa   = <XAxis dataKey="label" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
   const ya   = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
   const tip  = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[v.toLocaleString(),'Patrons']}/>
+  const common = { data: chartData, margin:{top:5,right:5,left:-20,bottom:0} }
 
   return (
-    <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
-      <div className="mb-4">
-        <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
-        <div className="text-[10px] text-gray-400">Recurring patrons in range</div>
+    <div className="relative bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
+          <div className="text-[10px] text-gray-400">Recurring patrons in range</div>
+        </div>
+        {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
       </div>
       {chartData.length === 0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data in range</div>
         : <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chartData} margin={{top:5,right:5,left:-20,bottom:0}}>
-              {grid}{xa}{ya}{tip}
-              <Bar dataKey="count" name="Patrons" fill="var(--color-accent)" radius={[4,4,0,0]}/>
-            </BarChart>
+            {chartType === 'line'
+              ? <LineChart {...common}>{grid}{xa}{ya}{tip}<Line type="monotone" dataKey="count" name="Patrons" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/></LineChart>
+              : chartType === 'area'
+              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}<Area type="monotone" dataKey="count" name="Patrons" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.15} strokeWidth={2} dot={false}/></AreaChart>
+              : <BarChart {...common}>{grid}{xa}{ya}{tip}<Bar dataKey="count" name="Patrons" fill="var(--color-accent)" radius={[4,4,0,0]}/></BarChart>
+            }
           </ResponsiveContainer>
       }
     </div>
@@ -1504,7 +1526,7 @@ function PatronBaseChartCard({ patronData, dateRange }) {
 }
 
 // Chart 3: Monthly Giving vs Budget — income actual vs budget, with cumulative toggle
-function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange }) {
+function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, chartType='line', editMode=false, onChangeType, onRemove }) {
   const [mode, setMode] = useState('monthly')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
@@ -1542,32 +1564,53 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange })
   const xa   = <XAxis dataKey="label" tick={{fontSize:10,fill:'var(--chart-tick)'}} axisLine={false} tickLine={false}/>
   const ya   = <YAxis tick={{fontSize:10,fill:'var(--chart-tick)'}} tickFormatter={v=>v>=1e6?`$${(v/1e6).toFixed(1)}M`:v>=1e3?`$${(v/1e3).toFixed(0)}K`:`$${v}`} axisLine={false} tickLine={false}/>
   const tip  = <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n)=>[formatCurrency(v,{compact:true}),n]}/>
+  const leg  = <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
+  const common = { data: chartData, margin:{top:5,right:5,left:0,bottom:0} }
+
+  function renderSeries(type) {
+    if (type === 'bar') return <>
+      <Bar dataKey="actual" name="Actual" fill="var(--color-accent)" radius={[4,4,0,0]}/>
+      <Bar dataKey="budget" name="Budget" fill="#E8A838" radius={[4,4,0,0]} opacity={0.7}/>
+    </>
+    if (type === 'area') return <>
+      <Area type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.15} strokeWidth={2} dot={false}/>
+      <Area type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" fill="#E8A838" fillOpacity={0.1} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+    </>
+    return <>
+      <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+      <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+    </>
+  }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Giving vs Budget</div>
           <div className="text-[10px] text-gray-400">Actual income vs {scenario||'budget'}</div>
         </div>
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
-          {['monthly','cumulative'].map(m=>(
-            <button key={m} onClick={()=>setMode(m)}
-              className={`px-2.5 py-1 text-[10px] font-semibold transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
-              {m==='monthly'?'Mo':'Cu'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {['monthly','cumulative'].map(m=>(
+              <button key={m} onClick={()=>setMode(m)}
+                className={`px-2.5 py-1 text-[10px] font-semibold transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+                {m==='monthly'?'Mo':'Cu'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {chartData.length === 0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={chartData} margin={{top:5,right:5,left:0,bottom:0}}>
-              {grid}{xa}{ya}{tip}
-              <Legend wrapperStyle={{fontSize:'11px',paddingTop:'8px'}}/>
-              <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
-              <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
-            </LineChart>
+            {chartType === 'bar'
+              ? <BarChart {...common}>{grid}{xa}{ya}{tip}{leg}{renderSeries('bar')}</BarChart>
+              : chartType === 'area'
+              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}{leg}{renderSeries('area')}</AreaChart>
+              : <LineChart {...common}>{grid}{xa}{ya}{tip}{leg}{renderSeries('line')}</LineChart>
+            }
           </ResponsiveContainer>
       }
     </div>
@@ -1979,6 +2022,19 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 const DEFAULT_KPI_CARDS      = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 
+// Chart catalog — preset charts that can be added / removed
+const CHART_CATALOG = [
+  { id:'new-patrons-yoy', label:'New Supporters YoY',     description:'Year-over-year comparison of new supporters by month', defaultType:'line' },
+  { id:'patron-base',     label:'Monthly Supporter Base', description:'Recurring patron count across the selected date range', defaultType:'bar' },
+  { id:'giving-vs-budget',label:'Giving vs Budget',       description:'Monthly income actuals vs budget/scenario with cumulative toggle', defaultType:'line' },
+]
+
+const DEFAULT_TREND_CHARTS = [
+  { id:'new-patrons-yoy',  chartType:'line' },
+  { id:'patron-base',      chartType:'bar'  },
+  { id:'giving-vs-budget', chartType:'line' },
+]
+
 function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
   const { budgetFlat, availableScenarios } = useApp()
   // activeBudget is a scenario string from AppContext.availableScenarios
@@ -1990,10 +2046,13 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
 
   const [editKPI,            setEditKPI]            = useState(false)
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
+  const [editCharts,         setEditCharts]         = useState(false)
   const [kpiCards,           setKpiCards]           = useState(DEFAULT_KPI_CARDS)
   const [patronMetricCards,  setPatronMetricCards]  = useState(DEFAULT_PATRON_METRICS)
+  const [trendCharts,        setTrendCharts]        = useState(DEFAULT_TREND_CHARTS)
   const [showAddKPI,         setShowAddKPI]         = useState(false)
   const [showAddPatronMetric,setShowAddPatronMetric]= useState(false)
+  const [showAddChart,       setShowAddChart]       = useState(false)
   const [manualCards,        setManualCards]        = useState({})
 
   // Supabase: cash flow + patron trends
@@ -2170,15 +2229,33 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         </div>
       </section>
 
-      {/* Trend Charts — hardwired preset charts */}
+      {/* Trend Charts — editable preset charts */}
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>Trend Charts</h2>
-        </div>
+        <SectionHeader title="Trend Charts" editMode={editCharts} onToggleEdit={()=>setEditCharts(v=>!v)} onAdd={()=>setShowAddChart(true)}/>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <NewPatronChartCard patronData={patronData} dateRange={dateRange}/>
-          <PatronBaseChartCard patronData={patronData} dateRange={dateRange}/>
-          <MonthlyGivingVsBudgetCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+          {trendCharts.map(tc => {
+            const updateType = t => setTrendCharts(p => p.map(c => c.id===tc.id ? {...c, chartType:t} : c))
+            const removeChart = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
+            if (tc.id === 'new-patrons-yoy') return (
+              <NewPatronChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
+                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+            )
+            if (tc.id === 'patron-base') return (
+              <PatronBaseChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
+                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+            )
+            if (tc.id === 'giving-vs-budget') return (
+              <MonthlyGivingVsBudgetCard key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
+                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+            )
+            return null
+          })}
+          {editCharts && (
+            <button onClick={()=>setShowAddChart(true)}
+              className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-h-[120px] text-gray-300 hover:text-gray-500">
+              <Plus size={20}/><span className="text-xs font-medium">Add chart</span>
+            </button>
+          )}
         </div>
       </section>
 
@@ -2191,6 +2268,32 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       {showAddPatronMetric&&<AddCardPanel title="Add Supporter Metric" catalog={PATRON_KPI_CATALOG} existingIds={patronMetricCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setPatronMetricCards(p=>[...p,card.id])}}
         onClose={()=>setShowAddPatronMetric(false)}/>}
+      {showAddChart&&(
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setShowAddChart(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-800">Add Trend Chart</h3>
+              <button onClick={()=>setShowAddChart(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+            </div>
+            <div className="space-y-2">
+              {CHART_CATALOG.map(c => {
+                const already = trendCharts.some(tc=>tc.id===c.id)
+                return (
+                  <button key={c.id} disabled={already}
+                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id,chartType:c.defaultType}]);setShowAddChart(false)}}
+                    className={`w-full text-left p-3.5 rounded-xl border-2 transition-all ${already?'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed':'border-gray-200 hover:border-teal-400 hover:bg-teal-50'}`}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-sm font-semibold text-gray-800">{c.label}</span>
+                      {already && <span className="text-[10px] text-gray-400 font-medium">Already added</span>}
+                    </div>
+                    <p className="text-xs text-gray-500">{c.description}</p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2826,7 +2929,7 @@ function TeamsTab({ dateRange, activeBudget }) {
             sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
             positive: totalVariance <= 0 },
           { label:'Teams Over Budget', value: String(overBudget),
-            sub: `${scaledTeams.length - overBudget} of ${scaledTeams.length} within budget`,
+            sub: `${teams.length - overBudget} of ${teams.length} within budget`,
             positive: overBudget === 0 },
         ].map((card,i) => (
           <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

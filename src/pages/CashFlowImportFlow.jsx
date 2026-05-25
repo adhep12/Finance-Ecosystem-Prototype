@@ -647,6 +647,22 @@ export default function CashFlowImportFlow() {
               </button>
             ))}
           </div>
+          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Download Template</p>
+            <p className="text-xs text-gray-500 mb-3">
+              Key columns: <code className="bg-gray-100 px-1 rounded text-gray-700">period</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded text-gray-700">cash_balance</code>
+            </p>
+            <div className="flex items-center gap-2">
+              <button onClick={downloadTemplateSafe} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
+                <Download size={12}/> Blank Template
+              </button>
+              <button onClick={downloadCashFlowSample} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
+                <Download size={12}/> Sample Data
+              </button>
+            </div>
+          </div>
+
           <button
             onClick={() => setStep(STEPS.upload)}
             className="px-5 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 flex items-center gap-2"
@@ -662,17 +678,7 @@ export default function CashFlowImportFlow() {
           <button onClick={() => setStep(STEPS.mode)} className="text-xs text-gray-400 flex items-center gap-1 hover:text-gray-600">
             <ChevronLeft size={12}/> Back
           </button>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-gray-600">Upload your monthly cash balance export.</p>
-            <div className="flex items-center gap-2">
-              <button onClick={downloadTemplateSafe} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
-                <Download size={12}/> Blank Template
-              </button>
-              <button onClick={downloadCashFlowSample} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
-                <Download size={12}/> Sample Data
-              </button>
-            </div>
-          </div>
+          <p className="text-sm text-gray-600">Upload your monthly cash balance export.</p>
           <DropZone onFile={handleFile}/>
         </div>
       )}
