@@ -185,23 +185,38 @@ export function AppProvider({ children }) {
       })
 
       // ── Phase 2: fetch actuals + org summary with the real org_id ─────────
-      // v_transactions_enriched can have 10k+ rows. Supabase PostgREST's
-      // default max_rows setting (~1000) silently truncates the result set,
-      // returning only the oldest rows — all outside the fiscal YTD window.
-      // Paginate with .range() until we have every row.
+      // v_transactions_enriched can have 10k+ rows. Use the same parallel-batch
+      // strategy as budgets: count first, then fire all page requests in parallel
+      // (batched to avoid connection throttling). Sequential while-loop could take
+      // several seconds for large transaction sets.
       const PAGE_SIZE = 1000
+
+      const { count: txCount } = await supabase
+        .from('v_transactions_enriched')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', resolvedOrgId)
+
+      const txTotalPages = Math.ceil((txCount || 0) / PAGE_SIZE)
+      const TX_BATCH = 10   // fire 10 requests at a time
+
       let txRows = []
-      let page = 0
-      while (true) {
-        const { data: pageData, error: pageErr } = await supabase
-          .from('v_transactions_enriched')
-          .select('*')
-          .eq('org_id', resolvedOrgId)
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-        if (pageErr) throw pageErr
-        txRows = [...txRows, ...(pageData || [])]
-        if (!pageData || pageData.length < PAGE_SIZE) break
-        page++
+      for (let start = 0; start < txTotalPages; start += TX_BATCH) {
+        const batchPages = Array.from(
+          { length: Math.min(TX_BATCH, txTotalPages - start) },
+          (_, i) => start + i
+        )
+        const results = await Promise.all(
+          batchPages.map(p =>
+            supabase.from('v_transactions_enriched')
+              .select('*')
+              .eq('org_id', resolvedOrgId)
+              .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+          )
+        )
+        for (const { data: pData, error: pErr } of results) {
+          if (pErr) console.warn('[AppContext] transaction page error:', pErr.message)
+          else txRows = [...txRows, ...(pData || [])]
+        }
       }
 
       // Set actuals FIRST — dashboards can render even if budget queries are slow

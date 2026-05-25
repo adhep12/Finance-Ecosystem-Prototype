@@ -148,6 +148,25 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
                .some(c => (t.category||'').toLowerCase().includes(c.toLowerCase())))
     .reduce((t,r) => t + (r.amount||0), 0)
 
+  // ── Prior Year — same period shifted back 12 months ───────────────────────
+  // Computed from the same actuals/incomeMonths arrays so it stays in sync.
+  const pyStartP = `${parseInt(startP.substring(0,4))-1}-${startP.substring(5,7)}`
+  const pyEndP   = `${parseInt(endP.substring(0,4))-1}-${endP.substring(5,7)}`
+
+  const pyIncInRange = (incomeMonths||[]).filter(m => {
+    const p = m.period || (m.date ? m.date.substring(0,7) : null)
+    return p && p >= pyStartP && p <= pyEndP
+  })
+  const pyContributions      = pyIncInRange.reduce((t,m) => t + (m.contributions||0), 0)
+  const pyMerchandiseRevenue = pyIncInRange.reduce((t,m) => t + (m.merch||0), 0)
+  const pyOtherIncome        = pyIncInRange.reduce((t,m) => t + (m.other||0), 0)
+
+  const pyActInRange = (actuals||[]).filter(t => {
+    const p = t.period || (t.date ? t.date.substring(0,7) : null)
+    return p && p >= pyStartP && p <= pyEndP && t.record_type !== 'income'
+  })
+  const pyExpenses = pyActInRange.reduce((t,r) => t + (r.amount||0), 0)
+
   // ── Budget — from AppContext.budgetFlat ───────────────────────────────────
   const budInRange = (budgetFlat||[]).filter(b => b.scenario === scenario && b.period && monthSet.has(b.period))
   const budSumCat = (rt, ...cats) => budInRange
@@ -174,17 +193,52 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
     : { current: 0, priorMonth: 0, priorYear: 0 }
 
   // ── Patron data — from v_patron_trends ───────────────────────────────────
-  const patronRows  = (patronData||[]).filter(p => p.period >= s.substring(0,7) && p.period <= e.substring(0,7))
+  const patronRows  = (patronData||[]).filter(p => p.period >= startP && p.period <= endP)
   const latestPat   = patronRows.length > 0
     ? patronRows.reduce((l,p) => !l || p.period > l.period ? p : l, null)
     : null
+
+  // Derive prior-month, prior-year, and prior-period new counts from the full
+  // patronData array (which covers all loaded periods, not just the range).
+  let patronPriorMonth = 0
+  let patronPriorYear  = 0
+  let newPriorPeriod   = 0
+  if (latestPat) {
+    const [ly, lm] = latestPat.period.split('-')
+    const lyNum = parseInt(ly), lmNum = parseInt(lm)
+
+    // Prior month: 1 month before the latest period in range
+    const pmDate = new Date(lyNum, lmNum - 2, 1)
+    const priorMonthP = `${pmDate.getFullYear()}-${String(pmDate.getMonth()+1).padStart(2,'0')}`
+    const priorMonthRow = (patronData||[]).find(p => p.period === priorMonthP)
+    patronPriorMonth = priorMonthRow ? (priorMonthRow.total_active_patrons || 0) : 0
+
+    // Prior year: same month, 1 year back
+    const priorYearP = `${lyNum - 1}-${String(lmNum).padStart(2,'0')}`
+    const priorYearRow = (patronData||[]).find(p => p.period === priorYearP)
+    patronPriorYear = priorYearRow ? (priorYearRow.total_active_patrons || 0) : 0
+
+    // Prior period new patrons: same duration immediately before current range
+    const numMonths = months.length || 1
+    const rangeStartDate = new Date(parseInt(s.substring(0,4)), parseInt(s.substring(5,7)) - 1, 1)
+    const priorPEnd = new Date(rangeStartDate)
+    priorPEnd.setMonth(priorPEnd.getMonth() - 1)
+    const priorPStart = new Date(priorPEnd)
+    priorPStart.setMonth(priorPStart.getMonth() - (numMonths - 1))
+    const priorPStartP = `${priorPStart.getFullYear()}-${String(priorPStart.getMonth()+1).padStart(2,'0')}`
+    const priorPEndP   = `${priorPEnd.getFullYear()}-${String(priorPEnd.getMonth()+1).padStart(2,'0')}`
+    newPriorPeriod = (patronData||[])
+      .filter(p => p.period >= priorPStartP && p.period <= priorPEndP)
+      .reduce((sum, p) => sum + (p.new_patrons_total||0), 0)
+  }
+
   const patrons = latestPat
     ? {
         total:            latestPat.total_active_patrons    || 0,
-        priorMonth:       0,
-        priorYear:        0,
-        newThisPeriod:    patronRows.reduce((s,p) => s + (p.new_patrons_total||0), 0),
-        newPriorPeriod:   0,
+        priorMonth:       patronPriorMonth,
+        priorYear:        patronPriorYear,
+        newThisPeriod:    patronRows.reduce((sum,p) => sum + (p.new_patrons_total||0), 0),
+        newPriorPeriod,
         avgGift:          latestPat.avg_gift_size           || 0,
         avgGiftPriorYear: 0,
         monthly: patronRows.map(p => {
@@ -210,7 +264,7 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
   return {
     giving:      { contributions, merchandiseRevenue, otherIncome },
     budget:      { contributions: budContrib, merchandiseRevenue: budMerch, otherIncome: budOther, staff: budStaff, contract: budContract, technology: budTech, travel: budTravel, otherGenAdmin: Math.max(0,budOtherExp) },
-    priorYear:   { contributions: 0, merchandiseRevenue: 0, otherIncome: 0, expenses: 0 },
+    priorYear:   { contributions: pyContributions, merchandiseRevenue: pyMerchandiseRevenue, otherIncome: pyOtherIncome, expenses: pyExpenses },
     expenseLines:{ staff, contract, technology, travel, otherGenAdmin },
     cash,
     forecast:    { contributions: budContrib, merchandiseRevenue: budMerch, otherIncome: budOther },
@@ -2154,8 +2208,11 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   function renderPatronMetricCard(cardId) {
     const p = d.patrons
     const removeMetric = () => setPatronMetricCards(c=>c.filter(x=>x!==cardId))
-    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label="vs Prior Month" sub1Delta={p.total-p.priorMonth} sub1Base={p.priorMonth} sub1Format="count" sub2Label="vs Prior Year" sub2Delta={p.total-p.priorYear} sub2Base={p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
-    if(cardId==='new-patrons') return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Base={p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={(p.newThisPeriod/p.newPriorPeriod-1)*100} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label={p.priorMonth > 0 ? "vs Prior Month" : null} sub1Delta={p.total-p.priorMonth} sub1Base={p.priorMonth} sub1Format="count" sub2Label={p.priorYear > 0 ? "vs Prior Year" : null} sub2Delta={p.total-p.priorYear} sub2Base={p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='new-patrons') {
+      const growthRate = p.newPriorPeriod > 0 ? (p.newThisPeriod/p.newPriorPeriod-1)*100 : null
+      return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Base={p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={growthRate} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    }
     if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Base={p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Base={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
     if(cardId==='retention') return (
       <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
@@ -2835,12 +2892,14 @@ function TeamsTab({ dateRange, activeBudget }) {
   }, [])
 
   // Build per-team actuals (expenses only, in date range)
+  // Transactions without a team_name are excluded — they have no team assignment.
   const { teamActualMap, teamIdMap } = useMemo(() => {
     const actualMap = {}, idMap = {}
     for (const t of actuals) {
+      if (!t.team_name) continue   // skip unassigned transactions
       if (!t.date || t.date < startDate || t.date > endDate) continue
       if (t.record_type === 'income') continue
-      const name = t.team_name || 'Unknown'
+      const name = t.team_name
       actualMap[name] = (actualMap[name] || 0) + Math.abs(t.amount || 0)
       if (t.team_id && !idMap[name]) idMap[name] = t.team_id
     }
@@ -2848,13 +2907,15 @@ function TeamsTab({ dateRange, activeBudget }) {
   }, [actuals, startDate, endDate])
 
   // Build per-team budget (selected scenario, in date range)
+  // Budget rows without a team_name are excluded — no team assignment.
   const teamBudgetMap = useMemo(() => {
     const m = {}
     for (const b of budgetFlat) {
+      if (!b.team_name) continue   // skip unassigned budget rows
       if (b.scenario !== activeBudget) continue
       if (b.record_type === 'income') continue
       if (!b.period || b.period < startM || b.period > endM) continue
-      const name = b.team_name || 'Unknown'
+      const name = b.team_name
       m[name] = (m[name] || 0) + Math.abs(b.amount || 0)
     }
     return m
