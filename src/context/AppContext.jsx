@@ -212,18 +212,29 @@ export function AppProvider({ children }) {
       // in BreakdownPage / BriefingPage would always return zero.
       // v_actuals_vs_budget preserves dept_code; filter to budget rows only
       // (scenario IS NOT NULL) so we don't re-fetch all the actuals rows.
-      const { data: budgetViewRows, error: budgetErr } = await supabase
-        .from('v_actuals_vs_budget')
-        .select('org_id, dept_code, team_name, team_id, category, record_type, period, budget, scenario')
-        .eq('org_id', resolvedOrgId)
-        .not('scenario', 'is', null)
-
-      if (budgetErr) {
-        console.warn('[AppContext] budget query failed (budget will be empty):', budgetErr.message)
-        setBudgetFlat([])
-      } else {
-        setBudgetFlat(mapBudgetFlat(budgetViewRows || []))
+      //
+      // IMPORTANT: The view has ~16,000 budget rows (≈8k per scenario × 2).
+      // Supabase PostgREST default limit is 1000 rows — a single query would
+      // silently truncate to the oldest ~6% of data.  Paginate exactly like
+      // the actuals query above.
+      let budgetRows = []
+      let bPage = 0
+      while (true) {
+        const { data: bData, error: bErr } = await supabase
+          .from('v_actuals_vs_budget')
+          .select('org_id, dept_code, team_name, team_id, category, record_type, period, budget, scenario')
+          .eq('org_id', resolvedOrgId)
+          .not('scenario', 'is', null)
+          .range(bPage * PAGE_SIZE, (bPage + 1) * PAGE_SIZE - 1)
+        if (bErr) {
+          console.warn('[AppContext] budget chunk error (budget may be partial):', bErr.message)
+          break
+        }
+        budgetRows = [...budgetRows, ...(bData || [])]
+        if (!bData || bData.length < PAGE_SIZE) break
+        bPage++
       }
+      setBudgetFlat(mapBudgetFlat(budgetRows))
 
       // ── Org summary: v_org_summary — used by ELT dashboard ───────────────────
       // Non-fatal: if it times out, ELT summary widgets show empty but app stays up.
