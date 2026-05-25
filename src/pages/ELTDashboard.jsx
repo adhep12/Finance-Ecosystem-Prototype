@@ -4232,7 +4232,7 @@ export default function ELTDashboard() {
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
-        {activeTab==='comments'  && <CommentsPage />}
+        {activeTab==='comments'  && <CommentsPage context="executive" />}
       </main>
     </div>
   )
