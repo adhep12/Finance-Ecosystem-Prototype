@@ -62,7 +62,7 @@ export default function LastImportSummary({ importType, accentColor = 'teal' }) 
         .eq('org_id', ORG_ID)
         .eq('import_type', importType)
         .eq('status', 'success')
-        .order('created_at', { ascending: false })
+        .order('imported_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
