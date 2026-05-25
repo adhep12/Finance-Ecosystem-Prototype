@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import {
-  ArrowUp, ArrowDown, ChevronsUpDown, FileDown, XCircle, Search,
-  MessageSquare, X,
+  ArrowUp, ArrowDown, ArrowUpDown, FileDown, XCircle, Search,
+  MessageSquare, X, ChevronDown, Check, SlidersHorizontal,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeam } from '../context/TeamContext'
@@ -10,15 +10,7 @@ import { useTeam } from '../context/TeamContext'
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TX_COLS = [
-  { key: 'date',        label: 'Date',       numeric: false },
-  { key: 'dept_name',   label: 'Department', numeric: false },
-  { key: 'category',    label: 'Category',   numeric: false },
-  { key: 'account',     label: 'Account',    numeric: false },
-  { key: 'grant',       label: 'Grant',      numeric: false },
-  { key: 'vendor',      label: 'Vendor',     numeric: false },
-  { key: 'amount',      label: 'Amount',     numeric: true  },
-]
+const PAGE_SIZE = 100
 
 const PIN_TYPES = [
   { type: 'question',             label: 'Question',             color: '#0EA5A0', placeholder: 'What are you wondering about?' },
@@ -28,8 +20,6 @@ const PIN_TYPES = [
   { type: 'budget-request',       label: 'Budget Request',       color: '#8B5CF6', placeholder: 'Describe the budget request…' },
 ]
 
-const PAGE_SIZE = 100
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +27,12 @@ const PAGE_SIZE = 100
 function fmtAmt(n) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', maximumFractionDigits: 2,
+  }).format(n)
+}
+
+function fmtAmtCompact(n) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency: 'USD', maximumFractionDigits: 0,
   }).format(n)
 }
 
@@ -51,7 +47,6 @@ function downloadCSV(filename, rows2d) {
   URL.revokeObjectURL(url)
 }
 
-/** Does a comment anchor refer to this transaction row? */
 function matchesTx(anchor, row) {
   const ref = anchor?.txRef
   if (!ref) return false
@@ -60,15 +55,128 @@ function matchesTx(anchor, row) {
     Math.abs((ref.amount || 0) - (row.amount || 0)) < 0.01
 }
 
+function quickPresets() {
+  const today = new Date()
+  const y = today.getFullYear(), m = today.getMonth()
+  const todayStr     = today.toISOString().slice(0, 10)
+  const thisMonthStart = new Date(y, m, 1).toISOString().slice(0, 10)
+  const lastMonthStart = new Date(y, m-1, 1).toISOString().slice(0, 10)
+  const lastMonthEnd   = new Date(y, m, 0).toISOString().slice(0, 10)
+  const last3Start     = new Date(y, m-2, 1).toISOString().slice(0, 10)
+  return [
+    { label: 'This month',    start: thisMonthStart, end: todayStr },
+    { label: 'Last month',    start: lastMonthStart, end: lastMonthEnd },
+    { label: 'Last 3 months', start: last3Start,     end: todayStr },
+  ]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Sort icon
+// MultiCheckFilter
 // ─────────────────────────────────────────────────────────────────────────────
 
-function SortIcon({ col, sortCol, sortDir }) {
-  if (sortCol !== col) return <ChevronsUpDown size={11} className="text-gray-400 flex-shrink-0" />
-  return sortDir === 'asc'
-    ? <ArrowUp   size={11} className="text-teal-400 flex-shrink-0" />
-    : <ArrowDown size={11} className="text-teal-400 flex-shrink-0" />
+function MultiCheckFilter({ label, options, selected, onToggle, onClear }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const activeCount = selected.size
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(p => !p)}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors
+          ${activeCount > 0 ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+        {label}
+        {activeCount > 0 && <span className="bg-white/20 px-1 rounded-full text-[10px] font-bold">{activeCount}</span>}
+        <ChevronDown size={10}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 min-w-[180px] max-h-64 overflow-y-auto">
+          {activeCount > 0 && (
+            <button onClick={() => { onClear(); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 border-b border-gray-100 font-medium">
+              Clear all ({activeCount})
+            </button>
+          )}
+          {options.map(o => (
+            <button key={o.value} onClick={() => onToggle(o.value)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
+              <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0
+                ${selected.has(o.value) ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`}>
+                {selected.has(o.value) && <Check size={8} className="text-white"/>}
+              </div>
+              <span className="truncate">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AmountRangeFilter
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef()
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  const active = amtMin !== '' || amtMax !== ''
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(p => !p)}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors
+          ${active ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+        Amount{active ? ' ✓' : ''}
+        <ChevronDown size={10}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-52">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Amount Range</div>
+          <div className="flex gap-2 items-center">
+            <input type="number" placeholder="Min" value={amtMin}
+              onChange={e => onMin(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none"/>
+            <span className="text-gray-400 text-xs">–</span>
+            <input type="number" placeholder="Max" value={amtMax}
+              onChange={e => onMax(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none"/>
+          </div>
+          {active && (
+            <button onClick={onClear} className="mt-2 text-xs text-red-600 hover:underline">Clear</button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sort header button
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SH({ col, right, sortCol, sortDir, onSort, children }) {
+  const active = sortCol === col
+  return (
+    <th onClick={() => onSort(col)}
+      className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none whitespace-nowrap
+        ${right ? 'text-right' : 'text-left'} ${active ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>
+      <span className={`inline-flex items-center gap-1 ${right ? 'justify-end' : ''}`}>
+        {children}
+        {active
+          ? (sortDir === 'asc' ? <ArrowUp size={8}/> : <ArrowDown size={8}/>)
+          : <ArrowUpDown size={8} className="opacity-30"/>}
+      </span>
+    </th>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +208,7 @@ function TxCommentModal({ transaction: t, onClose }) {
           date:       t.date,
           vendor:     t.vendor,
           amount:     t.amount,
-          department: t.department,
+          department: t.dept_name || t.department,
           category:   t.category,
           account:    t.account || '',
         },
@@ -114,12 +222,10 @@ function TxCommentModal({ transaction: t, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-
-        {/* Transaction context header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900 truncate">{t.vendor}</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{t.date} · {t.category} · {t.department}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{t.date} · {t.category} · {t.dept_name || t.department}</p>
           </div>
           <div className="flex items-center gap-3 ml-3 flex-shrink-0">
             <span className="text-lg font-bold text-gray-900">{fmtAmt(t.amount)}</span>
@@ -128,62 +234,34 @@ function TxCommentModal({ transaction: t, onClose }) {
             </button>
           </div>
         </div>
-
-        {/* Type pills */}
         <div className="px-5 pt-4 pb-2 flex flex-wrap gap-1.5">
           {PIN_TYPES.map(pt => (
-            <button
-              key={pt.type}
-              onClick={() => setType(pt.type)}
+            <button key={pt.type} onClick={() => setType(pt.type)}
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                type === pt.type
-                  ? 'text-white border-transparent'
-                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                type === pt.type ? 'text-white border-transparent' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
               }`}
-              style={type === pt.type ? { backgroundColor: pt.color, borderColor: pt.color } : {}}
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: type === pt.type ? 'rgba(255,255,255,0.7)' : pt.color }}
-              />
+              style={type === pt.type ? { backgroundColor: pt.color, borderColor: pt.color } : {}}>
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: type === pt.type ? 'rgba(255,255,255,0.7)' : pt.color }}/>
               {pt.label}
             </button>
           ))}
         </div>
-
-        {/* Fields */}
         <div className="px-5 pb-3 space-y-2">
-          <input
-            value={author}
-            onChange={e => setAuthor(e.target.value)}
-            placeholder="Your name"
-            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-400"
-          />
-          <textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder={pin.placeholder}
-            rows={3}
-            autoFocus
-            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-400"
-          />
+          <input value={author} onChange={e => setAuthor(e.target.value)} placeholder="Your name"
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-400"/>
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder={pin.placeholder}
+            rows={3} autoFocus
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-400"/>
         </div>
-
-        {/* Footer */}
         <div className="flex items-center gap-2 px-5 pb-5">
           {saved
             ? <span className="text-xs text-green-600 font-medium flex-1">Posted! → view in Comments & Requests</span>
-            : <div className="flex-1" />
-          }
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={handlePost}
-            disabled={!text.trim() || !author.trim()}
+            : <div className="flex-1"/>}
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
+          <button onClick={handlePost} disabled={!text.trim() || !author.trim()}
             className="px-4 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 transition-colors"
-            style={{ backgroundColor: pin.color }}
-          >
+            style={{ backgroundColor: pin.color }}>
             Post {pin.label}
           </button>
         </div>
@@ -198,62 +276,124 @@ function TxCommentModal({ transaction: t, onClose }) {
 
 export default function TransactionsPage() {
   const { comments } = useApp()
-  // Scope all actuals to this team's departments only
   const { teamActuals: actuals } = useTeam()
 
-  const [sortCol,    setSortCol]    = useState('date')
-  const [sortDir,    setSortDir]    = useState('asc')
-  const [filters,    setFilters]    = useState({
-    date: '', dept_name: '', category: '', account: '', grant: '', vendor: '', amount: '',
-  })
-  const [page,       setPage]       = useState(1)
-  const [selectedTx, setSelectedTx] = useState(null)   // open comment modal
+  // ── Date range ──
+  const today = new Date().toISOString().slice(0, 10)
+  const yearStart = `${new Date().getFullYear()}-01-01`
+  const [startDate, setStartDate] = useState(yearStart)
+  const [endDate,   setEndDate]   = useState(today)
 
-  function handleSort(col) {
-    if (sortCol === col) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortCol(col)
-      setSortDir(col === 'amount' ? 'desc' : 'asc')
+  // ── Filters ──
+  const [search,      setSearch]      = useState('')
+  const [recordType,  setRecordType]  = useState('all')
+  const [deptFilter,  setDeptFilter]  = useState(new Set())
+  const [catFilter,   setCatFilter]   = useState(new Set())
+  const [acctFilter,  setAcctFilter]  = useState(new Set())
+  const [amtMin,      setAmtMin]      = useState('')
+  const [amtMax,      setAmtMax]      = useState('')
+
+  // ── Sort ──
+  const [sortCol, setSortCol] = useState('date')
+  const [sortDir, setSortDir] = useState('desc')
+
+  // ── Pagination ──
+  const [page, setPage] = useState(1)
+
+  // ── Modal ──
+  const [selectedTx, setSelectedTx] = useState(null)
+
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir(col === 'amount' ? 'desc' : 'asc') }
+    setPage(1)
+  }
+
+  // ── Derived filter options from actuals ──
+  const deptOptions = useMemo(() => {
+    const seen = new Map()
+    for (const r of actuals) {
+      const name = r.dept_name || r.department
+      if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
     }
-    setPage(1)
-  }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [actuals])
 
-  function setFilter(col, val) {
-    setFilters(prev => ({ ...prev, [col]: val }))
-    setPage(1)
-  }
+  const catOptions = useMemo(() => {
+    const seen = new Set()
+    for (const r of actuals) if (r.category) seen.add(r.category)
+    return [...seen].sort().map(c => ({ value: c, label: c }))
+  }, [actuals])
 
-  function clearFilters() {
-    setFilters({ date: '', dept_name: '', category: '', account: '', grant: '', vendor: '', amount: '' })
-    setPage(1)
-  }
+  const acctOptions = useMemo(() => {
+    const seen = new Map()
+    for (const r of actuals) {
+      const name = r.account
+      if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [actuals])
 
-  const anyFilter = Object.values(filters).some(v => v !== '')
+  // ── In-range rows (date filter applied first) ──
+  const inRange = useMemo(() =>
+    actuals.filter(r => (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate))
+  , [actuals, startDate, endDate])
 
+  // ── Filtered + sorted rows ──
   const filtered = useMemo(() => {
-    let rows = [...actuals]
-    TX_COLS.forEach(({ key }) => {
-      const f = filters[key]
-      if (!f) return
-      const fl = f.toLowerCase()
-      rows = rows.filter(r => String(r[key] ?? '').toLowerCase().includes(fl))
-    })
-    rows.sort((a, b) => {
-      let av = a[sortCol] ?? ''
-      let bv = b[sortCol] ?? ''
-      if (sortCol === 'amount') { av = Number(av); bv = Number(bv) }
-      else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase() }
-      if (av < bv) return sortDir === 'asc' ? -1 :  1
-      if (av > bv) return sortDir === 'asc' ?  1 : -1
+    let rows = inRange
+
+    if (recordType !== 'all') rows = rows.filter(r => r.record_type === recordType)
+
+    const q = search.trim().toLowerCase()
+    if (q) rows = rows.filter(r =>
+      [r.vendor, r.dept_name, r.department, r.category, r.account, r.grant, r.description]
+        .some(v => String(v || '').toLowerCase().includes(q))
+    )
+
+    if (deptFilter.size > 0)  rows = rows.filter(r => deptFilter.has(r.dept_name || r.department))
+    if (catFilter.size > 0)   rows = rows.filter(r => catFilter.has(r.category))
+    if (acctFilter.size > 0)  rows = rows.filter(r => acctFilter.has(r.account))
+    if (amtMin !== '')        rows = rows.filter(r => Math.abs(r.amount || 0) >= parseFloat(amtMin))
+    if (amtMax !== '')        rows = rows.filter(r => Math.abs(r.amount || 0) <= parseFloat(amtMax))
+
+    rows = [...rows].sort((a, b) => {
+      let av, bv
+      if (sortCol === 'date')   { av = a.date   || ''; bv = b.date   || ''; return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av) }
+      if (sortCol === 'dept')   { av = a.dept_name || a.department || ''; bv = b.dept_name || b.department || ''; return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av) }
+      if (sortCol === 'cat')    { av = a.category || ''; bv = b.category || ''; return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av) }
+      if (sortCol === 'acct')   { av = a.account  || ''; bv = b.account  || ''; return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av) }
+      if (sortCol === 'vendor') { av = a.vendor   || ''; bv = b.vendor   || ''; return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av) }
+      if (sortCol === 'amount') { av = Math.abs(a.amount || 0); bv = Math.abs(b.amount || 0); return sortDir === 'asc' ? av - bv : bv - av }
       return 0
     })
     return rows
-  }, [actuals, filters, sortCol, sortDir])
+  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, amtMin, amtMax, sortCol, sortDir])
 
-  // Index comments by tx for O(1) lookups
+  const filteredTotal = useMemo(() => filtered.reduce((s, r) => s + Math.abs(r.amount || 0), 0), [filtered])
+
+  // ── Active filter count ──
+  function activeFilterCount() {
+    return [
+      search.trim() ? 1 : 0,
+      recordType !== 'all' ? 1 : 0,
+      deptFilter.size,
+      catFilter.size,
+      acctFilter.size,
+      amtMin !== '' || amtMax !== '' ? 1 : 0,
+    ].reduce((a, b) => a + b, 0)
+  }
+
+  function clearAllFilters() {
+    setSearch(''); setRecordType('all')
+    setDeptFilter(new Set()); setCatFilter(new Set()); setAcctFilter(new Set())
+    setAmtMin(''); setAmtMax('')
+    setPage(1)
+  }
+
+  // ── Comments index ──
   const txCommentMap = useMemo(() => {
-    const map = new Map()  // key: "date|vendor|amount" → comments[]
+    const map = new Map()
     comments.forEach(c => {
       if (c.anchor?.type === 'tx') {
         const r = c.anchor.txRef
@@ -268,206 +408,198 @@ export default function TransactionsPage() {
   function txKey(row) { return `${row.date}|${row.vendor}|${row.amount}` }
   function txComments(row) { return txCommentMap.get(txKey(row)) || [] }
 
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageRows    = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalAmount = filtered.reduce((s, r) => s + (r.amount || 0), 0)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageRows   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  // Count of transactions in filtered view that have comments
-  const commentedCount = useMemo(
-    () => filtered.filter(r => txCommentMap.has(txKey(r))).length,
-    [filtered, txCommentMap]
-  )
+  function handleExport() {
+    const keys = ['date', 'dept_name', 'category', 'account', 'grant', 'vendor', 'amount', 'description']
+    downloadCSV('transactions-export.csv', [
+      keys,
+      ...filtered.map(r => keys.map(k => r[k] ?? '')),
+    ])
+  }
+
+  const shProps = { sortCol, sortDir, onSort: (col) => { toggleSort(col); setPage(1) } }
 
   return (
     <>
-    <div className="p-6 max-w-6xl mx-auto space-y-4">
+    <div className="flex flex-col min-h-0 h-full">
+
       {/* Page header */}
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between px-6 pt-6 pb-4">
         <div>
           <div className="text-xs font-bold uppercase tracking-widest text-teal-600 mb-1">Raw Data</div>
           <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            All imported actuals. Click any row to leave a comment anchored to that transaction.
-          </p>
+          <p className="text-sm text-gray-500 mt-1">All actuals for this team. Click any row to leave a comment.</p>
         </div>
-        <button
-          onClick={() => {
-            const headers = TX_COLS.map(c => c.key)
-            downloadCSV('transactions-export.csv', [
-              headers,
-              ...filtered.map(r => headers.map(h => r[h] ?? '')),
-            ])
-          }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-sm"
-        >
-          <FileDown size={14} /> Export{anyFilter ? ' filtered view' : ' all'}
+        <button onClick={handleExport}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-sm">
+          <FileDown size={14}/> Export{activeFilterCount() > 0 ? ' filtered' : ' all'}
         </button>
       </div>
 
-      {/* Table card */}
-      <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-white rounded-2xl overflow-hidden shadow-sm mx-6 mb-6 flex flex-col">
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100">
-          <span className="text-sm font-semibold text-gray-700 flex-1">
-            {filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}
-            {anyFilter && (
-              <span className="text-gray-400 font-normal ml-1">of {actuals.length.toLocaleString()} total</span>
-            )}
-          </span>
-          {commentedCount > 0 && (
-            <span className="flex items-center gap-1 text-xs text-teal-600 font-medium">
-              <MessageSquare size={11} /> {commentedCount} with comments
-            </span>
-          )}
-          <span className="text-xs text-gray-500 tabular-nums">
-            Total: <span className="font-semibold text-gray-800">{fmtAmt(totalAmount)}</span>
-          </span>
-          {anyFilter && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
-            >
-              <XCircle size={12} /> Clear filters
+        {/* ── Toolbar row 1: date range + presets + record type ── */}
+        <div className="flex items-center gap-2 flex-wrap px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(1) }}
+            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+          <span className="text-xs text-gray-400">to</span>
+          <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(1) }}
+            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+          {quickPresets().map(p => (
+            <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end); setPage(1) }}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
+              {p.label}
             </button>
+          ))}
+          <div className="w-px h-5 bg-gray-200"/>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {[['all','All'],['expense','Expense'],['income','Income']].map(([val, lbl]) => (
+              <button key={val} onClick={() => { setRecordType(val); setPage(1) }}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Toolbar row 2: search + column filters ── */}
+        <div className="flex items-center gap-2 flex-wrap px-5 py-2.5 border-b border-gray-200 bg-white">
+          <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+          {/* Global search */}
+          <div className="relative min-w-[180px]">
+            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search…"
+              className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
+          </div>
+          {/* Department */}
+          <MultiCheckFilter label="Department" options={deptOptions} selected={deptFilter}
+            onToggle={v => { setDeptFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+            onClear={() => { setDeptFilter(new Set()); setPage(1) }}/>
+          {/* Category */}
+          <MultiCheckFilter label="Category" options={catOptions} selected={catFilter}
+            onToggle={v => { setCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+            onClear={() => { setCatFilter(new Set()); setPage(1) }}/>
+          {/* Account */}
+          <MultiCheckFilter label="Account" options={acctOptions} selected={acctFilter}
+            onToggle={v => { setAcctFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setPage(1) }}
+            onClear={() => { setAcctFilter(new Set()); setPage(1) }}/>
+          {/* Amount range */}
+          <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
+            onMin={v => { setAmtMin(v); setPage(1) }}
+            onMax={v => { setAmtMax(v); setPage(1) }}
+            onClear={() => { setAmtMin(''); setAmtMax(''); setPage(1) }}/>
+          {/* Filter badge + clear */}
+          {activeFilterCount() > 0 && (
+            <>
+              <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+                {activeFilterCount()} filter{activeFilterCount() !== 1 ? 's' : ''}
+              </span>
+              <button onClick={clearAllFilters} className="text-xs text-red-600 hover:underline font-medium">
+                Clear all
+              </button>
+            </>
           )}
         </div>
 
-        {/* Spreadsheet */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse" style={{ minWidth: 820 }}>
+        {/* ── Stats bar ── */}
+        <div className="flex items-center gap-4 px-5 py-2 border-b border-gray-100 text-xs text-gray-400">
+          <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
+          {filtered.length < inRange.length && (
+            <span>of {inRange.length.toLocaleString()} in range</span>
+          )}
+          <span className="font-semibold text-gray-700">{fmtAmtCompact(filteredTotal)}</span>
+        </div>
 
-            {/* Column headers */}
+        {/* ── Table ── */}
+        <div className="overflow-x-auto flex-1">
+          <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
             <thead>
               <tr className="bg-gray-900 text-white select-none">
-                {TX_COLS.map(col => (
-                  <th
-                    key={col.key}
-                    onClick={() => handleSort(col.key)}
-                    className={`px-3 py-2.5 font-semibold uppercase tracking-wider text-[10px] cursor-pointer hover:bg-gray-800 transition-colors whitespace-nowrap ${
-                      col.numeric ? 'text-right' : 'text-left'
-                    }`}
-                  >
-                    <span className={`inline-flex items-center gap-1 ${col.numeric ? 'flex-row-reverse' : ''}`}>
-                      {col.label}
-                      <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
-                    </span>
-                  </th>
-                ))}
-                {/* Action col header */}
-                <th className="px-2 py-2.5 w-10 bg-gray-900" />
-              </tr>
-
-              {/* Filter row */}
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {TX_COLS.map(col => (
-                  <th key={col.key} className="px-2 py-1.5">
-                    <div className="relative">
-                      <Search size={10} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" />
-                      <input
-                        value={filters[col.key]}
-                        onChange={e => setFilter(col.key, e.target.value)}
-                        placeholder="Filter…"
-                        className={`w-full text-[11px] border border-gray-200 rounded-md pl-5 pr-2 py-1 focus:outline-none focus:border-teal-400 bg-white placeholder:text-gray-300 ${
-                          col.numeric ? 'text-right' : 'text-left'
-                        } ${filters[col.key] ? 'border-teal-400 bg-teal-50/30' : ''}`}
-                      />
-                    </div>
-                  </th>
-                ))}
-                <th className="px-2 py-1.5 bg-gray-50" />
+                <SH col="date"   {...shProps}>Date</SH>
+                <SH col="dept"   {...shProps}>Department</SH>
+                <SH col="cat"    {...shProps}>Category</SH>
+                <SH col="acct"   {...shProps}>Account</SH>
+                <SH col="vendor" {...shProps}>Vendor</SH>
+                <SH col="amount" right {...shProps}>Amount</SH>
+                <th className="px-2 py-2.5 w-10 bg-gray-900"/>
               </tr>
             </thead>
-
-            {/* Rows */}
             <tbody>
               {pageRows.length === 0 ? (
                 <tr>
-                  <td colSpan={TX_COLS.length + 1} className="px-5 py-12 text-center text-gray-400 text-sm">
-                    {anyFilter
+                  <td colSpan={7} className="px-5 py-12 text-center text-gray-400 text-sm">
+                    {activeFilterCount() > 0
                       ? 'No transactions match your filters.'
-                      : 'No transactions loaded yet — import actuals on the Import page.'}
+                      : 'No transactions in this date range.'}
                   </td>
                 </tr>
-              ) : (
-                pageRows.map((row, i) => {
-                  const rowComments = txComments(row)
-                  const hasComments = rowComments.length > 0
-                  // Color of the most-recent comment type
-                  const commentColor = hasComments
-                    ? (PIN_TYPES.find(p => p.type === rowComments[0].type)?.color || '#6B7280')
-                    : null
-
-                  return (
-                    <tr
-                      key={i}
-                      onClick={() => setSelectedTx(row)}
-                      className={`border-b border-gray-50 hover:bg-teal-50/40 transition-colors cursor-pointer group ${
-                        i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
-                      }`}
-                    >
-                      <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
-                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.dept_name || row.department || '—'}</td>
-                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[140px] truncate">{row.category || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.grant || '—'}</td>
-                      <td className="px-3 py-2 text-gray-800 max-w-[200px] truncate">{row.vendor || '—'}</td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
-                        {fmtAmt(row.amount)}
-                      </td>
-                      {/* Comment indicator / add button */}
-                      <td className="px-2 py-2 w-10 text-center">
-                        {hasComments ? (
-                          <span
-                            className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
-                            style={{ backgroundColor: commentColor }}
-                            title={`${rowComments.length} comment${rowComments.length !== 1 ? 's' : ''}`}
-                          >
-                            <MessageSquare size={9} />
-                            {rowComments.length}
-                          </span>
-                        ) : (
-                          <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-teal-100 text-teal-400">
-                            <MessageSquare size={12} />
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
+              ) : pageRows.map((row, i) => {
+                const rowComments  = txComments(row)
+                const hasComments  = rowComments.length > 0
+                const commentColor = hasComments
+                  ? (PIN_TYPES.find(p => p.type === rowComments[0].type)?.color || '#6B7280')
+                  : null
+                return (
+                  <tr key={i} onClick={() => setSelectedTx(row)}
+                    className={`border-b border-gray-50 hover:bg-teal-50/40 transition-colors cursor-pointer group ${
+                      i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+                    }`}>
+                    <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{row.dept_name || row.department || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap max-w-[140px] truncate">{row.category || '—'}</td>
+                    <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{row.account || '—'}</td>
+                    <td className="px-3 py-2 text-gray-800 max-w-[200px] truncate">{row.vendor || '—'}</td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
+                      {fmtAmt(row.amount)}
+                    </td>
+                    <td className="px-2 py-2 w-10 text-center">
+                      {hasComments ? (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                          style={{ backgroundColor: commentColor }}
+                          title={`${rowComments.length} comment${rowComments.length !== 1 ? 's' : ''}`}>
+                          <MessageSquare size={9}/>
+                          {rowComments.length}
+                        </span>
+                      ) : (
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-teal-100 text-teal-400">
+                          <MessageSquare size={12}/>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
 
             {/* Totals footer */}
             {pageRows.length > 0 && (
               <tfoot>
                 <tr className="bg-gray-50 border-t-2 border-gray-200">
-                  <td colSpan={TX_COLS.length} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    {anyFilter ? `Filtered total (${filtered.length} rows)` : `Total (${actuals.length} rows)`}
+                  <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {activeFilterCount() > 0 ? `Filtered total (${filtered.length} rows)` : `Total (${inRange.length} rows)`}
                   </td>
                   <td className="px-3 py-2 text-right font-mono font-bold text-gray-900 tabular-nums">
-                    {fmtAmt(totalAmount)}
+                    {fmtAmt(filteredTotal)}
                   </td>
+                  <td/>
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
 
-        {/* Pagination */}
+        {/* ── Pagination ── */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50">
             <span className="text-xs text-gray-500">
               Page {page} of {totalPages} · rows {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}
             </span>
             <div className="flex gap-1">
-              {[
-                ['«', () => setPage(1),                                       page === 1],
-                ['‹', () => setPage(p => Math.max(1, p - 1)),                page === 1],
-              ].map(([l, fn, dis]) => (
+              {[['«', () => setPage(1), page === 1], ['‹', () => setPage(p => Math.max(1, p-1)), page === 1]].map(([l, fn, dis]) => (
                 <button key={l} onClick={fn} disabled={dis}
-                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors"
-                >{l}</button>
+                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors">{l}</button>
               ))}
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 const offset = Math.max(0, Math.min(page - 3, totalPages - 5))
@@ -476,36 +608,23 @@ export default function TransactionsPage() {
                   <button key={p} onClick={() => setPage(p)}
                     className={`px-2.5 py-1 text-xs border rounded-lg transition-colors ${
                       p === page ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 hover:bg-gray-100'
-                    }`}
-                  >{p}</button>
+                    }`}>{p}</button>
                 )
               })}
-              {[
-                ['›', () => setPage(p => Math.min(totalPages, p + 1)), page === totalPages],
-                ['»', () => setPage(totalPages),                        page === totalPages],
-              ].map(([l, fn, dis]) => (
+              {[['›', () => setPage(p => Math.min(totalPages, p+1)), page === totalPages], ['»', () => setPage(totalPages), page === totalPages]].map(([l, fn, dis]) => (
                 <button key={l} onClick={fn} disabled={dis}
-                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors"
-                >{l}</button>
+                  className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-100 transition-colors">{l}</button>
               ))}
             </div>
           </div>
         )}
       </div>
-
-      {/* Click-row hint */}
-      <p className="text-xs text-gray-400 text-center">
-        Click any row to leave a comment — comments are anchored to that specific transaction
-      </p>
-
-      {/* Comment modal */}
-      {selectedTx && (
-        <TxCommentModal
-          transaction={selectedTx}
-          onClose={() => setSelectedTx(null)}
-        />
-      )}
     </div>
+
+    {/* Comment modal */}
+    {selectedTx && (
+      <TxCommentModal transaction={selectedTx} onClose={() => setSelectedTx(null)}/>
+    )}
     </>
   )
 }
