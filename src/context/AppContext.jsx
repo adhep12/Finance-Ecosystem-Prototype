@@ -215,22 +215,29 @@ export function AppProvider({ children }) {
       //   3. Resolve dept_code / record_type in JS using the lookup maps
 
       const [
-        { data: deptLookup },
-        { data: acctLookup },
+        { data: deptLookup,  error: deptLookupErr  },
+        { data: acctLookup,  error: acctLookupErr  },
       ] = await Promise.all([
+        // departments: no org_id filter — some rows may lack org_id (created
+        // via setup before org_id was enforced). TeamContext uses the same
+        // pattern successfully. Scoping by org is implicit via team_id.
         supabase.from('departments')
-          .select('id, dept_code, dept_name')
-          .eq('org_id', resolvedOrgId),
+          .select('id, dept_code, dept_name'),
         supabase.from('chart_of_accounts')
           .select('id, record_type, category')
           .eq('org_id', resolvedOrgId)
           .eq('deleted', false),
       ])
 
+      if (deptLookupErr) console.warn('[AppContext] departments lookup error:', deptLookupErr.message)
+      if (acctLookupErr) console.warn('[AppContext] chart_of_accounts lookup error:', acctLookupErr.message)
+
       const deptMap = {}  // department uuid → { dept_code, dept_name }
       for (const d of (deptLookup || [])) deptMap[d.id] = d
       const acctMap = {}  // account uuid → { record_type, category }
       for (const a of (acctLookup || [])) acctMap[a.id] = a
+
+      console.log('[AppContext] dept lookup:', Object.keys(deptMap).length, 'depts | acct lookup:', Object.keys(acctMap).length, 'accounts')
 
       let budgetRows = []
       let bPage = 0
