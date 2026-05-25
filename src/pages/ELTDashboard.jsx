@@ -2312,6 +2312,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
   const [localDateRange, setLocalDateRange] = useState(globalDateRange || { preset:'fiscal-ytd', startDate:'2025-06-01', endDate:'2026-05-31' })
   const [showLocalPicker, setShowLocalPicker] = useState(false)
   const localPickerRef = useRef(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     function handle(e) { if(localPickerRef.current&&!localPickerRef.current.contains(e.target)) setShowLocalPicker(false) }
@@ -2540,8 +2541,10 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
                 </div>
               )}
             </div>
-            <button disabled title="Dashboard not yet created"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 bg-gray-100 cursor-not-allowed opacity-60">
+            <button
+              onClick={() => { onClose(); navigate(`/team/${team.id}/briefing`) }}
+              disabled={!team?.id}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${team?.id ? 'text-white bg-gray-900 hover:bg-gray-700 cursor-pointer' : 'text-gray-400 bg-gray-100 cursor-not-allowed opacity-60'}`}>
               <LayoutDashboard size={12}/> Open Dashboard
             </button>
             <button onClick={onClose} className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
