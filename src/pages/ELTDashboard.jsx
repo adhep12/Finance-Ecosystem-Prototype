@@ -2346,7 +2346,15 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
   const scaledVarPct     = scaledTeam.budget > 0 ? (scaledVariance / scaledTeam.budget * 100) : 0
 
   // ── chart data based on drill-down level
-  const allMonthly = teamMonthly(scaledTeam.cats, team.spreadKey)
+  // Prefer real per-month data when supplied; fall back to spread-pattern approximation
+  const allMonthly = (team.realMonthly && team.realMonthly.length > 0)
+    ? (() => {
+        // Filter to local date range
+        const s = (localDateRange?.startDate || '2000-01').slice(0,7)
+        const e = (localDateRange?.endDate   || '2099-12').slice(0,7)
+        return team.realMonthly.filter(r => r.period >= s && r.period <= e)
+      })()
+    : teamMonthly(scaledTeam.cats, team.spreadKey)
 
   // Category-level: stacked accounts for the selected category
   const catAccounts = selectedCat ? (TEAM_CAT_ACCOUNTS[selectedCat] || []) : []
@@ -2867,6 +2875,69 @@ function TeamsTab({ dateRange, activeBudget }) {
 
   const [sortKey, setSortKey] = useState('actual')
   const [sortDir, setSortDir] = useState(-1)
+  const [selectedTeam, setSelectedTeam] = useState(null)
+
+  // Build drawer-compatible team object from real actuals + budget for a team row
+  function buildDrawerTeam(teamRow) {
+    const teamTxs = actuals.filter(t => {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null)
+      return t.team_name === teamRow.name && t.record_type !== 'income' && p && p >= startM && p <= endM
+    })
+    // Categorise using the same keyword matcher used everywhere else
+    function catGroup(t) {
+      if (_catMatch(t.category, _STAFF_W)) return 'staff'
+      if (_catMatch(t.category, _CONTRACT_W)) return 'contract'
+      if (_catMatch(t.category, _TECH_W)) return 'technology'
+      if (_catMatch(t.category, _TRAVEL_W)) return 'travel'
+      return 'other'
+    }
+    // Per-category actuals totals
+    const catActualTotals = {}
+    for (const t of teamTxs) {
+      const key = catGroup(t)
+      catActualTotals[key] = (catActualTotals[key] || 0) + Math.abs(t.amount || 0)
+    }
+    // Per-category budget totals
+    const teamBudTxs = budgetFlat.filter(b =>
+      b.team_name === teamRow.name && b.scenario === activeBudget &&
+      b.record_type !== 'income' && b.period && b.period >= startM && b.period <= endM
+    )
+    const catBudgetTotals = {}
+    for (const b of teamBudTxs) {
+      const key = catGroup(b)
+      catBudgetTotals[key] = (catBudgetTotals[key] || 0) + Math.abs(b.amount || 0)
+    }
+    // Merge into cats shape TeamDetailDrawer expects
+    const allCatKeys = new Set([...Object.keys(catActualTotals), ...Object.keys(catBudgetTotals)])
+    const cats = {}
+    for (const key of allCatKeys) {
+      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: 0 }
+    }
+    // Real monthly data per category (for the category chart)
+    const byPeriod = {}
+    for (const t of teamTxs) {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null)
+      if (!p) continue
+      const key = catGroup(t)
+      if (!byPeriod[p]) byPeriod[p] = { period: p }
+      byPeriod[p][key] = (byPeriod[p][key] || 0) + Math.abs(t.amount || 0)
+    }
+    const realMonthly = Object.values(byPeriod).sort((a,b)=>a.period.localeCompare(b.period)).map(row => {
+      const [y,m] = row.period.split('-')
+      return { ...row, month: new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'})+' '+y.slice(2) }
+    })
+
+    return {
+      name:       teamRow.name,
+      id:         teamRow.id,
+      manager:    teamManagers[teamRow.name] || 'Not assigned',
+      actual:     teamRow.actual,
+      budget:     teamRow.budget,
+      spreadKey:  'flat',
+      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: 0 } },
+      realMonthly,
+    }
+  }
 
   function toggleSort(key) {
     if (sortKey === key) setSortDir(d => -d)
@@ -2901,6 +2972,7 @@ function TeamsTab({ dateRange, activeBudget }) {
   }
 
   return (
+    <>
     <div className="p-6 max-w-screen-xl mx-auto space-y-6">
 
       {/* Page header */}
@@ -2962,13 +3034,15 @@ function TeamsTab({ dateRange, activeBudget }) {
               const share = totalActual > 0 ? (team.actual/totalActual*100) : 0
               const isOverBudget = team.budget > 0 && v > 0
               return (
-                <tr key={team.name} className="border-b border-gray-50 hover:bg-gray-50 transition-colors group">
+                <tr key={team.name}
+                  onClick={() => setSelectedTeam(buildDrawerTeam(team))}
+                  className="border-b border-gray-50 hover:bg-gray-50 transition-colors group cursor-pointer">
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-gray-800">{team.name}</span>
+                      <span className="font-medium text-gray-800 group-hover:text-teal-700 transition-colors">{team.name}</span>
                       {team.id && (
                         <button
-                          onClick={() => navigate(`/team/${team.id}/briefing`)}
+                          onClick={e => { e.stopPropagation(); navigate(`/team/${team.id}/briefing`) }}
                           className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border border-teal-200 text-teal-600 hover:bg-teal-50 transition-all">
                           <ExternalLink size={9}/> Dashboard
                         </button>
@@ -3019,6 +3093,11 @@ function TeamsTab({ dateRange, activeBudget }) {
       </div>
 
     </div>
+
+    {selectedTeam && (
+      <TeamDetailDrawer team={selectedTeam} globalDateRange={dateRange} onClose={() => setSelectedTeam(null)}/>
+    )}
+    </>
   )
 }
 
