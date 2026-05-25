@@ -480,18 +480,19 @@ export default function CashFlowImportFlow() {
       const periodStart = sortedPeriods[0]
       const periodEnd   = sortedPeriods[sortedPeriods.length - 1]
 
-      // 1. Soft-delete based on mode
+      // 1. Remove existing rows for replace modes.
+      //    Hard-delete (not soft-delete) because cash_flow has a unique constraint on
+      //    (org_id, period) — soft-deleting then re-inserting the same period would
+      //    violate that constraint even though deleted=true.
       if (importMode === 'replace_full') {
         const { error } = await supabase.from('cash_flow')
-          .update({ deleted: true, updated_at: now })
+          .delete()
           .eq('org_id', ORG_ID)
-          .eq('deleted', false)
         if (error) throw error
       } else if (importMode === 'replace_period') {
         const { error } = await supabase.from('cash_flow')
-          .update({ deleted: true, updated_at: now })
+          .delete()
           .eq('org_id', ORG_ID)
-          .eq('deleted', false)
           .in('period', periodsInFile)
         if (error) throw error
       }
@@ -511,9 +512,24 @@ export default function CashFlowImportFlow() {
         skippedCount = validRows.length - rowsToInsert.length
       }
 
-      // 3. If append and nothing new, done immediately
+      // 3. If append and nothing new, still write import_log then done
       if (rowsToInsert.length === 0) {
+        const skippedLog = {
+          org_id:       ORG_ID,
+          import_type:  'cashflow',
+          mode:         importMode,
+          filename:     fileName,
+          row_count:    validRows.length,
+          rows_skipped: skippedCount,
+          period_start: periodStart,
+          period_end:   periodEnd,
+          status:       'success',
+          imported_by:  'system',
+          imported_at:  now,
+        }
+        await supabase.from('import_log').insert([skippedLog])
         setImportResult({ inserted: 0, skipped: skippedCount, mode: importMode })
+        setImportLog(skippedLog)
         setStep(STEPS.done)
         return
       }

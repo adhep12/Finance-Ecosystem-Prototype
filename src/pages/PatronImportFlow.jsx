@@ -430,7 +430,25 @@ export default function PatronImportFlow() {
         const existingPeriods = new Set((existing || []).map(r => r.period))
         const newDbRows = dbRows.filter(r => !existingPeriods.has(r.period))
         if (newDbRows.length === 0) {
+          // Still write import_log so Last Import panel shows something
+          const sortedP = [...periodsInFile].sort()
+          const skippedLog = {
+            org_id:        ORG_ID,
+            import_type:   'patron',
+            mode:          importMode,
+            filename:      fileName,
+            row_count:     rawRows.length,
+            rows_inserted: 0,
+            rows_skipped:  dbRows.length,
+            period_start:  sortedP[0] || null,
+            period_end:    sortedP[sortedP.length - 1] || null,
+            status:        'success',
+            imported_by:   'system',
+            imported_at:   now,
+          }
+          await supabase.from('import_log').insert([skippedLog])
           setImportResult({ skipped: dbRows.length, inserted: 0, mode: importMode })
+          setImportLog(skippedLog)
           setStep(STEPS.done)
           return
         }
@@ -459,6 +477,7 @@ export default function PatronImportFlow() {
           period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
           status:        'success',
           imported_by:   'system',
+          imported_at:   now,
         }
         await supabase.from('import_log').insert([logEntry])
 
@@ -497,6 +516,7 @@ export default function PatronImportFlow() {
         period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
         status:        'success',
         imported_by:   'system',
+        imported_at:   now,
       }
       await supabase.from('import_log').insert([logEntry])
 
