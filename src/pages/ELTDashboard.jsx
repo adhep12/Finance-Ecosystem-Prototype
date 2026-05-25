@@ -3166,7 +3166,7 @@ function TeamsTab({ dateRange, activeBudget }) {
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-accent)'}}/>
+                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-primary)'}}/>
                       </div>
                       <span className="text-xs tabular-nums text-gray-500 w-10 text-right">{share.toFixed(1)}%</span>
                     </div>
