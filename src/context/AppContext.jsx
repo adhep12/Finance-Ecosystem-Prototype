@@ -207,49 +207,58 @@ export function AppProvider({ children }) {
       // Set actuals FIRST — dashboards can render even if budget queries are slow
       setActuals(mapActuals(txRows))
 
-      // ── Budget data: query v_actuals_vs_budget (keeps dept_code) ─────────────
-      // v_org_summary aggregates dept_code away, so filtering budgets by department
-      // in BreakdownPage / BriefingPage would always return zero.
-      // v_actuals_vs_budget preserves dept_code; filter to budget rows only
-      // (scenario IS NOT NULL) so we don't re-fetch all the actuals rows.
-      //
-      // IMPORTANT: The view has ~16,000 budget rows (≈8k per scenario × 2).
-      // Supabase PostgREST default limit is 1000 rows — a single query would
-      // silently truncate to the oldest ~6% of data.  Paginate exactly like
-      // the actuals query above.
+      // ── Budget: bypass the slow v_actuals_vs_budget view ────────────────────
+      // That view JOINs multiple tables on every row and times out after ~5 sec
+      // (returns only 5000/16000 rows).  Instead:
+      //   1. Load departments + chart_of_accounts as small lookup tables (fast)
+      //   2. Query the budgets base table directly with pagination
+      //   3. Resolve dept_code / record_type in JS using the lookup maps
+
+      const [
+        { data: deptLookup },
+        { data: acctLookup },
+      ] = await Promise.all([
+        supabase.from('departments')
+          .select('id, dept_code, dept_name')
+          .eq('org_id', resolvedOrgId),
+        supabase.from('chart_of_accounts')
+          .select('id, record_type, category')
+          .eq('org_id', resolvedOrgId)
+          .eq('deleted', false),
+      ])
+
+      const deptMap = {}  // department uuid → { dept_code, dept_name }
+      for (const d of (deptLookup || [])) deptMap[d.id] = d
+      const acctMap = {}  // account uuid → { record_type, category }
+      for (const a of (acctLookup || [])) acctMap[a.id] = a
+
       let budgetRows = []
       let bPage = 0
       while (true) {
         const { data: bData, error: bErr } = await supabase
-          .from('v_actuals_vs_budget')
-          .select('org_id, dept_code, team_name, team_id, category, record_type, period, budget, scenario')
+          .from('budgets')
+          .select('id, department_id, account_id, category, scenario, amount, period, period_type')
           .eq('org_id', resolvedOrgId)
-          .not('scenario', 'is', null)
+          .eq('deleted', false)
           .range(bPage * PAGE_SIZE, (bPage + 1) * PAGE_SIZE - 1)
         if (bErr) {
-          console.warn('[AppContext] budget chunk error (budget may be partial):', bErr.message)
+          console.warn('[AppContext] budget chunk error:', bErr.message)
           break
         }
         budgetRows = [...budgetRows, ...(bData || [])]
         if (!bData || bData.length < PAGE_SIZE) break
         bPage++
       }
-      // ── Debug: log budget row count and sample to diagnose truncation ─────────
+
       {
         const bySc = budgetRows.reduce((m, r) => { m[r.scenario] = (m[r.scenario]||0) + 1; return m }, {})
-        const samplePeriods = [...new Set(budgetRows.map(r => r.period))].sort().slice(0, 5)
-        const samplePeriodsLast = [...new Set(budgetRows.map(r => r.period))].sort().slice(-5)
         const fyRows = budgetRows.filter(r => r.period && r.period >= '2025-10' && r.period <= '2026-09')
-        const fyTotal = fyRows.reduce((s, r) => s + (r.budget || 0), 0)
+        const fyTotal = fyRows.reduce((s, r) => s + (r.amount || 0), 0)
         console.log('[AppContext] budget loaded:', budgetRows.length, 'rows | by scenario:', bySc)
-        console.log('[AppContext] budget periods (first 5):', samplePeriods, '... (last 5):', samplePeriodsLast)
         console.log('[AppContext] budget FY Oct25-Sep26 rows:', fyRows.length, '| raw total $:', fyTotal.toLocaleString())
-        if (fyRows.length > 0) {
-          const sample = fyRows.slice(0, 3)
-          console.log('[AppContext] budget FY sample rows:', JSON.stringify(sample))
-        }
       }
-      setBudgetFlat(mapBudgetFlat(budgetRows))
+
+      setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap))
 
       // ── Org summary: v_org_summary — used by ELT dashboard ───────────────────
       // Non-fatal: if it times out, ELT summary widgets show empty but app stays up.
@@ -314,17 +323,34 @@ export function AppProvider({ children }) {
     }))
   }
 
-  // Map v_actuals_vs_budget rows (budget scenario rows only) to budgetFlat format.
-  // Preserves dept_code as 'department' so per-department filtering works in
-  // BreakdownPage, BriefingPage, and team dashboards.
+  // Map budgets table rows → budgetFlat, resolving dept_code / record_type
+  // from pre-fetched lookup maps (departments + chart_of_accounts).
+  // Replaces the slow mapBudgetFlat(view) path which timed out at ~5000/16000 rows.
+  function mapBudgetFlatDirect(rows, deptMap, acctMap) {
+    return rows.map(row => {
+      const dept     = deptMap[row.department_id] || {}
+      const acct     = acctMap[row.account_id]    || {}
+      const deptCode = dept.dept_code != null ? String(dept.dept_code) : null
+      return {
+        ...row,
+        dept_code:   deptCode,
+        department:  deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
+        dept_name:   dept.dept_name || null,
+        record_type: acct.record_type || 'expense',  // income budget rows link to income accounts
+        category:    row.category || acct.category || null,
+        // 'amount' is the correct column name in the budgets table (no rename needed)
+        period:      row.period ? String(row.period).substring(0, 7) : null,
+      }
+    })
+  }
+
+  // Map v_actuals_vs_budget rows — kept for reference, no longer called.
   function mapBudgetFlat(rows) {
     return rows.map(row => ({
       ...row,
       dept_code:  row.dept_code != null ? String(row.dept_code) : null,
-      amount:     row.budget,       // calcBudgetByCategory sums 'amount'
+      amount:     row.budget,
       department: row.dept_code != null ? String(row.dept_code) : null,
-      // Normalize period to YYYY-MM; the DB may return a full date string
-      // (e.g. '2025-10-01') that would fail monthSet.has() comparisons.
       period:     row.period ? String(row.period).substring(0, 7) : null,
     }))
   }
