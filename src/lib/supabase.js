@@ -39,8 +39,18 @@ export const supabase = SUPABASE_CONFIGURED
 // raw `supabase.from('table_name')` in component code.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Placeholder org_id until multi-tenancy is wired in
-const ORG_ID = '00000000-0000-0000-0000-000000000001'
+// org_id is a live-binding export — set by AppContext after loading org_settings.
+// All files that import { ORG_ID } will read the current value at call time
+// because ES module named exports are live bindings.
+export let ORG_ID = ''
+
+/**
+ * Called once by AppContext after the first org_settings row is fetched.
+ * Updates the live binding so every subsequent query uses the real org_id.
+ */
+export function setOrgId(id) {
+  ORG_ID = id
+}
 
 /**
  * Returns a query builder pre-scoped to this org and excluding soft-deleted rows.
@@ -108,4 +118,4 @@ export async function dbUpdate(table, id, changes, original = {}) {
   return { data, error }
 }
 
-export { ORG_ID }
+// ORG_ID is already exported as a live binding above — no re-export needed

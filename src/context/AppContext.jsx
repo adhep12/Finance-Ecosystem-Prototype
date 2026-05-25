@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react'
-import { supabase, ORG_ID, SUPABASE_CONFIGURED } from '../lib/supabase'
+import { supabase, ORG_ID, setOrgId, SUPABASE_CONFIGURED } from '../lib/supabase'
 import { getScenarios } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,33 +106,92 @@ export function AppProvider({ children }) {
   const [previousBudget,  setPreviousBudget]  = useState(null)
 
   // Loading / error flags
-  const [isLoading, setIsLoading] = useState(true)
-  const [dbError,   setDbError]   = useState(null)
+  const [isLoading,   setIsLoading]   = useState(true)
+  const [dbError,     setDbError]     = useState(null)
+  // orgNotFound = true when no org_settings row exists → show setup screen
+  const [orgNotFound, setOrgNotFound] = useState(false)
+  // The resolved org_id (read from org_settings, never hardcoded)
+  const [orgId, setOrgIdState] = useState('')
 
   // (Legacy manual income import removed — income is always derived from actuals)
 
   // ── On mount: load actuals + budget + org settings from Supabase ─────────
+  //
+  // Two-phase boot:
+  //   Phase 1 — fetch org_settings without an org_id filter (just get the
+  //             first/only row). This gives us the real org_id.
+  //   Phase 2 — with the real org_id set, fetch actuals + org_summary.
+  //
+  // We update the live `ORG_ID` export in supabase.js so every other file
+  // that imports { ORG_ID } automatically uses the database value.
   async function loadFromDB() {
     setIsLoading(true)
     setDbError(null)
+    setOrgNotFound(false)
     try {
-      // Run all three fetches in parallel
-      // v_org_summary is the canonical source for budget vs actual — pre-aggregated
-      // at category level, correct sign convention, no fan-out bugs.
+      // ── Phase 1: resolve org_id from org_settings ─────────────────────────
+      const { data: settingsRow, error: settErr } = await supabase
+        .from('org_settings')
+        .select('*')
+        .limit(1)
+        .single()
+
+      if (settErr && settErr.code !== 'PGRST116') {
+        // PGRST116 = "no rows" — anything else is a real DB error
+        throw settErr
+      }
+
+      if (!settingsRow) {
+        // No org configured yet — show the setup screen
+        setOrgNotFound(true)
+        setIsLoading(false)
+        return
+      }
+
+      // Publish the real org_id to the supabase live binding
+      const resolvedOrgId = settingsRow.org_id
+      setOrgId(resolvedOrgId)         // updates supabase.js live binding
+      setOrgIdState(resolvedOrgId)    // stores in React state for context consumers
+
+      // Apply org settings to orgConfig
+      const today     = new Date()
+      const thisYear  = today.getFullYear()
+      const thisMonth = today.getMonth() + 1  // 1–12
+
+      const fyM  = settingsRow.fiscal_year_start_month    || DEFAULT_ORG.fiscalYearStartMonth
+      const oyM  = settingsRow.operating_year_start_month || DEFAULT_ORG.operatingYearStartMonth
+
+      // Year is derived from today's date + start month:
+      //   if today's month >= start month → FY/OY started this calendar year
+      //   otherwise it started last calendar year
+      const fyYear = thisMonth >= fyM ? thisYear : thisYear - 1
+      const oyYear = thisMonth >= oyM ? thisYear : thisYear - 1
+
+      setOrgConfig({
+        ...DEFAULT_ORG,
+        name:                    settingsRow.org_name     || DEFAULT_ORG.name,
+        logoInitial:             settingsRow.logo_initial || DEFAULT_ORG.logoInitial,
+        primaryColor:            settingsRow.primary_color  || DEFAULT_ORG.primaryColor,
+        primaryLight:            settingsRow.primary_light  || DEFAULT_ORG.primaryLight,
+        accentColor:             settingsRow.accent_color   || DEFAULT_ORG.accentColor,
+        fiscalYearStartMonth:    fyM,
+        fiscalYearStartYear:     fyYear,
+        operatingYearStartMonth: oyM,
+        operatingYearStartYear:  oyYear,
+        reserveFloor:            settingsRow.reserve_floor ?? 0,
+      })
+
+      // ── Phase 2: fetch actuals + org summary with the real org_id ─────────
       const [
-        { data: txRows,      error: txErr   },
-        { data: summaryRows, error: sumErr  },
-        { data: settingsRow, error: settErr },
+        { data: txRows,      error: txErr  },
+        { data: summaryRows, error: sumErr },
       ] = await Promise.all([
-        supabase.from('v_transactions_enriched').select('*').eq('org_id', ORG_ID),
-        supabase.from('v_org_summary').select('*').eq('org_id', ORG_ID),
-        supabase.from('org_settings').select('*').eq('org_id', ORG_ID).single(),
+        supabase.from('v_transactions_enriched').select('*').eq('org_id', resolvedOrgId),
+        supabase.from('v_org_summary').select('*').eq('org_id', resolvedOrgId),
       ])
 
-      if (txErr)    throw txErr
-      if (sumErr)   throw sumErr
-      // org_settings errors are non-fatal — fall back to DEFAULT_ORG
-      if (settErr)  console.warn('[AppContext] org_settings fetch failed:', settErr.message)
+      if (txErr)  throw txErr
+      if (sumErr) throw sumErr
 
       setActuals(mapActuals(txRows || []))
 
@@ -141,39 +200,8 @@ export function AppProvider({ children }) {
 
       // Map v_org_summary rows into budgetFlat format for calcBudgetByCategory
       // and filterELTByRange compatibility.
-      // v_org_summary has one row per (category, period, scenario, record_type).
-      // We set amount = budget so existing helpers can sum it up.
       setBudgetFlat(mapOrgSummaryToBudget(summaryRows || []))
 
-      // Apply org settings from the database, falling back to DEFAULT_ORG values
-      if (settingsRow) {
-        const today     = new Date()
-        const thisYear  = today.getFullYear()
-        const thisMonth = today.getMonth() + 1  // 1–12
-
-        const fyM  = settingsRow.fiscal_year_start_month    || DEFAULT_ORG.fiscalYearStartMonth
-        const oyM  = settingsRow.operating_year_start_month || DEFAULT_ORG.operatingYearStartMonth
-
-        // Year is derived from today's date + start month:
-        //   if today's month >= start month → FY/OY started this calendar year
-        //   otherwise it started last calendar year
-        const fyYear = thisMonth >= fyM ? thisYear : thisYear - 1
-        const oyYear = thisMonth >= oyM ? thisYear : thisYear - 1
-
-        setOrgConfig({
-          ...DEFAULT_ORG,                                            // keep legacy fallbacks
-          name:                    settingsRow.org_name    || DEFAULT_ORG.name,
-          logoInitial:             settingsRow.logo_initial || DEFAULT_ORG.logoInitial,
-          primaryColor:            settingsRow.primary_color  || DEFAULT_ORG.primaryColor,
-          primaryLight:            settingsRow.primary_light  || DEFAULT_ORG.primaryLight,
-          accentColor:             settingsRow.accent_color   || DEFAULT_ORG.accentColor,
-          fiscalYearStartMonth:    fyM,
-          fiscalYearStartYear:     fyYear,
-          operatingYearStartMonth: oyM,
-          operatingYearStartYear:  oyYear,
-          reserveFloor:            settingsRow.reserve_floor ?? 0,
-        })
-      }
     } catch (err) {
       console.error('[AppContext] DB load error:', err)
       setDbError(err.message || 'Failed to load data')
@@ -394,6 +422,8 @@ export function AppProvider({ children }) {
 
   const value = {
     orgConfig, setOrgConfig,
+    // Resolved org_id — read from org_settings on boot, never hardcoded
+    orgId,
     // Dept maps — derived from real data; empty until actuals load
     deptNames,
     deptTeamGroups: {},
@@ -418,8 +448,29 @@ export function AppProvider({ children }) {
     // Income months — derived from actuals (read-only; no manual import)
     incomeMonths,
     // DB state
-    isLoading, dbError,
+    isLoading, dbError, orgNotFound,
     refreshFromDB: loadFromDB,
+  }
+
+  // If no org_settings row found, prompt the user to set up the org first
+  if (orgNotFound) {
+    return (
+      <div style={{ padding: 40, fontFamily: 'sans-serif', background: '#F5F2EC', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E2DC', padding: 48, maxWidth: 480, textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>🏢</div>
+          <h2 style={{ color: '#1A1A1A', marginBottom: 8, fontWeight: 600 }}>No organisation configured</h2>
+          <p style={{ color: '#6B7280', marginBottom: 24, lineHeight: 1.6 }}>
+            No <code>org_settings</code> row was found in Supabase. Please insert one with your <code>org_id</code>, <code>org_name</code>, and year-start months, then refresh.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ background: '#0EA5A0', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontWeight: 600, cursor: 'pointer', fontSize: 15 }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // If Supabase env vars are missing, show a clear config error banner
