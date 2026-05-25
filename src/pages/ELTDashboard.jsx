@@ -2994,11 +2994,23 @@ function TeamsTab({ dateRange, activeBudget }) {
       const key = catGroup(b)
       catBudgetTotals[key] = (catBudgetTotals[key] || 0) + Math.abs(b.amount || 0)
     }
+    // Per-category prior year actuals (same date range, one year back)
+    const pyStartM = `${parseInt(startM.slice(0,4))-1}${startM.slice(4)}`
+    const pyEndM   = `${parseInt(endM.slice(0,4))-1}${endM.slice(4)}`
+    const pyTeamTxs = actuals.filter(t => {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null)
+      return t.team_name === teamRow.name && t.record_type !== 'income' && p && p >= pyStartM && p <= pyEndM
+    })
+    const catPYTotals = {}
+    for (const t of pyTeamTxs) {
+      const key = catGroup(t)
+      catPYTotals[key] = (catPYTotals[key] || 0) + Math.abs(t.amount || 0)
+    }
     // Merge into cats shape TeamDetailDrawer expects
     const allCatKeys = new Set([...Object.keys(catActualTotals), ...Object.keys(catBudgetTotals)])
     const cats = {}
     for (const key of allCatKeys) {
-      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: 0 }
+      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: catPYTotals[key]||0 }
     }
     // Real monthly data per category (for the category chart)
     const byPeriod = {}
@@ -3022,7 +3034,7 @@ function TeamsTab({ dateRange, activeBudget }) {
       actual:     teamRow.actual,
       budget:     teamRow.budget,
       spreadKey:  'flat',
-      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: 0 } },
+      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: pyTeamTxs.reduce((s,t)=>s+Math.abs(t.amount||0),0) } },
       realMonthly,
     }
   }
