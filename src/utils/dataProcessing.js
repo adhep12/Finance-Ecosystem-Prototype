@@ -44,10 +44,15 @@ export function calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, d
   if (!budgetFlat || !startDate || !endDate) return {}
 
   // Build set of YYYY-MM values in range + count months (for legacy shape)
+  // Parse year/month directly from the ISO string (avoids UTC→local timezone shift
+  // where new Date('2026-05-25') is parsed as UTC midnight and getMonth() returns
+  // April in US timezones, silently dropping the last month of any range).
   const monthSet = new Set()
   let legacyMonthCount = 0
-  const cur      = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth(), 1)
-  const endMonth = new Date(new Date(endDate).getFullYear(),   new Date(endDate).getMonth(),   1)
+  const [sy, sm] = startDate.substring(0, 7).split('-').map(Number)
+  const [ey, em] = endDate.substring(0, 7).split('-').map(Number)
+  const cur      = new Date(sy, sm - 1, 1)
+  const endMonth = new Date(ey, em - 1, 1)
   while (cur <= endMonth) {
     const y = cur.getFullYear()
     const m = String(cur.getMonth() + 1).padStart(2, '0')
@@ -134,11 +139,14 @@ export function buildChartSeries(
   const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
   // Build list of months in range
+  // Parse year/month directly from the ISO string — avoids UTC→local shift
+  // where new Date('2026-05-25') parses as UTC midnight and in US timezones
+  // getMonth() returns April, silently dropping the last month of any range.
   const months = []
-  const start = new Date(startDate)
-  const end   = new Date(endDate)
-  const cur   = new Date(start.getFullYear(), start.getMonth(), 1)
-  const endM  = new Date(end.getFullYear(), end.getMonth(), 1)
+  const [sy, sm] = startDate.substring(0, 7).split('-').map(Number)
+  const [ey, em] = endDate.substring(0, 7).split('-').map(Number)
+  const cur   = new Date(sy, sm - 1, 1)
+  const endM  = new Date(ey, em - 1, 1)
   while (cur <= endM) {
     const y = cur.getFullYear()
     const m = String(cur.getMonth() + 1).padStart(2, '0')

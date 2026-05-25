@@ -367,7 +367,7 @@ export function AppProvider({ children }) {
       setPreviousActuals(prev)
       const outside = prev.filter(t => {
         const p = t.period || (t.date ? t.date.substring(0, 7) : null)
-        return !p || p < startP || p > endP
+        return !p || p < startP || p > endP  // outside the import range → keep
       })
       return [...outside, ...mapActuals(rows)]
     })

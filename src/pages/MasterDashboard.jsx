@@ -118,8 +118,10 @@ function getIncomeInRange(incomeMonths, startDate, endDate){
 }
 
 function numMonthsInRange(startDate, endDate){
-  const s=new Date(startDate), e=new Date(endDate)
-  return (e.getFullYear()-s.getFullYear())*12 + (e.getMonth()-s.getMonth()) + 1
+  // Parse directly from string to avoid UTC→local timezone shift
+  const [sy,sm] = startDate.substring(0,7).split('-').map(Number)
+  const [ey,em] = endDate.substring(0,7).split('-').map(Number)
+  return (ey-sy)*12 + (em-sm) + 1
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
