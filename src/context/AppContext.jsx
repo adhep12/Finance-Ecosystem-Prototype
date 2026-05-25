@@ -185,18 +185,31 @@ export function AppProvider({ children }) {
       })
 
       // ── Phase 2: fetch actuals + org summary with the real org_id ─────────
-      const [
-        { data: txRows,      error: txErr  },
-        { data: summaryRows, error: sumErr },
-      ] = await Promise.all([
-        supabase.from('v_transactions_enriched').select('*').eq('org_id', resolvedOrgId),
-        supabase.from('v_org_summary').select('*').eq('org_id', resolvedOrgId),
-      ])
+      // v_transactions_enriched can have 10k+ rows. Supabase PostgREST's
+      // default max_rows setting (~1000) silently truncates the result set,
+      // returning only the oldest rows — all outside the fiscal YTD window.
+      // Paginate with .range() until we have every row.
+      const PAGE_SIZE = 1000
+      let txRows = []
+      let page = 0
+      while (true) {
+        const { data: pageData, error: pageErr } = await supabase
+          .from('v_transactions_enriched')
+          .select('*')
+          .eq('org_id', resolvedOrgId)
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+        if (pageErr) throw pageErr
+        txRows = [...txRows, ...(pageData || [])]
+        if (!pageData || pageData.length < PAGE_SIZE) break
+        page++
+      }
 
-      if (txErr)  throw txErr
+      const { data: summaryRows, error: sumErr } = await supabase
+        .from('v_org_summary').select('*').eq('org_id', resolvedOrgId)
+
       if (sumErr) throw sumErr
 
-      setActuals(mapActuals(txRows || []))
+      setActuals(mapActuals(txRows))
 
       // Store the raw org summary for components that need it
       setOrgSummary(summaryRows || [])
