@@ -73,9 +73,9 @@
   --ink-900:   #1A140E;
 
   /* ── Illustration palette — consistent chart series order ── */
-  --ill-1:  #00B3E5;   /* Current Year  — BP Blue */
-  --ill-2:  #6FBFD6;   /* Prior Year    — Sky (muted) */
-  --ill-3:  #E8A838;   /* Budget        — Ochre */
+  --ill-1:  var(--color-accent);   /* Current Year / Income  — pulls from org setup (accent) */
+  --ill-2:  #6FBFD6;               /* Prior Year    — Sky (muted) */
+  --ill-3:  var(--color-primary);  /* Budget / Secondary     — pulls from org setup (primary) */
   --ill-4:  #C05A2F;   /* Rust */
   --ill-5:  #D98F1C;   /* Mustard */
   --ill-6:  #2A7B8C;   /* Teal */

@@ -10,10 +10,19 @@ import {
 // Color palette
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INCOME_COLOR    = '#0EA5A0'
+// Pulls from CSS vars so they update automatically when org colors change
+const INCOME_COLOR    = 'var(--ill-1)'   // accent — org primary CTA / current-year
 const EXPENSE_PALETTE = [
-  '#C05A2F','#E8A838','#4A2E5A','#6366F1','#10B981',
-  '#EC4899','#9BA8B5','#F97316','#14B8A6','#8B5CF6',
+  'var(--ill-4)',    // Rust
+  'var(--ill-3)',    // org primary (Ochre by default)
+  'var(--ill-9)',    // Plum
+  'var(--ill-6)',    // Teal
+  'var(--ill-7)',    // Moss
+  'var(--ill-8)',    // Olive
+  'var(--ill-10)',   // Wine
+  'var(--ill-2)',    // Sky muted
+  'var(--ill-5)',    // Mustard
+  'var(--neutral-40)', // fallback neutral for 10th category
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────

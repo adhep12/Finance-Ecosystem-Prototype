@@ -289,7 +289,14 @@ function TopCategories({ categories, sortMode, onSortMode, onSelectCategory, sel
 // Top Vendors Card
 // ─────────────────────────────────────────────────────────────────────────────
 
-const VENDOR_COLORS = ['#00B3E5', '#E8A838', '#C05A2F', '#2A7B8C', '#D98F1C']
+// Uses illustrative palette CSS vars so they update when org colors change
+const VENDOR_COLORS = [
+  'var(--ill-1)',   // accent  (org primary CTA)
+  'var(--ill-3)',   // primary (org secondary)
+  'var(--ill-4)',   // Rust
+  'var(--ill-6)',   // Teal
+  'var(--ill-5)',   // Mustard
+]
 
 function TopVendors({ vendors, total, selectedCategory }) {
   const title = selectedCategory ? `In ${selectedCategory}` : 'Across all categories'
