@@ -1164,104 +1164,557 @@ function MasterTableHeader({ drillOrder, scenario, sortCol, sortDir, onSort }){
   )
 }
 
-function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
-  const { deptNames } = useApp()
-  const [drillOrder, setDrillOrder] = useLocalStorage('master-drill-order',['department','category','account','vendor'])
-  const [hidden,     setHidden]     = useLocalStorage('master-bd-hidden',[])
-  const [viewMode,   setViewMode]   = useState('summary')
-  const [searchQ,    setSearchQ]    = useState('')
-  const [openPath,   setOpenPath]   = useState([])
-  const [sortCol,    setSortCol]    = useState(null)
-  const [sortDir,    setSortDir]    = useState('desc')
-  const [selectedTx, setSelectedTx] = useState(null)
+// ─────────────────────────────────────────────────────────────────────────────
+// Department Filter Dropdown — for Breakdown P&L
+// ─────────────────────────────────────────────────────────────────────────────
 
-  function handleSort(col){ if(sortCol===col){ setSortDir(d=>d==='desc'?'asc':'desc') } else { setSortCol(col); setSortDir('desc') } }
+function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
 
-  const { startDate, endDate } = dateRange
+  const isAll  = !deptFilter || deptFilter.size === allDepts.length
+  const label  = isAll ? 'All Departments'
+    : deptFilter.size === 1 ? (deptNames[[...deptFilter][0]] || [...deptFilter][0])
+    : `${deptFilter.size} Departments`
 
-  const dateFiltered = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
-  const deptFiltered = useMemo(()=>
-    activeDepts ? dateFiltered.filter(t=>activeDepts.has(t.department)) : dateFiltered
-  ,[dateFiltered,activeDepts])
-  const unhidden = useMemo(()=>
-    deptFiltered.filter(t=>!hidden.some(h=>(t[h.field]??'N/A')===h.value))
-  ,[deptFiltered,hidden])
-  const searchFiltered = useMemo(()=>{
-    const q=searchQ.trim().toLowerCase()
-    if(!q) return unhidden
-    return unhidden.filter(t=>[t.vendor,t.description,t.category,t.account,t.grant].some(v=>v?.toLowerCase().includes(q)))
-  },[unhidden,searchQ])
-
-  const budgetByCat = useMemo(()=>{
-    const depts = activeDepts ? [...activeDepts] : null
-    return calcBudgetByCategory(budgetFlat,scenario,startDate,endDate,depts)
-  },[budgetFlat,scenario,startDate,endDate,activeDepts])
-
-  const sortConfig = useMemo(()=>sortCol?{col:sortCol,dir:sortDir}:null,[sortCol,sortDir])
-  const visibleRows = useMemo(()=>
-    buildVisibleRows(searchFiltered,drillOrder,openPath,budgetByCat,sortConfig)
-  ,[searchFiltered,drillOrder,openPath,budgetByCat,sortConfig])
-
-  const toggleRow = useCallback((depth,value)=>{
-    setOpenPath(prev=>{ if(prev[depth]===value) return prev.slice(0,depth); const next=prev.slice(0,depth); next[depth]=value; return next })
-  },[])
-  function hideRow(field,value){ setHidden(p=>p.some(h=>h.field===field&&h.value===value)?p:[...p,{field,value}]) }
-  function restoreHidden(field,value){ setHidden(p=>p.filter(h=>!(h.field===field&&h.value===value))) }
+  function toggleDept(code) {
+    const cur = deptFilter ? new Set(deptFilter) : new Set(allDepts)
+    if (cur.has(code)) cur.delete(code); else cur.add(code)
+    onChange(cur.size === allDepts.length ? null : cur)
+  }
+  function selectAll()  { onChange(null) }
+  function clearAll()   { onChange(new Set()) }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden">
-      {/* Dept KPI cards */}
-      <DeptStatusCards actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} activeDepts={activeDepts}/>
-      {/* Drill order bar */}
-      <MasterDrillOrderBar drillOrder={drillOrder} setDrillOrder={setDrillOrder} openPath={openPath} setOpenPath={setOpenPath}
-        searchQuery={searchQ} setSearchQuery={setSearchQ} viewMode={viewMode} setViewMode={setViewMode}/>
-      {/* Hidden bar */}
-      {hidden.length>0 && (
-        <div className="flex items-center gap-2 px-5 py-2 border-b border-gray-100 bg-amber-50 flex-wrap">
-          <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Hidden:</span>
-          {hidden.map(h=>(
-            <button key={`${h.field}:${h.value}`} onClick={()=>restoreHidden(h.field,h.value)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-amber-300 text-xs text-amber-700 hover:bg-amber-100">
-              {h.value} <X size={9}/>
-            </button>
-          ))}
-          <button onClick={()=>setHidden([])} className="text-xs text-amber-600 ml-auto hover:underline">Show all</button>
-        </div>
-      )}
-      {/* Calendar view */}
-      {viewMode==='calendar' && (
-        <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
-          <CalendarBreakdownView transactions={unhidden} budgetFlat={budgetFlat} selectedScenario={scenario}
-            drillOrder={drillOrder} dateRange={dateRange} deptNames={deptNames}
-            activeDepts={activeDepts} onHide={hideRow}/>
-        </div>
-      )}
-      {/* Summary table */}
-      {viewMode==='summary' && (
-        <div className="flex-1 overflow-y-auto">
-          <MasterTableHeader drillOrder={drillOrder} scenario={scenario} sortCol={sortCol} sortDir={sortDir} onSort={handleSort}/>
-          {visibleRows.length===0 && (
-            <div className="text-center py-16 text-gray-400 text-sm">
-              {searchQ ? `No results for "${searchQ}"` : 'No data in this date range'}
-            </div>
-          )}
-          {visibleRows.map((row,i)=>{
-            if(row.type==='transaction') return <MasterTxRow key={i} row={row} onSelect={setSelectedTx}/>
-            return <MasterGroupRow key={i} row={row} onToggle={toggleRow} onHide={hideRow}/>
+    <div className="relative flex-shrink-0" ref={ref}>
+      <button onClick={() => setOpen(p => !p)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${!isAll ? 'bg-teal-50 border-teal-300 text-teal-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+        <Building2 size={11}/>
+        {label}
+        <ChevronDown size={10}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 bg-white border border-gray-200 rounded-xl shadow-xl z-40 w-64 py-1 max-h-80 overflow-y-auto">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100">
+            <button onClick={() => { selectAll(); setOpen(false) }} className="text-xs text-teal-600 hover:underline">Select all</button>
+            <span className="text-gray-200">·</span>
+            <button onClick={clearAll} className="text-xs text-gray-400 hover:underline">Clear all</button>
+          </div>
+          {allDepts.map(code => {
+            const active = !deptFilter || deptFilter.has(code)
+            return (
+              <button key={code} onClick={() => toggleDept(code)}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50 transition-colors">
+                <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${active ? 'bg-teal-600 border-teal-600' : 'border-gray-300'}`}>
+                  {active && <Check size={9} className="text-white"/>}
+                </div>
+                <span className={`font-medium ${active ? 'text-gray-800' : 'text-gray-400'}`}>
+                  {code} · {deptNames[code] || code}
+                </span>
+              </button>
+            )
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P&L Breakdown Tab — full redesign per Fix 3
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
+  const { deptNames } = useApp()
+
+  // Drill order: category is always first (P&L rows are categories)
+  const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','grant','vendor'])
+  const [viewMode,   setViewMode]   = useState('summary')
+  const [searchQ,    setSearchQ]    = useState('')
+  const [deptFilter, setDeptFilter] = useState(null)  // null = all
+  const [selectedTx, setSelectedTx] = useState(null)
+
+  // Expand state: Set of category values expanded in each section
+  const [expandedIncome,   setExpandedIncome]   = useState(new Set())
+  const [expandedExpenses, setExpandedExpenses] = useState(new Set())
+  // Sub-path state: {catValue: openPath[]} for drill within each expanded category
+  const [incSubPaths, setIncSubPaths] = useState({})
+  const [expSubPaths, setExpSubPaths] = useState({})
+
+  const { startDate, endDate } = dateRange
+
+  // All unique dept codes in actuals (for dropdown)
+  const allDepts = useMemo(() =>
+    [...new Set(actuals.map(t => t.department).filter(Boolean))].sort()
+  , [actuals])
+
+  // Filtered actuals
+  const dateFiltered = useMemo(() => filterActualsByRange(actuals, startDate, endDate), [actuals, startDate, endDate])
+  const navFiltered  = useMemo(() => activeDepts ? dateFiltered.filter(t => activeDepts.has(t.department)) : dateFiltered, [dateFiltered, activeDepts])
+  const deptFiltered = useMemo(() => deptFilter ? navFiltered.filter(t => deptFilter.has(t.department)) : navFiltered, [navFiltered, deptFilter])
+  const searched     = useMemo(() => {
+    const q = searchQ.trim().toLowerCase()
+    if (!q) return deptFiltered
+    return deptFiltered.filter(t => [t.vendor, t.description, t.category, t.account, t.grant].some(v => v?.toLowerCase().includes(q)))
+  }, [deptFiltered, searchQ])
+
+  // Split income vs expense (income amounts made positive)
+  const incomeActuals  = useMemo(() => searched.filter(t => t.record_type === 'income').map(t => ({ ...t, amount: Math.abs(t.amount||0) })), [searched])
+  const expenseActuals = useMemo(() => searched.filter(t => t.record_type !== 'income'), [searched])
+
+  // Budget split
+  const expBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'), scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
+  const incBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type==='income'),  scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
+
+  // Category groups (for P&L rows at depth 0)
+  const incomeGroups = useMemo(() => {
+    const map = {}
+    for (const t of incomeActuals) {
+      const cat = t.category || 'Uncategorized'
+      if (!map[cat]) map[cat] = { actual: 0, items: [] }
+      map[cat].actual += (t.amount || 0)
+      map[cat].items.push(t)
+    }
+    return Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual).map(([cat, d]) => ({ cat, ...d, budget: incBudgetByCat[cat] || 0 }))
+  }, [incomeActuals, incBudgetByCat])
+
+  const expenseGroups = useMemo(() => {
+    const map = {}
+    for (const t of expenseActuals) {
+      const cat = t.category || 'Uncategorized'
+      if (!map[cat]) map[cat] = { actual: 0, items: [] }
+      map[cat].actual += (t.amount || 0)
+      map[cat].items.push(t)
+    }
+    return Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual).map(([cat, d]) => ({ cat, ...d, budget: expBudgetByCat[cat] || 0 }))
+  }, [expenseActuals, expBudgetByCat])
+
+  // Totals
+  const totalIncActual   = useMemo(() => incomeGroups.reduce((s,g)=>s+g.actual,0), [incomeGroups])
+  const totalIncBudget   = useMemo(() => incomeGroups.reduce((s,g)=>s+g.budget,0), [incomeGroups])
+  const totalExpActual   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.actual,0), [expenseGroups])
+  const totalExpBudget   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.budget,0), [expenseGroups])
+  const netActual        = totalIncActual - totalExpActual
+  const netBudget        = totalIncBudget - totalExpBudget
+
+  // Sub-drill order (everything below category)
+  const subDrillOrder = useMemo(() => drillOrder.filter(f => f !== 'category'), [drillOrder])
+
+  // Expand / collapse all
+  function expandAll() {
+    setExpandedIncome(new Set(incomeGroups.map(g=>g.cat)))
+    setExpandedExpenses(new Set(expenseGroups.map(g=>g.cat)))
+  }
+  function collapseAll() {
+    setExpandedIncome(new Set()); setExpandedExpenses(new Set())
+    setIncSubPaths({}); setExpSubPaths({})
+  }
+  const anyExpanded = expandedIncome.size > 0 || expandedExpenses.size > 0
+
+  // Toggle category expand
+  function toggleIncCat(cat) {
+    setExpandedIncome(prev => { const n=new Set(prev); n.has(cat)?n.delete(cat):n.add(cat); return n })
+    setIncSubPaths(p => ({ ...p, [cat]: [] }))
+  }
+  function toggleExpCat(cat) {
+    setExpandedExpenses(prev => { const n=new Set(prev); n.has(cat)?n.delete(cat):n.add(cat); return n })
+    setExpSubPaths(p => ({ ...p, [cat]: [] }))
+  }
+
+  // Toggle sub-row within an expanded category
+  function toggleIncSub(cat, depth, value) {
+    setIncSubPaths(p => {
+      const prev = p[cat] || []
+      const next = prev[depth]===value ? prev.slice(0,depth) : [...prev.slice(0,depth), value]
+      return { ...p, [cat]: next }
+    })
+  }
+  function toggleExpSub(cat, depth, value) {
+    setExpSubPaths(p => {
+      const prev = p[cat] || []
+      const next = prev[depth]===value ? prev.slice(0,depth) : [...prev.slice(0,depth), value]
+      return { ...p, [cat]: next }
+    })
+  }
+
+  // Top vendors (for summary panel)
+  const topVendors = useMemo(() => {
+    const map = {}
+    for (const t of expenseActuals) {
+      const v = t.vendor || 'Unknown'
+      map[v] = (map[v]||0) + (t.amount||0)
+    }
+    return Object.entries(map).sort(([,a],[,b])=>b-a).slice(0,5).map(([vendor,amount])=>({ vendor, amount }))
+  }, [expenseActuals])
+
+  // ── Row render helpers ──────────────────────────────────────────────────────
+
+  function PLCategoryRow({ cat, actual, budget, isExpense, isExpanded, totalInc, onToggle }) {
+    const variance = actual - budget
+    const pos = isExpense ? variance <= 0 : variance >= 0
+    const varColor = pos ? 'text-emerald-600' : 'text-red-600'
+    const pctInc = totalInc > 0 ? actual / totalInc * 100 : 0
+    return (
+      <tr className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+        onClick={onToggle}>
+        <td className="px-4 py-2.5">
+          <div className="flex items-center gap-2" style={{ paddingLeft: 8 }}>
+            <span className={`flex-shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded?'rotate-90':''}`}>
+              <ChevronRight size={13}/>
+            </span>
+            <span className="text-sm font-medium text-gray-800">{cat}</span>
+          </div>
+        </td>
+        <td className="px-4 py-2.5 text-right tabular-nums text-sm font-semibold text-gray-800">{formatCurrency(actual,{compact:false})}</td>
+        <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">{budget>0?formatCurrency(budget,{compact:false}):'—'}</td>
+        <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${varColor}`}>
+          {budget>0 ? `${variance>=0?'+':''}${formatCurrency(variance,{compact:false})}` : '—'}
+        </td>
+        <td className="px-6 py-2.5 text-right tabular-nums text-xs">
+          <div className="flex items-center justify-end gap-2">
+            <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+              <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${Math.min(pctInc, 100)}%` }}/>
+            </div>
+            <span className="text-gray-400 tabular-nums w-9 text-right">{pctInc.toFixed(1)}%</span>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+  function PLSubRows({ items, subDrillOrder, openPath, onToggle, totalInc }) {
+    const subRows = useMemo(() =>
+      buildVisibleRows(items, subDrillOrder, openPath, {}, null)
+    , [items, subDrillOrder, openPath])
+
+    return subRows.map((row, i) => {
+      if (row.type === 'transaction') {
+        const t = row.item
+        return (
+          <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
+            onClick={() => setSelectedTx(t)}>
+            <td className="py-2" style={{ paddingLeft: 16 + row.depth*20 + 24 }}>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-200 flex-shrink-0">•</span>
+                <span className="text-xs text-gray-600 truncate max-w-[160px]">{t.vendor||'—'}</span>
+                {t.date && <span className="text-[10px] text-gray-300 flex-shrink-0">{t.date}</span>}
+              </div>
+            </td>
+            <td className="px-4 py-2 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(t.amount,{compact:false})}</td>
+            <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
+            <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
+            <td className="px-6 py-2 text-right text-xs text-gray-300">—</td>
+          </tr>
+        )
+      }
+      // Group row
+      const delta = row.budget > 0 ? row.actual - row.budget : null
+      return (
+        <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
+          onClick={() => onToggle(row.depth, row.value)}
+          style={{ opacity: row.isDimmed ? 0.35 : 1 }}>
+          <td className="py-2.5" style={{ paddingLeft: 16 + row.depth*20 + 16 }}>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-gray-300 flex-shrink-0 transition-transform duration-150 ${row.isExpanded?'rotate-90':''}`}>
+                <ChevronRight size={11}/>
+              </span>
+              <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{ backgroundColor: FIELD_COLORS[row.field]+'20', color: FIELD_COLORS[row.field] }}>
+                {FIELD_LABELS[row.field]}
+              </span>
+              <span className="text-xs font-medium text-gray-700 truncate">{row.value}</span>
+            </div>
+          </td>
+          <td className="px-4 py-2.5 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(row.actual,{compact:false})}</td>
+          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">{row.budget>0?formatCurrency(row.budget,{compact:false}):'—'}</td>
+          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">
+            {delta!==null ? `${delta>=0?'+':''}${formatCurrency(delta,{compact:false})}` : '—'}
+          </td>
+          <td className="px-6 py-2.5 text-right text-xs text-gray-300">
+            {totalInc>0 ? `${(row.actual/totalInc*100).toFixed(1)}%` : '—'}
+          </td>
+        </tr>
+      )
+    })
+  }
+
+  function PLSectionRow({ label }) {
+    return (
+      <tr className="bg-gray-50/80">
+        <td colSpan={5} className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">{label}</td>
+      </tr>
+    )
+  }
+
+  function PLTotalRow({ label, actual, budget, isNet }) {
+    const variance = actual - budget
+    const pos = actual >= 0
+    return (
+      <tr className={isNet ? 'bg-gray-900' : 'bg-gray-50'}>
+        <td className={`px-6 py-3 text-sm font-bold ${isNet ? 'text-white' : 'text-gray-800'}`}>{label}</td>
+        <td className={`px-4 py-3 text-right tabular-nums text-sm font-bold ${isNet ? 'text-white' : 'text-gray-800'}`}>{formatCurrency(actual,{compact:false})}</td>
+        <td className={`px-4 py-3 text-right tabular-nums text-sm ${isNet ? 'text-gray-300' : 'text-gray-500'}`}>{budget>0?formatCurrency(budget,{compact:false}):'—'}</td>
+        <td className={`px-4 py-3 text-right tabular-nums text-sm font-bold ${isNet ? (pos?'text-emerald-400':'text-red-400') : (pos?'text-emerald-600':'text-red-600')}`}>
+          {budget>0 ? `${variance>=0?'+':''}${formatCurrency(variance,{compact:false})}` : '—'}
+        </td>
+        <td className={`px-6 py-3 text-right text-xs ${isNet ? 'text-gray-300 italic' : 'text-gray-400'}`}>
+          {isNet && totalIncActual>0 ? `${(actual/totalIncActual*100).toFixed(1)}% margin` : ''}
+        </td>
+      </tr>
+    )
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-48px)] overflow-hidden">
+
+      {/* Controls bar */}
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-100 bg-white flex-wrap">
+        {/* Search */}
+        <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-48 flex-shrink-0">
+          <Search size={12} className="text-gray-400"/>
+          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Search…"
+            className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"/>
+          {searchQ&&<button onClick={()=>setSearchQ('')}><X size={10} className="text-gray-400"/></button>}
+        </div>
+
+        {/* Department filter dropdown */}
+        <DeptFilterDropdown allDepts={allDepts} deptNames={deptNames} deptFilter={deptFilter} onChange={setDeptFilter}/>
+
+        <div className="w-px h-5 bg-gray-200 flex-shrink-0"/>
+
+        {/* Drill order label */}
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex-shrink-0">Sub-drill</span>
+
+        {/* Draggable pills (sub-levels only — Category is always fixed as P&L rows) */}
+        <div className="flex items-center gap-1.5 flex-wrap flex-1">
+          {subDrillOrder.map((field,idx) => {
+            const fullIdx = drillOrder.indexOf(field)
+            return (
+              <div key={field}
+                draggable
+                onDragStart={e=>{ e._dragField=field; e.dataTransfer.effectAllowed='move' }}
+                onDragOver={e=>e.preventDefault()}
+                onDrop={e=>{
+                  e.preventDefault()
+                  const from=e._dragField||drillOrder.find(f=>f!=='category'&&f!==field)
+                  if(!from||from===field) return
+                  const next=[...drillOrder]
+                  const fi=next.indexOf(from), ti=next.indexOf(field)
+                  if(fi<0||ti<0) return
+                  next.splice(fi,1); next.splice(ti,0,from)
+                  setDrillOrder(next); setIncSubPaths({}); setExpSubPaths({})
+                }}>
+                <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
+                  style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
+                  <GripVertical size={10} className="opacity-60"/>
+                  {FIELD_LABELS[field]}
+                  <button onClick={()=>{ setDrillOrder(drillOrder.filter(f=>f!==field)); setIncSubPaths({}); setExpSubPaths({}) }}
+                    className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
+                </div>
+              </div>
+            )
+          })}
+          {/* Add field */}
+          {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).length>0 && (
+            <div className="relative group">
+              <button className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-gray-400">
+                <Plus size={10}/> Add
+              </button>
+              <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
+                {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
+                  <button key={f} onClick={()=>setDrillOrder([...drillOrder,f])} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                    {FIELD_LABELS[f]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button onClick={()=>{ setDrillOrder(['category','account','grant','vendor']); setIncSubPaths({}); setExpSubPaths({}) }}
+            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><RotateCcw size={10}/>Reset</button>
+        </div>
+
+        {/* View toggle */}
+        <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden flex-shrink-0">
+          {[['summary','P&L'],['calendar','Calendar']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setViewMode(id)}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode===id?'bg-teal-600 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Calendar view */}
+      {viewMode==='calendar' && (
+        <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
+          <CalendarBreakdownView transactions={searched} budgetFlat={budgetFlat} selectedScenario={scenario}
+            drillOrder={drillOrder} dateRange={dateRange} deptNames={deptNames} activeDepts={activeDepts} onHide={()=>{}}/>
+        </div>
+      )}
+
+      {/* P&L table view */}
+      {viewMode==='summary' && (
+        <div className="flex-1 flex overflow-hidden">
+
+          {/* Main P&L table */}
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-white border-b border-gray-200">
+                  <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-72">Line Item</th>
+                  <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Actual</th>
+                  <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
+                  <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Variance</th>
+                  <th className="text-right px-6 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-32">
+                    <div className="flex items-center justify-end gap-2">
+                      <span>% of Income</span>
+                      <button onClick={anyExpanded?collapseAll:expandAll}
+                        className="text-teal-600 hover:text-teal-700 transition-colors flex items-center gap-0.5 font-medium normal-case tracking-normal text-xs">
+                        {anyExpanded?<><ChevronUp size={10}/> Collapse</>:<><ChevronDown size={10}/> Expand</>}
+                      </button>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* ── INCOME ── */}
+                <PLSectionRow label="Income"/>
+                {incomeGroups.length===0 && (
+                  <tr><td colSpan={5} className="px-4 py-3 text-xs text-gray-300 italic">No income in range</td></tr>
+                )}
+                {incomeGroups.map(g => (
+                  <React.Fragment key={g.cat}>
+                    <PLCategoryRow cat={g.cat} actual={g.actual} budget={g.budget} isExpense={false}
+                      isExpanded={expandedIncome.has(g.cat)} totalInc={totalIncActual}
+                      onToggle={() => toggleIncCat(g.cat)}/>
+                    {expandedIncome.has(g.cat) && g.items.length > 0 && subDrillOrder.length > 0 && (
+                      <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
+                        openPath={incSubPaths[g.cat]||[]}
+                        onToggle={(d,v) => toggleIncSub(g.cat,d,v)}
+                        totalInc={totalIncActual}/>
+                    )}
+                  </React.Fragment>
+                ))}
+                <PLTotalRow label="Total Income" actual={totalIncActual} budget={totalIncBudget}/>
+                <tr><td colSpan={5} className="py-1.5"/></tr>
+
+                {/* ── EXPENSES ── */}
+                <PLSectionRow label="Expenses"/>
+                {expenseGroups.length===0 && (
+                  <tr><td colSpan={5} className="px-4 py-3 text-xs text-gray-300 italic">No expenses in range</td></tr>
+                )}
+                {expenseGroups.map(g => (
+                  <React.Fragment key={g.cat}>
+                    <PLCategoryRow cat={g.cat} actual={g.actual} budget={g.budget} isExpense={true}
+                      isExpanded={expandedExpenses.has(g.cat)} totalInc={totalIncActual}
+                      onToggle={() => toggleExpCat(g.cat)}/>
+                    {expandedExpenses.has(g.cat) && g.items.length > 0 && subDrillOrder.length > 0 && (
+                      <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
+                        openPath={expSubPaths[g.cat]||[]}
+                        onToggle={(d,v) => toggleExpSub(g.cat,d,v)}
+                        totalInc={totalIncActual}/>
+                    )}
+                  </React.Fragment>
+                ))}
+                <PLTotalRow label="Total Expenses" actual={totalExpActual} budget={totalExpBudget}/>
+                <tr><td colSpan={5} className="py-1.5"/></tr>
+
+                {/* ── NET OPERATING INCOME ── */}
+                <PLTotalRow label="Net Operating Income" actual={netActual} budget={netBudget} isNet/>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Summary panel */}
+          <div className="w-64 border-l border-gray-100 overflow-y-auto flex-shrink-0 bg-gray-50/50">
+            <div className="p-4 space-y-4">
+              {/* Totals */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Summary</p>
+                <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Total Income</span>
+                    <span className="font-semibold text-gray-800">{formatCurrency(totalIncActual)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Total Expenses</span>
+                    <span className="font-semibold text-gray-800">{formatCurrency(totalExpActual)}</span>
+                  </div>
+                  <div className="border-t border-gray-100 pt-1.5 flex justify-between">
+                    <span className="text-gray-600 font-medium">Net</span>
+                    <span className={`font-bold ${netActual>=0?'text-emerald-600':'text-red-500'}`}>{formatCurrency(netActual)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top vendors */}
+              {topVendors.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Top Vendors</p>
+                  <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-2">
+                    {topVendors.map((v,i)=>(
+                      <div key={v.vendor} className="text-xs">
+                        <div className="flex justify-between mb-0.5">
+                          <span className="text-gray-600 truncate max-w-[100px]">{v.vendor}</span>
+                          <span className="font-medium text-gray-800 flex-shrink-0">{formatCurrency(v.amount)}</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-1">
+                          <div className="h-full rounded-full bg-teal-500" style={{ width:`${totalExpActual>0?(v.amount/totalExpActual*100):0}%` }}/>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Income categories */}
+              {incomeGroups.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Income Breakdown</p>
+                  <div className="bg-white rounded-xl border border-gray-100 p-3 space-y-1.5">
+                    {incomeGroups.slice(0,5).map(g=>(
+                      <div key={g.cat} className="flex justify-between text-xs">
+                        <span className="text-gray-500 truncate max-w-[100px]">{g.cat}</span>
+                        <span className="font-medium text-gray-700">{formatCurrency(g.actual)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tx detail modal */}
       {selectedTx && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={()=>setSelectedTx(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-96 p-6" onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <span className="font-semibold text-gray-800">{selectedTx.vendor}</span>
+              <span className="font-semibold text-gray-800">{selectedTx.vendor||'Transaction'}</span>
               <button onClick={()=>setSelectedTx(null)}><X size={16} className="text-gray-400"/></button>
             </div>
             <div className="space-y-2 text-sm">
-              {[['Amount',formatCurrency(selectedTx.amount,{compact:false})],['Date',selectedTx.date],['Department',deptNames[selectedTx.department]||selectedTx.department],['Category',selectedTx.category],['Account',selectedTx.account],selectedTx.grant&&['Grant',selectedTx.grant],selectedTx.description&&['Note',selectedTx.description]].filter(Boolean).map(([k,v])=>(
-                <div key={k} className="flex gap-3"><span className="text-gray-400 w-24 flex-shrink-0">{k}</span><span className="text-gray-800">{v}</span></div>
+              {[
+                ['Amount', formatCurrency(Math.abs(selectedTx.amount||0),{compact:false})],
+                ['Date', selectedTx.date || selectedTx.period],
+                ['Department', deptNames[selectedTx.department]||selectedTx.department],
+                ['Category', selectedTx.category],
+                ['Account', selectedTx.account],
+                selectedTx.grant && ['Grant', selectedTx.grant],
+                selectedTx.description && ['Note', selectedTx.description],
+              ].filter(Boolean).map(([k,v])=>(
+                <div key={k} className="flex gap-3">
+                  <span className="text-gray-400 w-24 flex-shrink-0">{k}</span>
+                  <span className="text-gray-800">{v}</span>
+                </div>
               ))}
             </div>
           </div>
