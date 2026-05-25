@@ -989,6 +989,114 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Patron Watch Areas Panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PatronWatchAreaPanel({ patronData, dateRange }){
+  const { startDate, endDate } = dateRange
+  const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
+
+  const signals = useMemo(()=>{
+    const inRange = patronData
+      .filter(p => p.period >= startM && p.period <= endM)
+      .sort((a,b) => a.period.localeCompare(b.period))
+
+    if (inRange.length < 2) return []
+
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    function mLabel(period){ const [y,m] = period.split('-'); return MN[parseInt(m)-1]+' '+y }
+
+    const alerts = []
+
+    // Signal 1 — Declining new patrons for 2+ consecutive months
+    let consecutiveDecline = 0
+    let declineMonths = []
+    for (let i = 1; i < inRange.length; i++) {
+      const prev = inRange[i-1].new_patrons_total || 0
+      const curr = inRange[i].new_patrons_total || 0
+      if (curr < prev) {
+        consecutiveDecline++
+        if (consecutiveDecline === 1) declineMonths = [inRange[i-1].period, inRange[i].period]
+        else declineMonths[1] = inRange[i].period
+      } else {
+        consecutiveDecline = 0
+        declineMonths = []
+      }
+    }
+    if (consecutiveDecline >= 2) {
+      alerts.push({
+        id: 'new-declining',
+        color: 'amber',
+        msg: `New patron acquisition declining — ${mLabel(declineMonths[0])} and ${mLabel(declineMonths[1])} both below prior month pace.`,
+      })
+    }
+
+    // Signal 2 — Retention rate dropped > 3pp below trailing 6-month avg
+    const allPatronData = patronData.filter(p => p.retention_rate != null)
+      .sort((a,b) => a.period.localeCompare(b.period))
+    const latest = allPatronData[allPatronData.length - 1]
+    if (latest) {
+      const trailing6 = allPatronData.slice(-7, -1) // 6 months before latest
+      if (trailing6.length >= 3) {
+        const avg = trailing6.reduce((s,p)=>s+(p.retention_rate||0),0) / trailing6.length
+        const curr = latest.retention_rate || 0
+        if (avg - curr > 3) {
+          alerts.push({
+            id: 'retention-drop',
+            color: 'amber',
+            msg: `Retention rate dropped to ${curr.toFixed(1)}% — below ${avg.toFixed(1)}% trailing average.`,
+          })
+        }
+      }
+    }
+
+    // Signal 3 — Avg gift size declining for 2+ consecutive months
+    let giftDecline = 0
+    let giftMonths = []
+    for (let i = 1; i < inRange.length; i++) {
+      const prev = inRange[i-1].avg_gift_size || 0
+      const curr = inRange[i].avg_gift_size || 0
+      if (prev > 0 && curr < prev) {
+        giftDecline++
+        if (giftDecline === 1) giftMonths = [inRange[i-1], inRange[i]]
+        else giftMonths[1] = inRange[i]
+      } else {
+        giftDecline = 0
+        giftMonths = []
+      }
+    }
+    if (giftDecline >= 2) {
+      const cur = giftMonths[1]?.avg_gift_size || 0
+      const pri = giftMonths[0]?.avg_gift_size || 0
+      alerts.push({
+        id: 'gift-declining',
+        color: 'amber',
+        msg: `Avg gift size trending down — ${fmtCompact(cur)} vs ${fmtCompact(pri)} prior month.`,
+      })
+    }
+
+    return alerts
+  }, [patronData, startM, endM])
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Patron Watch Areas</div>
+      {signals.length === 0 ? (
+        <div className="flex items-center gap-2 text-xs text-emerald-600">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"/>
+          Patron metrics on track — no watch areas.
+        </div>
+      ) : signals.map(s => (
+        <div key={s.id} className="flex items-start gap-2.5 py-2 border-b border-gray-50 last:border-0">
+          <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 mt-1"/>
+          <p className="text-xs text-gray-700 leading-relaxed">{s.msg}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Overview Tab — three independently-editable sections
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1136,13 +1244,10 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       <section>
         <div className="flex items-center justify-between mb-4">
           <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Watch Areas</span>
-          <button onClick={()=>setEditWatch(p=>!p)}
-            className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${editWatch?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-            <Edit2 size={11}/> {editWatch?'Done':'Edit'}
-          </button>
         </div>
-        <div className="max-w-sm">
-          <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={editWatch} onRemove={()=>{}}/>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-2xl">
+          <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={false} onRemove={()=>{}}/>
+          <PatronWatchAreaPanel patronData={patronData} dateRange={dateRange}/>
         </div>
       </section>
 
