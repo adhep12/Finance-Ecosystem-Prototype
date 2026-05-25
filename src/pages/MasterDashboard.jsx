@@ -795,7 +795,7 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
               <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
                 <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
               </LineChart>
             </ResponsiveContainer>
@@ -881,7 +881,7 @@ function CashPositionCard({ cashFlowData, dateRange }){
               <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
                 <Line type="monotone" dataKey="floor" name="Reserve Floor"  stroke="#EF4444" strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
               </LineChart>
             </ResponsiveContainer>

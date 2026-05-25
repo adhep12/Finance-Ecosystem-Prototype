@@ -73,7 +73,7 @@ const FISCAL_MONTHS = [
 
 // Year-to-color palette (index 0 = current FY, 1 = 1yr back, etc.)
 const CURRENT_FY     = 2026
-const YEAR_PALETTE   = ['var(--color-accent)','#C05A2F','#E8A838','#9BA8B5','#C8D0D8']
+const YEAR_PALETTE   = ['var(--color-primary)','#C05A2F','#E8A838','#9BA8B5','#C8D0D8']
 function yearColor(year) {
   const dist = CURRENT_FY - parseInt(year)
   return YEAR_PALETTE[Math.max(0, Math.min(dist, YEAR_PALETTE.length - 1))]
@@ -81,9 +81,9 @@ function yearColor(year) {
 
 // Per-row colors for P&L % bars
 const PL_ROW_COLORS = {
-  'contributions':'var(--color-accent)',
-  'merch':'var(--color-accent)',
-  'other-inc':'var(--color-accent)',
+  'contributions':'var(--color-primary)',
+  'merch':'var(--color-primary)',
+  'other-inc':'var(--color-primary)',
   'staff':'#C05A2F',
   'contract':'#E8A838',
   'technology':'#2A7B8C',
@@ -1568,10 +1568,10 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data in range</div>
         : <ResponsiveContainer width="100%" height={200}>
             {chartType === 'line'
-              ? <LineChart {...common}>{grid}{xa}{ya}{tip}<Line type="monotone" dataKey="count" name="Patrons" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/></LineChart>
+              ? <LineChart {...common}>{grid}{xa}{ya}{tip}<Line type="monotone" dataKey="count" name="Patrons" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/></LineChart>
               : chartType === 'area'
-              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}<Area type="monotone" dataKey="count" name="Patrons" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.15} strokeWidth={2} dot={false}/></AreaChart>
-              : <BarChart {...common}>{grid}{xa}{ya}{tip}<Bar dataKey="count" name="Patrons" fill="var(--color-accent)" radius={[4,4,0,0]}/></BarChart>
+              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}<Area type="monotone" dataKey="count" name="Patrons" stroke="var(--color-primary)" fill="var(--color-primary)" fillOpacity={0.15} strokeWidth={2} dot={false}/></AreaChart>
+              : <BarChart {...common}>{grid}{xa}{ya}{tip}<Bar dataKey="count" name="Patrons" fill="var(--color-primary)" radius={[4,4,0,0]}/></BarChart>
             }
           </ResponsiveContainer>
       }
@@ -1623,15 +1623,15 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
 
   function renderSeries(type) {
     if (type === 'bar') return <>
-      <Bar dataKey="actual" name="Actual" fill="var(--color-accent)" radius={[4,4,0,0]}/>
+      <Bar dataKey="actual" name="Actual" fill="var(--color-primary)" radius={[4,4,0,0]}/>
       <Bar dataKey="budget" name="Budget" fill="#E8A838" radius={[4,4,0,0]} opacity={0.7}/>
     </>
     if (type === 'area') return <>
-      <Area type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.15} strokeWidth={2} dot={false}/>
+      <Area type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" fill="var(--color-primary)" fillOpacity={0.15} strokeWidth={2} dot={false}/>
       <Area type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" fill="#E8A838" fillOpacity={0.1} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
     </>
     return <>
-      <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+      <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
       <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
     </>
   }
