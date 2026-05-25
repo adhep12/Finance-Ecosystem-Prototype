@@ -320,6 +320,27 @@ function EditableCell({ value, onChange, type = 'text', options, placeholder, cl
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Active Toggle — clickable pill for boolean active/inactive state
+// ─────────────────────────────────────────────────────────────────────────────
+function ActiveToggle({ value, onChange }) {
+  const isActive = value === true || value === 'true'
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!isActive)}
+      title={isActive ? 'Click to deactivate' : 'Click to activate'}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold transition-colors cursor-pointer select-none
+        ${isActive
+          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+          : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+        }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-gray-400'}`}/>
+      {isActive ? 'Active' : 'Inactive'}
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Add-row form (generic)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -508,7 +529,9 @@ function RegistryTable({
               <tr key={row.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                 {columns.map(c => (
                   <td key={c.key} className="px-3 py-2">
-                    {c.editable !== false ? (
+                    {c.type === 'toggle' ? (
+                      <ActiveToggle value={row[c.key]} onChange={val => handleUpdate(row.id, c.key, val, row)}/>
+                    ) : c.editable !== false ? (
                       <EditableCell
                         value={row[c.key] ?? ''}
                         type={c.type}
@@ -558,9 +581,7 @@ function TeamsRegistry() {
     { key: 'team_name',    label: 'Team Name',    width: 'w-1/3' },
     { key: 'team_code',    label: 'Code',         width: 'w-24'  },
     { key: 'manager_name', label: 'Manager',      width: 'w-1/4' },
-    { key: 'active',       label: 'Active', type: 'select',
-      options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }],
-      width: 'w-24' },
+    { key: 'active', label: 'Active', type: 'toggle', width: 'w-28' },
   ]
 
   const addFields = [
@@ -623,9 +644,7 @@ function DepartmentsRegistry() {
       width: 'w-40',
       // Display: resolve team_id → team_name
     },
-    { key: 'active', label: 'Active', type: 'select',
-      options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }],
-      width: 'w-24' },
+    { key: 'active', label: 'Active', type: 'toggle', width: 'w-28' },
   ]
 
   // We need a custom cell renderer for team_id → name display
@@ -796,9 +815,7 @@ function DepartmentsTable({ teamOptions, teams, addFields, exportColumns, csvImp
                   </select>
                 </td>
                 <td className="px-3 py-2">
-                  <EditableCell value={String(row.active ?? true)} type="select"
-                    options={[{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]}
-                    onChange={v => handleUpdate(row.id, 'active', v === 'true', row)}/>
+                  <ActiveToggle value={row.active ?? true} onChange={v => handleUpdate(row.id, 'active', v, row)}/>
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-1">
