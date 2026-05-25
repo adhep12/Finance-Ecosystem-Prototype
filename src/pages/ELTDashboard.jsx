@@ -4053,7 +4053,16 @@ export default function ELTDashboard() {
   const { orgConfig, incomeMonths, actuals, availableScenarios, selectedScenario } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
+  // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
   const [activeBudget, setActiveBudget] = useState(selectedScenario)
+
+  // When AppContext finishes loading budget and selectedScenario becomes non-empty,
+  // sync activeBudget — but ONLY if the user hasn't already picked one manually.
+  useEffect(() => {
+    if (selectedScenario && !activeBudget) {
+      setActiveBudget(selectedScenario)
+    }
+  }, [selectedScenario])
 
   const defaultRange = getELTPresetRange('fiscal-ytd', orgConfig)
   const [dateRange, setDateRange] = useState({ preset:'fiscal-ytd', ...defaultRange })
