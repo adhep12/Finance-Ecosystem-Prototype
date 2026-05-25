@@ -204,25 +204,37 @@ export function AppProvider({ children }) {
         page++
       }
 
-      // Set actuals FIRST — dashboards can render even if v_org_summary is slow/down
+      // Set actuals FIRST — dashboards can render even if budget queries are slow
       setActuals(mapActuals(txRows))
 
-      // v_org_summary is a separate, non-fatal query.
-      // If it times out, budget data is empty but actuals (PnL) still show.
+      // ── Budget data: query v_actuals_vs_budget (keeps dept_code) ─────────────
+      // v_org_summary aggregates dept_code away, so filtering budgets by department
+      // in BreakdownPage / BriefingPage would always return zero.
+      // v_actuals_vs_budget preserves dept_code; filter to budget rows only
+      // (scenario IS NOT NULL) so we don't re-fetch all the actuals rows.
+      const { data: budgetViewRows, error: budgetErr } = await supabase
+        .from('v_actuals_vs_budget')
+        .select('org_id, dept_code, category, record_type, period, budget, scenario')
+        .eq('org_id', resolvedOrgId)
+        .not('scenario', 'is', null)
+
+      if (budgetErr) {
+        console.warn('[AppContext] budget query failed (budget will be empty):', budgetErr.message)
+        setBudgetFlat([])
+      } else {
+        setBudgetFlat(mapBudgetFlat(budgetViewRows || []))
+      }
+
+      // ── Org summary: v_org_summary — used by ELT dashboard ───────────────────
+      // Non-fatal: if it times out, ELT summary widgets show empty but app stays up.
       const { data: summaryRows, error: sumErr } = await supabase
         .from('v_org_summary').select('*').eq('org_id', resolvedOrgId)
 
       if (sumErr) {
-        console.warn('[AppContext] v_org_summary failed (budget data will be empty):', sumErr.message)
+        console.warn('[AppContext] v_org_summary failed (ELT summary will be empty):', sumErr.message)
         setOrgSummary([])
-        setBudgetFlat([])
       } else {
-        // Store the raw org summary for components that need it
         setOrgSummary(summaryRows || [])
-
-        // Map v_org_summary rows into budgetFlat format for calcBudgetByCategory
-        // and filterELTByRange compatibility.
-        setBudgetFlat(mapOrgSummaryToBudget(summaryRows || []))
       }
 
     } catch (err) {
@@ -270,9 +282,21 @@ export function AppProvider({ children }) {
     }))
   }
 
+  // Map v_actuals_vs_budget rows (budget scenario rows only) to budgetFlat format.
+  // Preserves dept_code as 'department' so per-department filtering works in
+  // BreakdownPage, BriefingPage, and team dashboards.
+  function mapBudgetFlat(rows) {
+    return rows.map(row => ({
+      ...row,
+      amount:     row.budget,       // calcBudgetByCategory sums 'amount'
+      department: row.dept_code,    // per-dept budget filtering
+    }))
+  }
+
   // Map v_org_summary rows to the shape expected by calcBudgetByCategory
   // and filterELTByRange: { period, amount, category, record_type, scenario, department }
   // Only rows where scenario IS NOT NULL are budget rows; null = actual-only (no budget).
+  // NOTE: kept for potential ELT dashboard use but no longer used for budgetFlat.
   function mapOrgSummaryToBudget(rows) {
     return rows
       .filter(row => row.scenario != null)   // skip actual-only rows (no budget)
