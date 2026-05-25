@@ -339,7 +339,7 @@ export function groupByField(actuals, field) {
  * @param {Object}      budgetByCat  { category: totalBudgetForRange }
  * @param {Object|null} sortConfig   { col: 'actual'|'budget'|'delta'|'pct', dir: 'asc'|'desc' }
  */
-export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sortConfig = null) {
+export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sortConfig = null, initialParentBudget = 0) {
   const result = []
 
   function getBudget(g, field, parentBudget, parentActual) {
@@ -389,11 +389,11 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
       const isDimmed   = hasOpen && g.key !== openAtThis
       const budget     = getBudget(g, field, parentBudget, parentActual)
 
-      // budgetIsReal = true when budget comes from actual budgetByCat data (category level),
-      // false when it's a proportional estimate (sub-category levels).
-      // This lets the UI show "No Budget" badge for proportional estimates
-      // instead of repeating the same variance % as the parent row.
-      const budgetIsReal = field === 'category'
+      // budgetIsReal = true when budget comes from actual budgetByCat data
+      // (category level) or is the first sub-level after category (account level).
+      // false when it's a proportional estimate for grant/vendor/department rows.
+      // This lets the UI show '—' for grant/vendor rows to avoid misleading values.
+      const budgetIsReal = field === 'category' || field === 'account'
       result.push({ type: 'group', field, value: g.key, actual: g.total, budget, budgetIsReal, depth, isExpanded, isDimmed, items: g.items })
 
       if (isExpanded) {
@@ -402,7 +402,7 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
     }
   }
 
-  process(actuals, 0, 0, actuals.reduce((s, t) => s + t.amount, 0))
+  process(actuals, 0, initialParentBudget, actuals.reduce((s, t) => s + t.amount, 0))
   return result
 }
 

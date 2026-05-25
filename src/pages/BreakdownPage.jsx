@@ -419,32 +419,46 @@ function GroupRow({ row, onToggle, onHide }) {
       </div>
 
       {/* Budget */}
-      <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
-        {row.budget !== null && row.budget > 0 ? formatCurrency(row.budget) : '—'}
-      </div>
+      {row.budgetIsReal ? (
+        <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
+          {row.budget !== null && row.budget > 0 ? formatCurrency(row.budget) : '—'}
+        </div>
+      ) : (
+        <div className="text-right flex-shrink-0 text-gray-300 text-sm" style={{ width: 96 }}>—</div>
+      )}
 
       {/* Over/Under */}
-      <div className="text-right flex-shrink-0" style={{ width: 110 }}>
-        {delta !== null ? (
-          <>
-            <div className="text-sm font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
-              {formatOverUnder(delta)}
-            </div>
-            {pctUsed !== null && (
-              <div className="text-[10px] text-gray-400">{pctUsed}% used</div>
-            )}
-          </>
-        ) : <span className="text-gray-300">—</span>}
-      </div>
+      {row.budgetIsReal ? (
+        <div className="text-right flex-shrink-0" style={{ width: 110 }}>
+          {delta !== null ? (
+            <>
+              <div className="text-sm font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
+                {formatOverUnder(delta)}
+              </div>
+              {pctUsed !== null && (
+                <div className="text-[10px] text-gray-400">{pctUsed}% used</div>
+              )}
+            </>
+          ) : <span className="text-gray-300">—</span>}
+        </div>
+      ) : (
+        <div className="text-right flex-shrink-0" style={{ width: 110 }}>
+          <span className="text-gray-300 cursor-default" title="Budget tracked at category and account level.">—</span>
+        </div>
+      )}
 
-      {/* Variance badge — only show real % when budget comes from actual data (category level).
-           Sub-category rows use proportional estimation which always equals the parent's %,
-           so we show "No Budget" there to avoid the misleading repeated value. */}
+      {/* Variance badge — only show real % when budget comes from actual data
+           (category and account levels). Grant/vendor rows show '—' to avoid
+           misleading repeated variance values. */}
       <div className="text-right flex-shrink-0 flex justify-end" style={{ width: 100 }}>
-        <VarianceBadge
-          actual={row.actual}
-          budget={row.budgetIsReal ? (row.budget || null) : null}
-        />
+        {row.budgetIsReal ? (
+          <VarianceBadge
+            actual={row.actual}
+            budget={row.budget || null}
+          />
+        ) : (
+          <span className="text-gray-300 text-sm cursor-default" title="Budget tracked at category and account level.">—</span>
+        )}
       </div>
     </div>
   )

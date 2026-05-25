@@ -1729,10 +1729,10 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     )
   }
 
-  function PLSubRows({ items, subDrillOrder, openPath, onToggle, totalInc }) {
+  function PLSubRows({ items, subDrillOrder, openPath, onToggle, totalInc, catBudget }) {
     const subRows = useMemo(() =>
-      buildVisibleRows(items, subDrillOrder, openPath, {}, null)
-    , [items, subDrillOrder, openPath])
+      buildVisibleRows(items, subDrillOrder, openPath, {}, null, catBudget || 0)
+    , [items, subDrillOrder, openPath, catBudget])
 
     return subRows.map((row, i) => {
       if (row.type === 'transaction') {
@@ -1755,7 +1755,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         )
       }
       // Group row
-      const delta = row.budget > 0 ? row.actual - row.budget : null
+      const delta = row.budgetIsReal && row.budget > 0 ? row.actual - row.budget : null
       return (
         <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
           onClick={() => onToggle(row.depth, row.value)}
@@ -1773,9 +1773,11 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
             </div>
           </td>
           <td className="px-4 py-2.5 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(row.actual,{compact:false})}</td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">{row.budget>0?formatCurrency(row.budget,{compact:false}):'—'}</td>
           <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">
-            {delta!==null ? `${delta>=0?'+':''}${formatCurrency(delta,{compact:false})}` : '—'}
+            {row.budgetIsReal && row.budget > 0 ? formatCurrency(row.budget,{compact:false}) : <span className="text-gray-300" title="Budget tracked at category and account level.">—</span>}
+          </td>
+          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">
+            {delta!==null ? `${delta>=0?'+':''}${formatCurrency(delta,{compact:false})}` : <span className="text-gray-300" title="Budget tracked at category and account level.">—</span>}
           </td>
           <td className="px-6 py-2.5 text-right text-xs text-gray-300">
             {totalInc>0 ? `${(row.actual/totalInc*100).toFixed(1)}%` : '—'}
@@ -1940,7 +1942,8 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                       <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
                         openPath={incSubPaths[g.cat]||[]}
                         onToggle={(d,v) => toggleIncSub(g.cat,d,v)}
-                        totalInc={totalIncActual}/>
+                        totalInc={totalIncActual}
+                        catBudget={g.budget}/>
                     )}
                   </React.Fragment>
                 ))}
@@ -1961,7 +1964,8 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                       <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
                         openPath={expSubPaths[g.cat]||[]}
                         onToggle={(d,v) => toggleExpSub(g.cat,d,v)}
-                        totalInc={totalIncActual}/>
+                        totalInc={totalIncActual}
+                        catBudget={g.budget}/>
                     )}
                   </React.Fragment>
                 ))}
