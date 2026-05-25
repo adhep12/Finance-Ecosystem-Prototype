@@ -59,7 +59,12 @@ const FINANCE_KPI_CATALOG = [
   { id:'budget-utilization', label:'Budget Utilization',        group:'Operations'        },
   { id:'open-comments',      label:'Open Comments & Requests',  group:'Operations'        },
 ]
-const DEFAULT_FINANCE_KPI_IDS = FINANCE_KPI_CATALOG.map(k => k.id)
+// Default 9-card layout: Row 1 = financial health (6), Row 2 = supporter health (3)
+// Removed from default but available via Add: recurring-patrons, recurring-giving,
+// spontaneous-giving, total-transactions, budget-utilization, open-comments
+const FINANCIAL_KPI_IDS  = ['total-giving','total-expenses','net-position','cash-position','cash-above-floor','teams-over-budget']
+const SUPPORTER_KPI_IDS  = ['total-supporters','new-supporters','avg-gift']
+const DEFAULT_FINANCE_KPI_IDS = [...FINANCIAL_KPI_IDS, ...SUPPORTER_KPI_IDS]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Date helpers (self-contained)
@@ -989,7 +994,8 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
   const { orgConfig } = useApp()
-  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('finance-kpi-ids', DEFAULT_FINANCE_KPI_IDS)
+  // v2 key — resets any saved 15-card layout to the new 9-card default
+  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('finance-kpi-v2-ids', DEFAULT_FINANCE_KPI_IDS)
   const [editKPI,     setEditKPI]     = useState(false)
   const [showAddKPI,  setShowAddKPI]  = useState(false)
   const [editWatch,   setEditWatch]   = useState(false)
@@ -1026,12 +1032,52 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
   const kpiProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
 
+  // Split visibleKPIs into two display rows by group membership
+  // Row 1 = financial health cards; Row 2 = supporter health cards; overflow → Row 1
+  const row1Ids = visibleKPIs.filter(id => !SUPPORTER_KPI_IDS.includes(id) || FINANCIAL_KPI_IDS.includes(id))
+    .filter(id => !SUPPORTER_KPI_IDS.includes(id))
+  const row2Ids = visibleKPIs.filter(id => SUPPORTER_KPI_IDS.includes(id))
+  // any extra ids (non-standard) go into row1
+  const extraIds = visibleKPIs.filter(id => !FINANCIAL_KPI_IDS.includes(id) && !SUPPORTER_KPI_IDS.includes(id))
+  const allRow1 = [...row1Ids, ...extraIds]
+
+  function KPIRow({ ids, rowStartIndex }) {
+    if (ids.length === 0) return null
+    return (
+      <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))'}}>
+        {ids.map((id) => {
+          const i = visibleKPIs.indexOf(id)
+          return (
+            <div key={id}
+              draggable={editKPI}
+              onDragStart={()=>handleDragStart(i)}
+              onDragOver={e=>handleDragOver(e,i)}
+              onDrop={()=>handleDrop(i)}
+              onDragEnd={()=>{ setDragIdx(null); setDropIdx(null) }}
+              className={`relative transition-opacity ${editKPI?'cursor-grab active:cursor-grabbing':''} ${dragIdx===i?'opacity-40':''}`}>
+              {editKPI && dropIdx===i && dragIdx!==null && dragIdx!==i && (
+                <div className="absolute -top-1 left-0 right-0 h-0.5 bg-gray-900 rounded-full z-10"/>
+              )}
+              {editKPI && (
+                <div className="absolute top-3 left-3 z-10 opacity-30 pointer-events-none">
+                  <GripVertical size={13} className="text-gray-600"/>
+                </div>
+              )}
+              <FinanceKPICard id={id} {...kpiProps} editMode={editKPI}
+                onRemove={()=>setVisibleKPIs(p=>p.filter(v=>v!==id))}/>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
 
       {/* ── KPI Section ── */}
       <section>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-5">
           <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Key Metrics</span>
           <div className="flex items-center gap-2">
             {editKPI && (
@@ -1047,35 +1093,26 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
           </div>
         </div>
 
-        {/* KPI grid — draggable in edit mode */}
         {visibleKPIs.length === 0 ? (
           <div className="text-sm text-gray-400 text-center py-10 bg-white rounded-2xl border border-gray-100">
             No cards visible. Click <strong>Edit → Add Card</strong> to add some.
           </div>
         ) : (
-          <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))'}}>
-            {visibleKPIs.map((id, i) => (
-              <div key={id}
-                draggable={editKPI}
-                onDragStart={()=>handleDragStart(i)}
-                onDragOver={e=>handleDragOver(e,i)}
-                onDrop={()=>handleDrop(i)}
-                onDragEnd={()=>{ setDragIdx(null); setDropIdx(null) }}
-                className={`relative transition-opacity ${editKPI?'cursor-grab active:cursor-grabbing':''} ${dragIdx===i?'opacity-40':''}`}>
-                {/* Drop indicator */}
-                {editKPI && dropIdx===i && dragIdx!==null && dragIdx!==i && (
-                  <div className="absolute -top-1 left-0 right-0 h-0.5 bg-gray-900 rounded-full z-10"/>
-                )}
-                {/* Drag handle — show in edit mode */}
-                {editKPI && (
-                  <div className="absolute top-3 left-3 z-10 opacity-30 pointer-events-none">
-                    <GripVertical size={13} className="text-gray-600"/>
-                  </div>
-                )}
-                <FinanceKPICard id={id} {...kpiProps} editMode={editKPI}
-                  onRemove={()=>setVisibleKPIs(p=>p.filter(v=>v!==id))}/>
+          <div className="space-y-6">
+            {/* Row 1 — Financial Health */}
+            {allRow1.length > 0 && (
+              <div>
+                <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">Financial Health</div>
+                <KPIRow ids={allRow1} rowStartIndex={0}/>
               </div>
-            ))}
+            )}
+            {/* Row 2 — Supporter Health */}
+            {row2Ids.length > 0 && (
+              <div>
+                <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">Supporter Health</div>
+                <KPIRow ids={row2Ids} rowStartIndex={allRow1.length}/>
+              </div>
+            )}
           </div>
         )}
       </section>
