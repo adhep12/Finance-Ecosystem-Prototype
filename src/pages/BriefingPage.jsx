@@ -26,6 +26,15 @@ import {
   daysBetween,
 } from '../utils/formatters'
 
+// Deterministic color per team name — same palette + hash as FloatingNav
+// so the icon color matches the nav badge exactly.
+function teamColor(name = '') {
+  const COLORS = ['#0EA5A0','#6366F1','#F97316','#10B981','#8B5CF6','#EC4899','#C05A2F','#E8A838']
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
+  return COLORS[h % COLORS.length]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Exclude Modal
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,9 +120,9 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
           <div className="flex items-center gap-4">
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-xl font-bold flex-shrink-0"
-              style={{ backgroundColor: orgConfig.primaryColor || 'var(--color-primary)' }}
+              style={{ backgroundColor: teamColor(displayName) }}
             >
-              {orgConfig.logoInitial}
+              {displayName.charAt(0).toUpperCase()}
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{displayName}</h1>

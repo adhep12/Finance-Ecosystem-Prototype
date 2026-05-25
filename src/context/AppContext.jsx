@@ -246,24 +246,38 @@ export function AppProvider({ children }) {
       const teamMap = {}  // team uuid → team_name
       for (const t of (teamLookup || [])) teamMap[t.id] = t.team_name
 
-      console.log('[AppContext] lookups — depts:', Object.keys(deptMap).length, '| accts:', Object.keys(acctMap).length, '| teams:', Object.keys(teamMap).length)
+      // ── Budget pagination — parallel fetch for speed ──────────────────────
+      // Sequential while-loop took ~11 s for 108 pages. Instead:
+      //   1. Count-only head query to know how many pages
+      //   2. Fire all page requests in parallel (batched to avoid throttling)
+      const { count: budgetCount } = await supabase
+        .from('budgets')
+        .select('id', { count: 'exact', head: true })
+        .eq('org_id', resolvedOrgId)
+        .eq('deleted', false)
+
+      const totalPages = Math.ceil((budgetCount || 0) / PAGE_SIZE)
+      const BATCH = 10   // fire 10 requests at a time
 
       let budgetRows = []
-      let bPage = 0
-      while (true) {
-        const { data: bData, error: bErr } = await supabase
-          .from('budgets')
-          .select('id, department_id, account_id, category, scenario, amount, period, period_type')
-          .eq('org_id', resolvedOrgId)
-          .eq('deleted', false)
-          .range(bPage * PAGE_SIZE, (bPage + 1) * PAGE_SIZE - 1)
-        if (bErr) {
-          console.warn('[AppContext] budget chunk error:', bErr.message)
-          break
+      for (let start = 0; start < totalPages; start += BATCH) {
+        const batchPages = Array.from(
+          { length: Math.min(BATCH, totalPages - start) },
+          (_, i) => start + i
+        )
+        const results = await Promise.all(
+          batchPages.map(p =>
+            supabase.from('budgets')
+              .select('id, department_id, account_id, category, scenario, amount, period, period_type')
+              .eq('org_id', resolvedOrgId)
+              .eq('deleted', false)
+              .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+          )
+        )
+        for (const { data: bData, error: bErr } of results) {
+          if (bErr) console.warn('[AppContext] budget page error:', bErr.message)
+          else budgetRows = [...budgetRows, ...(bData || [])]
         }
-        budgetRows = [...budgetRows, ...(bData || [])]
-        if (!bData || bData.length < PAGE_SIZE) break
-        bPage++
       }
 
       setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap))
