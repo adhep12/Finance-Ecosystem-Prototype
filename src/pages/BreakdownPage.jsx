@@ -45,27 +45,16 @@ const FIELD_COLORS = {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function VarianceBadge({ actual, budget }) {
-  if (budget === null || budget === undefined) {
-    return (
-      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700">
-        No Budget
-      </span>
-    )
-  }
-  if (budget === 0) {
-    return (
-      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700">
-        No Budget
-      </span>
-    )
-  }
-  const pct = ((actual - budget) / budget) * 100
-  const isOver  = pct > 0.5
-  const isUnder = pct < -0.5
-  if (isOver)  return <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">{'+' + pct.toFixed(1)}% OVER</span>
-  if (isUnder) return <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700">{pct.toFixed(1)}% UNDER</span>
-  return <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600">EVEN</span>
+function SpendBar({ actual, totalExpenses }) {
+  const pct = totalExpenses > 0 ? Math.min((actual / totalExpenses) * 100, 100) : 0
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <div className="w-14 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+        <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs text-gray-400 tabular-nums w-9 text-right">{pct.toFixed(1)}%</span>
+    </div>
+  )
 }
 
 function fieldColor(field) { return FIELD_COLORS[field] || '#6B7280' }
@@ -346,7 +335,7 @@ function TableHeader({ drillOrder, selectedScenario, sortCol, sortDir, onSort })
     { col: 'actual', label: 'Spend',       width: 96  },
     { col: 'budget', label: selectedScenario, width: 96 },
     { col: 'delta',  label: 'Over/(Under)', width: 110 },
-    { col: 'pct',    label: 'Variance %',   width: 100 },
+    { col: 'pct',    label: '% of Total',   width: 120 },
   ]
 
   return (
@@ -376,7 +365,7 @@ function TableHeader({ drillOrder, selectedScenario, sortCol, sortDir, onSort })
 // Group row
 // ─────────────────────────────────────────────────────────────────────────────
 
-function GroupRow({ row, onToggle, onHide }) {
+function GroupRow({ row, onToggle, onHide, totalExpenses }) {
   const delta  = row.budget !== null ? row.actual - row.budget : null
   const isOver = delta !== null && delta >= 0
   const pctUsed = row.budget ? Math.round((row.actual / row.budget) * 100) : null
@@ -437,12 +426,9 @@ function GroupRow({ row, onToggle, onHide }) {
         ) : <span className="text-gray-300">—</span>}
       </div>
 
-      {/* Variance % badge — calculated per-row when budget > 0, dash otherwise */}
-      <div className="text-right flex-shrink-0 flex justify-end" style={{ width: 100 }}>
-        {row.budget > 0
-          ? <VarianceBadge actual={row.actual} budget={row.budget} />
-          : <span className="text-gray-300 text-sm">—</span>
-        }
+      {/* % of Total expenses — mini bar showing this row's share of all spend */}
+      <div className="flex-shrink-0" style={{ width: 120 }}>
+        <SpendBar actual={row.actual} totalExpenses={totalExpenses} />
       </div>
     </div>
   )
@@ -478,10 +464,10 @@ function TransactionRow({ row, onSelect }) {
       <div className="text-sm font-semibold text-gray-700 flex-shrink-0" style={{ width: 96, textAlign: 'right' }}>
         {formatCurrency(t.amount)}
       </div>
-      {/* Empty placeholders for Budget, Over/Under, Variance columns */}
+      {/* Empty placeholders for Budget, Over/Under, % of Total columns */}
       <div style={{ width: 96 }} />
       <div style={{ width: 110 }} />
-      <div style={{ width: 100 }} />
+      <div style={{ width: 120 }} />
     </div>
   )
 }
@@ -872,6 +858,7 @@ export default function BreakdownPage() {
                   row={row}
                   onToggle={toggleRow}
                   onHide={hideRow}
+                  totalExpenses={totalActual}
                 />
               )
             })}

@@ -359,8 +359,9 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
         case 'budget':  av = ab;                bv = bb;                break
         case 'delta':   av = a.total - ab;      bv = b.total - bb;      break
         case 'pct':
-          av = ab > 0 ? (a.total - ab) / ab : 0
-          bv = bb > 0 ? (b.total - bb) / bb : 0
+          // "% of Total" column sorts by actual spend (pct of total is proportional to actual)
+          av = a.total
+          bv = b.total
           break
         default:        av = a.total;           bv = b.total
       }
