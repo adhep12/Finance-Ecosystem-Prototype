@@ -17,6 +17,7 @@ import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
+import { ORG_COLORS, DATA_COLORS, STATUS_COLORS } from '../constants/colors'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -752,26 +753,33 @@ function TrendBadge({ delta, inverse=false, label }) {
 // KPI Card (dashboard)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2Label, cmp2Value, cmp2Delta, cmp2Pct, inverse=false, onRemove, editMode }) {
+function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2Label, cmp2Value, cmp2Delta, cmp2Pct, inverse=false, onRemove, editMode, topBorderColor=null }) {
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative rounded-xl p-6 flex-1 min-w-[220px]"
+      style={{
+        backgroundColor: '#FFFFFF',
+        border: '1px solid rgba(0,0,0,0.06)',
+        borderTopWidth: topBorderColor ? '3px' : '1px',
+        borderTopColor: topBorderColor || 'rgba(0,0,0,0.06)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)',
+      }}>
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{title}</div>
-      <div className="text-3xl font-bold text-gray-900 mb-4">{value}</div>
+      <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{color:'#6B7384'}}>{title}</div>
+      <div className="font-bold text-gray-900 mb-4" style={{fontSize:'36px'}}>{value}</div>
       <div className="space-y-2.5">
         {cmp1Label && <div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp1Label}</div>
+          <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color:'#9CA3AF'}}>{cmp1Label}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <TrendBadge delta={cmp1Delta} inverse={inverse} label={cmp1Pct}/>
-            <span className={`text-sm font-semibold ${varColor(cmp1Delta,inverse)}`}>{cmp1Delta>0?'+':''}{formatCurrency(cmp1Delta)}</span>
+            <span className="text-sm font-semibold" style={{color: (inverse ? cmp1Delta<=0 : cmp1Delta>=0) ? STATUS_COLORS.positive : STATUS_COLORS.negative}}>{cmp1Delta>0?'+':''}{formatCurrency(cmp1Delta)}</span>
             <span className="text-xs text-gray-400">vs {formatCurrency(cmp1Value)}</span>
           </div>
         </div>}
         {cmp2Label && <div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp2Label}</div>
+          <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color:'#9CA3AF'}}>{cmp2Label}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <TrendBadge delta={cmp2Delta} inverse={inverse} label={cmp2Pct}/>
-            <span className={`text-sm font-semibold ${varColor(cmp2Delta,inverse)}`}>{cmp2Delta>0?'+':''}{formatCurrency(cmp2Delta)}</span>
+            <span className="text-sm font-semibold" style={{color: (inverse ? cmp2Delta<=0 : cmp2Delta>=0) ? STATUS_COLORS.positive : STATUS_COLORS.negative}}>{cmp2Delta>0?'+':''}{formatCurrency(cmp2Delta)}</span>
             <span className="text-xs text-gray-400">vs {formatCurrency(cmp2Value)}</span>
           </div>
         </div>}
@@ -857,7 +865,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
   }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative bg-white rounded-xl p-6 flex-1 min-w-[220px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       {editMode && (
         <div className="absolute top-2 right-2 flex gap-1">
           <button onClick={()=>setEditing(true)} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-blue-100 text-gray-400 hover:text-blue-500 flex items-center justify-center transition-colors" title="Edit card">
@@ -886,63 +894,85 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
 
 function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2Pct, cmp2Value, breakdown, editMode, onRemove }) {
   const [showBreakdown, setShowBreakdown] = useState(false)
-  function deltaColor(d) { return d > 0 ? '#6ECF8C' : d < 0 ? '#F0876A' : 'rgba(255,255,255,0.5)' }
+  const isPositive = value >= 0
+  const accentColor  = isPositive ? '#4CAF82' : '#FF6B6B'
+  const borderColor  = isPositive ? STATUS_COLORS.positive : STATUS_COLORS.negative
+  const badgeLabel   = isPositive ? 'Surplus' : 'Deficit'
+  const badgeBg      = isPositive ? 'rgba(61,153,112,0.25)'  : 'rgba(192,57,43,0.25)'
+  const badgeBorder  = isPositive ? 'rgba(61,153,112,0.4)'   : 'rgba(192,57,43,0.4)'
+  const shadowColor  = isPositive ? 'rgba(61,153,112,0.15)'  : 'rgba(192,57,43,0.15)'
+  function deltaColor(d) { return d > 0 ? '#4CAF82' : d < 0 ? '#FF6B6B' : 'rgba(255,255,255,0.4)' }
+
   return (
-    <div className="relative rounded-2xl p-5 flex-1 min-w-[220px]"
-      style={{backgroundColor:'var(--ink-900)',border:'1px solid var(--ink-800)'}}>
+    <div className="relative w-full rounded-xl"
+      style={{
+        backgroundColor: '#1a1f2e',
+        borderLeft: `5px solid ${borderColor}`,
+        border: `1px solid rgba(255,255,255,0.06)`,
+        borderLeftWidth: '5px',
+        borderLeftColor: borderColor,
+        boxShadow: `0 4px 20px ${shadowColor}`,
+        padding: '28px 32px',
+      }}>
       {editMode && onRemove && (
-        <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+        <button onClick={onRemove} className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
           style={{backgroundColor:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.4)'}}>
           <X size={11}/>
         </button>
       )}
-      {/* Label + info */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-primary)'}}>
-          Net Position YTD
-        </div>
-        <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
-          <Info size={12} style={{color:'rgba(255,255,255,0.25)'}} className="cursor-help"/>
-          {showBreakdown && (
-            <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Breakdown</div>
-              {breakdown.lines.map((line,i) => (
-                <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
-                  <span className="text-xs">{line.label}</span>
-                  <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(line.value)}</span>
+
+      {/* Header row: label left, badge right */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>
+            Net Position YTD
+          </div>
+          <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
+            <Info size={12} style={{color:'rgba(255,255,255,0.2)'}} className="cursor-help"/>
+            {showBreakdown && (
+              <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Breakdown</div>
+                {breakdown.lines.map((line,i) => (
+                  <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
+                    <span className="text-xs">{line.label}</span>
+                    <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(line.value)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between py-1.5 border-t-2 border-gray-800 mt-2 pt-2">
+                  <span className="text-xs font-bold text-gray-900">Net Position</span>
+                  <span className="text-xs font-bold text-gray-900 tabular-nums">{formatCurrency(value)}</span>
                 </div>
-              ))}
-              <div className="flex justify-between py-1.5 border-t-2 border-gray-800 mt-2 pt-2">
-                <span className="text-xs font-bold text-gray-900">Net Position</span>
-                <span className="text-xs font-bold text-gray-900 tabular-nums">{formatCurrency(value)}</span>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
+        <span className="text-[11px] font-bold px-3 py-1 rounded-full"
+          style={{backgroundColor: badgeBg, color: accentColor, border: `1px solid ${badgeBorder}`}}>
+          {badgeLabel}
+        </span>
       </div>
+
       {/* Big value */}
-      <div className="text-3xl font-bold mb-4" style={{color:'#FFFFFF'}}>{formatCurrency(value)}</div>
+      <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+
       {/* Comparisons */}
-      <div className="space-y-2.5">
+      <div className="flex gap-8 flex-wrap">
         {[
           {label:'vs Forecast',   delta:cmp1Delta, pct:cmp1Pct, base:cmp1Value},
           {label:'vs Prior Year', delta:cmp2Delta, pct:cmp2Pct, base:cmp2Value},
         ].map(({label,delta,pct,base})=>(
           <div key={label}>
-            <div className="text-[10px] uppercase tracking-wider font-semibold mb-1"
-              style={{color:'rgba(255,255,255,0.45)'}}>{label}</div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color:'#6B7384'}}>{label}</div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-                style={{backgroundColor:'rgba(255,255,255,0.10)',color:deltaColor(delta)}}>
+                style={{backgroundColor:'rgba(255,255,255,0.08)',color:deltaColor(delta)}}>
                 {delta>0?<TrendingUp size={11}/>:delta<0?<TrendingDown size={11}/>:<Minus size={11}/>}
                 {pct}
               </span>
               <span className="text-sm font-semibold" style={{color:deltaColor(delta)}}>
                 {delta>0?'+':''}{formatCurrency(delta)}
               </span>
-              <span className="text-xs" style={{color:'rgba(255,255,255,0.3)'}}>
-                vs {formatCurrency(base)}
-              </span>
+              <span className="text-xs" style={{color:'rgba(255,255,255,0.3)'}}>vs {formatCurrency(base)}</span>
             </div>
           </div>
         ))}
@@ -962,7 +992,7 @@ function MonthlyKPICard({ title, actual, budget, priorYear, inverse=false, editM
   const p2 = priorYear > 0 ? formatPercent(d2 / priorYear * 100, { showSign: true, decimals: 1 }) : '—'
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex-1 min-w-[170px] max-w-[240px]">
+    <div className="relative bg-white rounded-xl p-4 flex-1 min-w-[170px] max-w-[240px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
           <X size={11}/>
@@ -1219,9 +1249,10 @@ function SectionLabel({ children, color }) {
 
 function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>{title}</h2>
-      <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3 mt-8 mb-4">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] whitespace-nowrap" style={{color:'#6B7384'}}>{title}</h2>
+      <div className="flex-1 h-px" style={{backgroundColor:'rgba(0,0,0,0.08)'}}/>
+      <div className="flex items-center gap-2 flex-shrink-0">
         {editMode && showAdd && (
           <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
             <Plus size={11}/> Add card
@@ -1366,7 +1397,7 @@ function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date', wa
   })
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl overflow-hidden" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
@@ -1435,7 +1466,7 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
   const b2 = fmtBase(sub2Base, sub2Format)
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative bg-white rounded-xl p-6 flex-1 min-w-[220px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{label}</div>
       <div className="text-3xl font-bold text-gray-900 mb-4">{mainValue}</div>
@@ -1527,7 +1558,7 @@ function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=
   }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -1574,7 +1605,7 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
   const common = { data: chartData, margin:{top:5,right:5,left:-20,bottom:0} }
 
   return (
-    <div className="relative bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -1662,7 +1693,7 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
   }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -3006,31 +3037,25 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   function renderKPICard(cardId) {
     if(cardId==='giving') {
       const d1=totalGiving-totalForecast,d2=totalGiving-totalPriorGiv
+      // Under forecast → red top border; over → green
+      const topBorder = totalForecast > 0 ? (totalGiving >= totalForecast ? STATUS_COLORS.positive : STATUS_COLORS.negative) : null
       return <KPICard key={cardId} title={`Total Giving · ${rangeLabel}`} value={formatCurrency(totalGiving)}
         cmp1Label="vs Forecast" cmp1Value={totalForecast} cmp1Delta={d1} cmp1Pct={formatPercent(d1/totalForecast*100,{showSign:true})}
         cmp2Label="vs Prior Year" cmp2Value={totalPriorGiv} cmp2Delta={d2} cmp2Pct={formatPercent(d2/totalPriorGiv*100,{showSign:true})}
-        editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
+        topBorderColor={topBorder} editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
     }
     if(cardId==='expenses') {
       const d1=totalExpenses-totalBudgetExp,d2=totalExpenses-totalPriorExp
+      // Over budget → red; under → green
+      const topBorder = totalBudgetExp > 0 ? (totalExpenses > totalBudgetExp ? STATUS_COLORS.negative : STATUS_COLORS.positive) : null
       return <KPICard key={cardId} title={`Expenses · ${rangeLabel}`} value={formatCurrency(totalExpenses)}
         cmp1Label="vs Budget" cmp1Value={totalBudgetExp} cmp1Delta={d1} cmp1Pct={formatPercent(d1/totalBudgetExp*100,{showSign:true})}
         cmp2Label="vs Prior Year" cmp2Value={totalPriorExp} cmp2Delta={d2} cmp2Pct={formatPercent(d2/totalPriorExp*100,{showSign:true})}
-        inverse editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
+        topBorderColor={topBorder} inverse editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
     }
     if(cardId==='net-position') {
-      const d1=netPosition-netForecast,d2=netPosition-netPriorYear
-      return <NetPositionCard key={cardId} value={netPosition}
-        cmp1Delta={d1} cmp1Pct={formatPercent(d1/Math.abs(netForecast)*100,{showSign:true})} cmp1Value={netForecast}
-        cmp2Delta={d2} cmp2Pct={formatPercent(d2/Math.abs(netPriorYear)*100,{showSign:true})} cmp2Value={netPriorYear}
-        breakdown={{lines:[
-          {label:'Contributions',value:d.giving.contributions},
-          {label:'Merchandise Revenue',value:d.giving.merchandiseRevenue},
-          {label:'Other Income',value:d.giving.otherIncome},
-          {label:'Total Income',value:totalGiving,isTotal:true},
-          {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
-        ]}}
-        editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
+      // Net Position renders separately as hero — skip in grid
+      return null
     }
     if(cardId==='cash') {
       const d1=d.cash.current-d.cash.priorMonth,d2=d.cash.current-d.cash.priorYear
@@ -3057,7 +3082,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     }
     if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Base={p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Base={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
     if(cardId==='retention') return (
-      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
+      <div key={cardId} className="relative bg-white rounded-xl p-6 flex-1 min-w-[180px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Retention Rate</div>
         <div className="text-3xl font-bold text-gray-900 mb-2">94.2%</div>
@@ -3065,7 +3090,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </div>
     )
     if(cardId==='recurring-ratio') return (
-      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
+      <div key={cardId} className="relative bg-white rounded-xl p-6 flex-1 min-w-[180px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Recurring Mix</div>
         <div className="text-3xl font-bold text-gray-900 mb-2">82.4%</div>
@@ -3109,9 +3134,31 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       {/* KPI Section */}
       <section>
         <SectionHeader title="Key Metrics" editMode={editKPI} onToggleEdit={()=>setEditKPI(v=>!v)} onAdd={()=>setShowAddKPI(true)}/>
+
+        {/* Net Position — full-width hero (always above the grid) */}
+        {kpiCards.includes('net-position') && (() => {
+          const d1=netPosition-netForecast, d2=netPosition-netPriorYear
+          return (
+            <div className="mb-4">
+              <NetPositionCard value={netPosition}
+                cmp1Delta={d1} cmp1Pct={formatPercent(d1/Math.abs(netForecast||1)*100,{showSign:true})} cmp1Value={netForecast}
+                cmp2Delta={d2} cmp2Pct={formatPercent(d2/Math.abs(netPriorYear||1)*100,{showSign:true})} cmp2Value={netPriorYear}
+                breakdown={{lines:[
+                  {label:'Contributions',value:d.giving.contributions},
+                  {label:'Merchandise Revenue',value:d.giving.merchandiseRevenue},
+                  {label:'Other Income',value:d.giving.otherIncome},
+                  {label:'Total Income',value:totalGiving,isTotal:true},
+                  {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
+                ]}}
+                editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!=='net-position'))}/>
+            </div>
+          )
+        })()}
+
+        {/* Driver cards grid (excluding net-position) */}
         <div className="flex gap-4 flex-wrap">
           {kpiCards.map(id=>renderKPICard(id))}
-          {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
+          {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
         </div>
       </section>
 
@@ -3979,7 +4026,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
             sub: `${teams.length - overBudget} of ${teams.length} within budget`,
             positive: overBudget === 0 },
         ].map((card,i) => (
-          <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div key={i} className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
             <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>
               {card.value}
@@ -3990,7 +4037,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       </div>
 
       {/* Teams table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl overflow-hidden" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
@@ -4281,7 +4328,7 @@ function DocumentsTab({ orgConfig }) {
 
       {/* Document list */}
       {filteredDocs.length > 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+        <div className="bg-white rounded-xl overflow-hidden mb-4" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
           {filteredDocs.map((doc, i) => {
             const ic = docIcon(doc.fileType)
             return (
@@ -4309,7 +4356,7 @@ function DocumentsTab({ orgConfig }) {
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center mb-4">
+        <div className="bg-white rounded-xl p-12 text-center mb-4" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
           <FileText size={32} className="mx-auto mb-3 text-gray-200"/>
           <p className="text-sm font-medium text-gray-500 mb-1">
             {filterPreset==='all' ? 'No documents yet' : `No documents for ${filterLabel}`}
@@ -4605,7 +4652,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
     <div className="space-y-4">
 
       {/* Sections */}
-      <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Sections to Include</div>
         <p className="text-[10px] mb-3" style={{color:'var(--fg-3)'}}>Choose which pages appear in the exported PDF.</p>
         <div className="space-y-2">
@@ -4644,7 +4691,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
       </div>
 
       {/* Reporting period */}
-      <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Reporting Period</div>
         <p className="text-[10px] mb-3" style={{color:'var(--fg-3)'}}>Shown on the report cover. Defaults to the dashboard's current date range — edit it here without changing the main view.</p>
 
@@ -4858,7 +4905,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
   return (
     <div className="space-y-4">
       {/* Description */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-xs font-semibold text-gray-700 mb-0.5">{tpl.label}</div>
         <div className="text-xs text-gray-400 mb-4">{tpl.description}</div>
 
@@ -4883,7 +4930,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
       </div>
 
       {/* Download templates */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Download Templates</div>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -4900,7 +4947,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
       </div>
 
       {/* Import mode */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Import Mode</div>
         <div className="flex gap-2 mb-4">
           {[{id:'append',label:'Append',desc:'Add new periods without touching existing data'},
@@ -4940,7 +4987,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
       </div>
 
       {/* File upload + import */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Upload File</div>
         <div onClick={() => fileRef.current?.click()}
           className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-4 cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors mb-4">
@@ -5012,7 +5059,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
       ) : activeImport === 'narrative' ? (
         /* Monthly Summary sub-tab (existing behavior) */
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Create or Link Monthly Summary</div>
             <div className="flex gap-3">
               <select value={summaryMonth} onChange={e=>setSummaryMonth(e.target.value)}
@@ -5029,7 +5076,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
               <p className="text-xs mt-2" style={{color:'var(--neutral-60)'}}>✓ Summary exists for {summaryMonth}. Switch to the Summary tab to edit it.</p>
             )}
           </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Existing Summaries</div>
             {existingMonths.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No summaries yet.</p>
