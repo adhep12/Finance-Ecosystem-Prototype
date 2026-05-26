@@ -2300,21 +2300,34 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   // Save state
   const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
   const [saveBanner, setSaveBanner] = useState(null)   // { type: 'success'|'error', message: string }
-  const saveTimerRef  = useRef(null)
+  const saveTimerRef   = useRef(null)
   const bannerTimerRef = useRef(null)
+  // Accumulates all key-value changes since the last save so that rapid
+  // back-to-back update() calls (e.g. title + overallSummary in generateSection)
+  // are all captured in a single debounced write — avoids stale-closure loss.
+  const pendingRef = useRef({})
 
   const summary = summaries[currentMonth] || null
+
+  // Reset pending changes whenever the user switches months
+  useEffect(() => { pendingRef.current = {} }, [currentMonth])
 
   // ── Save helpers ────────────────────────────────────────────────────────────
   async function doSave(monthKey, summaryData) {
     if (!onSave || !summaryData) return
     setSaveStatus('saving')
-    const { error } = await onSave(monthKey, summaryData)
-    if (error) {
+    const result = await onSave(monthKey, summaryData)
+    if (result?.skipped) {
+      // Nothing to save yet (content is still empty) — silently revert status
+      setSaveStatus('idle')
+      return
+    }
+    if (result?.error) {
       setSaveStatus('error')
       setSaveBanner({ type: 'error', message: 'Save failed — please try again' })
     } else {
       setSaveStatus('saved')
+      pendingRef.current = {} // changes are now persisted
       const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       setSaveBanner({ type: 'success', message: `Summary saved ✓  ${ts}` })
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current)
@@ -2324,12 +2337,18 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
   function update(key, value) {
     onUpdateSummary(currentMonth, key, value)
+    // Accumulate this change so later calls in the same tick aren't lost
+    pendingRef.current = { ...pendingRef.current, [key]: value }
     // Auto-save: debounce 2.5s after last edit
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     setSaveStatus('idle')
-    // Guard: if summary is still initialising, pull fresh from state in the closure
-    const updated = { ...(summary || {}), [key]: value }
-    saveTimerRef.current = setTimeout(() => doSave(currentMonth, updated), 2500)
+    // Merge base state with ALL pending changes to avoid stale-closure loss
+    // when update() is called multiple times before React re-renders
+    const pending = { ...pendingRef.current }
+    saveTimerRef.current = setTimeout(() => {
+      const latest = { ...(summary || {}), ...pending }
+      doSave(currentMonth, latest)
+    }, 2500)
   }
 
   function updateFinancials(cat, field, val) {
@@ -2402,8 +2421,20 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
       const parsed = parseAIResponse(raw)
 
       if (section === 'overall') {
-        update('title', parsed.headline || '')
-        update('overallSummary', parsed.narrative || '')
+        const headline = parsed.headline?.trim() || ''
+        const narrative = parsed.narrative?.trim() || ''
+        if (!headline && !narrative) throw new Error('AI returned empty headline and narrative')
+        // Batch both fields into a single pending snapshot so the debounced
+        // auto-save captures both — avoids stale-closure loss from two rapid calls
+        onUpdateSummary(currentMonth, 'title', headline)
+        onUpdateSummary(currentMonth, 'overallSummary', narrative)
+        pendingRef.current = { ...pendingRef.current, title: headline, overallSummary: narrative }
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+        setSaveStatus('idle')
+        const pending = { ...pendingRef.current }
+        saveTimerRef.current = setTimeout(() => {
+          doSave(currentMonth, { ...(summary || {}), ...pending })
+        }, 2500)
       } else if (section === 'takeaways') {
         const kts = (parsed.takeaways || []).map((t, i) => ({
           id: 'kt-ai-' + Date.now() + '-' + i,
@@ -5761,10 +5792,12 @@ export default function ELTDashboard() {
 
     // Fix 8: Only save if the summary has meaningful content.
     // An empty row (both headline and narrative null/empty) is never written to DB.
+    // Return { skipped: true } — a sentinel that doSave recognises as "nothing to
+    // save yet", so it reverts to idle without showing a "Save failed" banner.
     const headline  = summary?.title         || ''
     const narrative = summary?.overallSummary || ''
     if (!headline.trim() && !narrative.trim()) {
-      return { error: 'Summary has no content — generate or write content before saving' }
+      return { skipped: true }
     }
 
     // Fix 8: Clean up any existing empty ghost row for this period before upserting.
