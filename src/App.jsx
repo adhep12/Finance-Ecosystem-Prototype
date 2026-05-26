@@ -10,7 +10,7 @@ import TransactionsPage  from './pages/TransactionsPage'
 import ELTDashboard      from './pages/ELTDashboard'
 import MasterDashboard   from './pages/MasterDashboard'
 import Header            from './components/Header'
-import FloatingNav       from './components/FloatingNav'
+import Sidebar           from './components/Sidebar'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Team-not-found error screen
@@ -110,23 +110,35 @@ function TeamShell() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AppRoutes — FloatingNav lives here so it never unmounts on route change
+// AppRoutes — Sidebar lives here so it never unmounts on route change.
+// Content area shifts with sidebar width via CSS custom property --sidebar-w.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function AppRoutes() {
   return (
-    <>
-      <FloatingNav />
-      <Routes>
-        <Route path="/elt"            element={<ELTDashboard />} />
-        <Route path="/master"         element={<MasterDashboard />} />
-        {/* All team dashboards: /team/:teamId/briefing|breakdown|... */}
-        <Route path="/team/:teamId/*" element={<TeamShell />} />
-        {/* Root and legacy flat routes → executive dashboard */}
-        <Route path="/"               element={<Navigate to="/elt" replace />} />
-        <Route path="*"               element={<Navigate to="/elt" replace />} />
-      </Routes>
-    </>
+    <div className="flex min-h-screen">
+      {/* Fixed-position sidebar (sets --sidebar-w CSS variable) */}
+      <Sidebar />
+
+      {/* Page content — margin-left tracks sidebar width with matching transition */}
+      <div
+        className="flex-1 min-w-0"
+        style={{
+          marginLeft: 'var(--sidebar-w, 220px)',
+          transition: 'margin-left 200ms ease',
+        }}
+      >
+        <Routes>
+          <Route path="/elt"            element={<ELTDashboard />} />
+          <Route path="/master"         element={<MasterDashboard />} />
+          {/* All team dashboards: /team/:teamId/briefing|breakdown|... */}
+          <Route path="/team/:teamId/*" element={<TeamShell />} />
+          {/* Root and legacy flat routes → executive dashboard */}
+          <Route path="/"               element={<Navigate to="/elt" replace />} />
+          <Route path="*"               element={<Navigate to="/elt" replace />} />
+        </Routes>
+      </div>
+    </div>
   )
 }
 

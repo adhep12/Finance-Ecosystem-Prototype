@@ -1900,33 +1900,30 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
 
         {/* Draggable pills (sub-levels only — Category is always fixed as P&L rows) */}
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {subDrillOrder.map((field,idx) => {
-            const fullIdx = drillOrder.indexOf(field)
-            return (
-              <div key={field}
-                draggable
-                onDragStart={e=>{ e._dragField=field; e.dataTransfer.effectAllowed='move' }}
-                onDragOver={e=>e.preventDefault()}
-                onDrop={e=>{
-                  e.preventDefault()
-                  const from=e._dragField||drillOrder.find(f=>f!=='category'&&f!==field)
-                  if(!from||from===field) return
-                  const next=[...drillOrder]
-                  const fi=next.indexOf(from), ti=next.indexOf(field)
-                  if(fi<0||ti<0) return
-                  next.splice(fi,1); next.splice(ti,0,from)
-                  setDrillOrder(next); setIncSubPaths({}); setExpSubPaths({})
-                }}>
-                <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
-                  style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
-                  <GripVertical size={10} className="opacity-60"/>
-                  {FIELD_LABELS[field]}
-                  <button onClick={()=>{ setDrillOrder(drillOrder.filter(f=>f!==field)); setIncSubPaths({}); setExpSubPaths({}) }}
-                    className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
-                </div>
+          {subDrillOrder.map((field) => (
+            <div key={field}
+              draggable
+              onDragStart={e => { e.dataTransfer.setData('text/plain', field); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => {
+                e.preventDefault()
+                const from = e.dataTransfer.getData('text/plain')
+                if (!from || from === field) return
+                const next = [...drillOrder]
+                const fi = next.indexOf(from), ti = next.indexOf(field)
+                if (fi < 0 || ti < 0) return
+                next.splice(fi, 1); next.splice(ti, 0, from)
+                setDrillOrder(next); setIncSubPaths({}); setExpSubPaths({})
+              }}>
+              <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
+                style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
+                <GripVertical size={10} className="opacity-60"/>
+                {FIELD_LABELS[field]}
+                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncSubPaths({}); setExpSubPaths({}) }}
+                  className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
               </div>
-            )
-          })}
+            </div>
+          ))}
           {/* Add field */}
           {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).length>0 && (
             <div className="relative group">
