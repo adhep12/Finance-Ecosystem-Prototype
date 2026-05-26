@@ -1622,9 +1622,20 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const incomeActuals  = useMemo(() => searched.filter(t => t.record_type === 'income').map(t => ({ ...t, amount: Math.abs(t.amount||0) })), [searched])
   const expenseActuals = useMemo(() => searched.filter(t => t.record_type !== 'income'), [searched])
 
-  // Budget split
+  // Budget split — expense budget filtered by dept is irrelevant here (null = all depts)
   const expBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'), scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
+  // Income budget: NEVER filter by department — income budget is org-wide (stored under dept 801)
   const incBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type==='income'),  scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
+
+  // Total income budget sum — used as fallback when budget rows lack a category field
+  // (income budget entries often have category=null because budget is entered per-account,
+  //  not per-category; calcBudgetByCategory skips null-category rows, so we need this sum)
+  const totalIncBudgetRaw = useMemo(() => {
+    const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
+    return budgetFlat
+      .filter(b => b.record_type==='income' && b.scenario===scenario && b.period>=startM && b.period<=endM)
+      .reduce((s,b) => s+(b.amount||0), 0)
+  }, [budgetFlat, scenario, startDate, endDate])
 
   // Category groups (for P&L rows at depth 0)
   const incomeGroups = useMemo(() => {
@@ -1635,8 +1646,22 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
       map[cat].actual += (t.amount || 0)
       map[cat].items.push(t)
     }
-    return Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual).map(([cat, d]) => ({ cat, ...d, budget: incBudgetByCat[cat] || 0 }))
-  }, [incomeActuals, incBudgetByCat])
+    const groups = Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual)
+      .map(([cat, d]) => ({ cat, ...d, budget: incBudgetByCat[cat] || 0 }))
+
+    // Fallback: if NO category-level income budget matched (all zero) but the org has
+    // income budget data, distribute it proportionally across categories by actual spend.
+    // This handles the common case where budget rows have category=null.
+    const catBudgetTotal = groups.reduce((s,g) => s+g.budget, 0)
+    if (catBudgetTotal === 0 && totalIncBudgetRaw > 0) {
+      const totalAct = groups.reduce((s,g) => s+g.actual, 0)
+      return groups.map(g => ({
+        ...g,
+        budget: totalAct > 0 ? (g.actual / totalAct) * totalIncBudgetRaw : 0,
+      }))
+    }
+    return groups
+  }, [incomeActuals, incBudgetByCat, totalIncBudgetRaw])
 
   const expenseGroups = useMemo(() => {
     const map = {}
