@@ -2598,7 +2598,6 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
                     className={`border-b border-gray-50 transition-colors group ${team.id?'cursor-pointer hover:bg-gray-50':'hover:bg-gray-50/50'}`}>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">{team.name}</div>
-                      {mgr && <div className="text-[10px] text-gray-400 mt-0.5">{mgr}</div>}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400">{mgr || '—'}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold text-gray-800">{formatCurrency(team.actual,{compact:false})}</td>
