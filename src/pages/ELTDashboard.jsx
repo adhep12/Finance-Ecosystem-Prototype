@@ -57,6 +57,17 @@ function getAvailableMonths() {
 
 const ALL_MONTHS = getAvailableMonths()
 
+// Fallback ELT data object — used when filterELTByRange returns null/undefined
+// (e.g. during initial load before actuals/budgetFlat have been fetched)
+const EMPTY_ELT = {
+  giving:      { contributions:0, merchandiseRevenue:0, otherIncome:0 },
+  budget:      { contributions:0, merchandiseRevenue:0, otherIncome:0, staff:0, contract:0, technology:0, travel:0, otherGenAdmin:0 },
+  priorYear:   { contributions:0, merchandiseRevenue:0, otherIncome:0, expenses:0 },
+  expenseLines:{ staff:0, contract:0, technology:0, travel:0, otherGenAdmin:0 },
+  forecast:    { contributions:0, merchandiseRevenue:0, otherIncome:0 },
+  cash:        { current:0, priorMonth:0, priorYear:0 },
+}
+
 // ELT_MOCK removed — all data now sourced from Supabase / AppContext
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2160,9 +2171,40 @@ function GenerateSkeleton() {
 }
 
 function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig, actuals, budgetFlat, activeBudget, savedPeriods = new Set(), onSave }) {
-  // Months that have data
-  const existingMonths = Object.keys(summaries).sort((a,b) => new Date('1 '+b)-new Date('1 '+a))
-  const [currentMonth, setCurrentMonth] = useState(existingMonths[0] || ALL_MONTHS[0])
+  // Derive available months from actuals data (union with any saved summaries), newest first
+  const availableMonths = useMemo(() => {
+    const monthSet = new Set()
+    // Add months that have actual transaction data
+    ;(actuals || []).forEach(t => {
+      if (t.period) {
+        const label = periodToMonthLabel(t.period)
+        if (label) monthSet.add(label)
+      }
+    })
+    // Also include months that have saved summaries (even if no raw actuals)
+    Object.keys(summaries).forEach(m => monthSet.add(m))
+    // Sort newest first
+    return [...monthSet].sort((a, b) => new Date('1 ' + b) - new Date('1 ' + a))
+  }, [actuals, summaries])
+
+  const [currentMonth, setCurrentMonth] = useState(() => availableMonths[0] || ALL_MONTHS[0])
+
+  // When actuals finish loading, jump to the most recent month with data
+  // (only if the current selection isn't already in the available list)
+  useEffect(() => {
+    if (availableMonths.length > 0 && !availableMonths.includes(currentMonth)) {
+      setCurrentMonth(availableMonths[0])
+    }
+  }, [availableMonths]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-initialize an empty summary entry when the user switches to a month
+  // that has no saved narrative yet — so KPI cards and Generate buttons work immediately
+  useEffect(() => {
+    if (currentMonth && !summaries[currentMonth]) {
+      onAddSummary(currentMonth)
+    }
+  }, [currentMonth]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const [editMode, setEditMode] = useState(false)
   const [showAddMonth, setShowAddMonth] = useState(false)
   const [showAddKPI, setShowAddKPI] = useState(false)
@@ -2188,8 +2230,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   const saveTimerRef  = useRef(null)
   const bannerTimerRef = useRef(null)
 
-  const summary = summaries[currentMonth]
-  const noData  = !summary
+  const summary = summaries[currentMonth] || null
 
   // ── Save helpers ────────────────────────────────────────────────────────────
   async function doSave(monthKey, summaryData) {
@@ -2212,8 +2253,9 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
     onUpdateSummary(currentMonth, key, value)
     // Auto-save: debounce 2.5s after last edit
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    setSaveStatus('idle') // reset to show 'unsaved' would be possible, kept simple
-    const updated = { ...summary, [key]: value }
+    setSaveStatus('idle')
+    // Guard: if summary is still initialising, pull fresh from state in the closure
+    const updated = { ...(summary || {}), [key]: value }
     saveTimerRef.current = setTimeout(() => doSave(currentMonth, updated), 2500)
   }
 
@@ -2431,13 +2473,13 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                 Financial Summary
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                {existingMonths.length > 0 ? (
+                {availableMonths.length > 0 ? (
                   <select
                     value={currentMonth}
                     onChange={e => setCurrentMonth(e.target.value)}
                     className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer py-0 pl-0 pr-6"
                     style={{backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`, backgroundRepeat:'no-repeat', backgroundPosition:'right 2px center', appearance:'none', WebkitAppearance:'none'}}>
-                    {existingMonths.map(m => {
+                    {availableMonths.map(m => {
                       const p = monthLabelToPeriod(m)
                       const isSaved = p && savedPeriods.has(p)
                       return <option key={m} value={m}>{isSaved ? `✓ ${m}` : m}</option>
@@ -2501,26 +2543,13 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           </div>
         </div>
 
-        {noData ? (
-          /* ── No summary state ── */
-          <div className="text-center py-16">
-            <FileText size={40} className="text-gray-200 mx-auto mb-4"/>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">No summary for {currentMonth}</h3>
-            <p className="text-sm text-gray-400 mb-6">Create a monthly narrative summary for this period.</p>
-            <button onClick={() => { onAddSummary(currentMonth); setEditMode(true) }}
-              className="px-5 py-2 rounded-lg text-sm font-medium text-white"
-              style={{backgroundColor:'var(--color-primary)'}}>
-              Create Summary
-            </button>
-          </div>
-        ) : (
-          <>
+        <>
 
           {/* ── OVERALL SUMMARY ── */}
           <div className="flex items-center justify-between mb-2">
             <SectionLabel className="mb-0">Overall Summary</SectionLabel>
             <GenerateButton
-              hasContent={!!(summary.title || summary.overallSummary)}
+              hasContent={!!(summary?.title || summary?.overallSummary)}
               loading={generating.has('overall')}
               error={genErrors.overall}
               onGenerate={() => generateSection('overall')}/>
@@ -2533,10 +2562,10 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           ) : (
             <>
               <div className="mb-2">
-                <EditableTitle value={summary.title} onChange={v=>update('title',v)} editMode={editMode}
+                <EditableTitle value={summary?.title || ''} onChange={v=>update('title',v)} editMode={editMode}
                   className="text-3xl font-bold text-gray-900 leading-tight mb-4"/>
               </div>
-              <EditableArea value={summary.overallSummary} onChange={v=>update('overallSummary',v)} editMode={editMode}
+              <EditableArea value={summary?.overallSummary || ''} onChange={v=>update('overallSummary',v)} editMode={editMode}
                 className="text-sm text-gray-600 leading-relaxed" rows={4} placeholder="Write an overall summary of the month..."/>
             </>
           )}
@@ -2547,7 +2576,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             <SectionLabel>Financial Position</SectionLabel>
           </div>
           <div className="flex gap-3 flex-wrap mb-4" style={{alignItems:'stretch'}}>
-            {(summary.kpiCards||[]).map(id => renderMonthlyKPICard(id))}
+            {(summary?.kpiCards||[]).map(id => renderMonthlyKPICard(id))}
             {editMode && (
               <button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-4 min-w-[140px] max-w-[180px] text-gray-300 hover:text-gray-500">
                 <Plus size={18}/><span className="text-xs font-medium">Add card</span>
@@ -2563,7 +2592,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             </span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             <GenerateButton
-              hasContent={!!summary.monthlyActivity}
+              hasContent={!!summary?.monthlyActivity}
               loading={generating.has('monthlyActivity')}
               error={genErrors.monthlyActivity}
               onGenerate={() => generateSection('monthlyActivity')}/>
@@ -2571,7 +2600,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           {generating.has('monthlyActivity') ? (
             <GenerateSkeleton/>
           ) : (
-            <EditableArea value={summary.monthlyActivity} onChange={v=>update('monthlyActivity',v)} editMode={editMode}
+            <EditableArea value={summary?.monthlyActivity || ''} onChange={v=>update('monthlyActivity',v)} editMode={editMode}
               className="text-sm text-gray-600 leading-relaxed" rows={3}
               placeholder="What happened financially this month — income vs budget, expense trends, and net result..."/>
           )}
@@ -2583,7 +2612,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             <div className="flex items-center gap-2">
               <GenerateButton
-                hasContent={(summary.keyTakeaways||[]).length > 0}
+                hasContent={(summary?.keyTakeaways||[]).length > 0}
                 loading={generating.has('takeaways')}
                 error={genErrors.takeaways}
                 onGenerate={() => generateSection('takeaways')}/>
@@ -2602,7 +2631,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             </div>
           ) : (
             <div className="space-y-0">
-              {(summary.keyTakeaways||[]).map((kt, idx) => (
+              {(summary?.keyTakeaways||[]).map((kt, idx) => (
                 <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
                   <div className="flex items-start gap-4">
                     <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-primary)'}}>{String(idx+1).padStart(2,'0')}</span>
@@ -2624,14 +2653,14 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                     {editMode && (
                       <div className="flex flex-col gap-1 flex-shrink-0">
                         <button onClick={()=>moveTakeaway(idx,-1)} disabled={idx===0} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={14}/></button>
-                        <button onClick={()=>moveTakeaway(idx,1)} disabled={idx===(summary.keyTakeaways.length-1)} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={14}/></button>
+                        <button onClick={()=>moveTakeaway(idx,1)} disabled={idx===((summary?.keyTakeaways||[]).length-1)} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={14}/></button>
                         <button onClick={()=>removeTakeaway(idx)} className="p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
                       </div>
                     )}
                   </div>
                 </div>
               ))}
-              {(summary.keyTakeaways||[]).length===0 && !generating.has('takeaways') && (
+              {(summary?.keyTakeaways||[]).length===0 && !generating.has('takeaways') && (
                 <p className="text-sm text-gray-400 italic py-4">No takeaways yet. Click "✦ Generate" or "+ Add" to add some.</p>
               )}
             </div>
@@ -2648,7 +2677,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             <div className="flex items-center gap-2">
               <GenerateButton
-                hasContent={(summary.watchAreas||[]).length > 0}
+                hasContent={(summary?.watchAreas||[]).length > 0}
                 loading={generating.has('watchAreas')}
                 error={genErrors.watchAreas}
                 onGenerate={() => generateSection('watchAreas')}/>
@@ -2668,7 +2697,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             </div>
           ) : (
             <div className="space-y-6">
-              {(summary.watchAreas||[]).map((wa, idx) => {
+              {(summary?.watchAreas||[]).map((wa, idx) => {
                 const s = WATCH_STATUSES[wa.status] || WATCH_STATUSES['monitoring']
                 return (
                   <div key={wa.id} className="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
@@ -2698,7 +2727,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                   </div>
                 )
               })}
-              {(summary.watchAreas||[]).length===0 && !generating.has('watchAreas') && (
+              {(summary?.watchAreas||[]).length===0 && !generating.has('watchAreas') && (
                 <p className="text-sm text-gray-400 italic">No watch areas yet. Click "✦ Generate" or "+ Add" to add one.</p>
               )}
             </div>
@@ -2709,7 +2738,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           <div className="flex items-center justify-between mb-2">
             <SectionLabel className="mb-0" color="var(--color-primary)">Reserves</SectionLabel>
             <GenerateButton
-              hasContent={!!summary.reserves}
+              hasContent={!!summary?.reserves}
               loading={generating.has('reserves')}
               error={genErrors.reserves}
               onGenerate={() => generateSection('reserves')}/>
@@ -2717,21 +2746,20 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           {generating.has('reserves') ? (
             <div className="mb-4"><GenerateSkeleton/></div>
           ) : (
-            <EditableArea value={summary.reserves} onChange={v=>update('reserves',v)} editMode={editMode}
+            <EditableArea value={summary?.reserves || ''} onChange={v=>update('reserves',v)} editMode={editMode}
               className="text-sm text-gray-700 leading-relaxed mb-4" rows={4} placeholder="Describe the reserves position, rationale, and outlook..."/>
           )}
-          {(editMode || summary.reservesNote) && (
-            <EditableArea value={summary.reservesNote} onChange={v=>update('reservesNote',v)} editMode={editMode}
+          {(editMode || summary?.reservesNote) && (
+            <EditableArea value={summary?.reservesNote || ''} onChange={v=>update('reservesNote',v)} editMode={editMode}
               className="text-xs text-gray-400 leading-relaxed" rows={2} placeholder="Add a footnote or note about reserve reporting timing..."/>
           )}
 
           {/* ── FOOTER ── */}
           <div className="mt-12 pt-6 border-t border-gray-200 flex items-center justify-between text-xs text-gray-400">
-            <span>Prepared by the Finance Team · {summary.prepared}</span>
-            {existingMonths[1] && <span>Next summary · {existingMonths[0]}</span>}
+            <span>Prepared by the Finance Team · {summary?.prepared}</span>
+            {availableMonths[1] && <span>Next summary · {availableMonths[0]}</span>}
           </div>
-          </>
-        )}
+        </>
 
       </div>{/* end max-w-2xl */}
 
@@ -2843,7 +2871,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const d = useMemo(
-    () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData),
+    () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData) || EMPTY_ELT,
     [dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData]
   )
   const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
