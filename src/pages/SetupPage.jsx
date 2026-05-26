@@ -1209,7 +1209,7 @@ function OrgSettingsForm() {
 
       {/* Year settings */}
       <div className="mb-8">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Year Configuration</h3>
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Reporting Periods</h3>
         <p className="text-xs text-gray-400 mb-4">
           Only the start <em>month</em> is stored. The year is computed dynamically from today's date — the dashboard rolls automatically when today crosses your start month.
         </p>
