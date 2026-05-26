@@ -1333,7 +1333,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
   )
 
   return (
-    <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'#F4F5F7'}}>
+    <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'var(--color-primary-bg)'}}>
 
       {/* ── Edit mode banner ────────────────────────────────────────────── */}
       {editMode && (
