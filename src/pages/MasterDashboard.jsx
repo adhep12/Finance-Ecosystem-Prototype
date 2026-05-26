@@ -489,14 +489,27 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
       break
     }
     case 'teams-over-budget': {
-      const allCodes = [...new Set(actuals.map(t => t.department).filter(Boolean))]
-      const overCount = allCodes.filter(code => {
-        const act = expInRange.filter(t => t.department===code).reduce((s,t) => s+Math.abs(t.amount||0), 0)
-        const bud = budgetFlat.filter(b => b.scenario===scenario && b.department===code && b.record_type!=='income' && b.period>=startM && b.period<=endM)
-          .reduce((s,b) => s+(b.amount||0), 0)
-        return bud > 0 && act > bud
-      }).length
-      mainValue = `${overCount} / ${allCodes.length}`
+      // Build dept-code → team-name from budgetFlat (rows carry team_name from mapBudgetFlatDirect)
+      const deptToTeam = {}
+      for (const b of budgetFlat) {
+        if (b.department && b.team_name) deptToTeam[b.department] = b.team_name
+      }
+      // All teams that have expense budget entries in the selected scenario+range
+      const relevantBudget = budgetFlat.filter(b =>
+        b.scenario===scenario && b.record_type!=='income' &&
+        b.period && b.period>=startM && b.period<=endM && b.team_name
+      )
+      const allTeams = [...new Set(relevantBudget.map(b => b.team_name))]
+      // Sum budget and actual per team
+      const budByTeam = {}
+      for (const b of relevantBudget) budByTeam[b.team_name] = (budByTeam[b.team_name]||0) + (b.amount||0)
+      const actByTeam = {}
+      for (const t of expInRange) {
+        const tn = deptToTeam[t.department]
+        if (tn) actByTeam[tn] = (actByTeam[tn]||0) + Math.abs(t.amount||0)
+      }
+      const overCount = allTeams.filter(tn => (actByTeam[tn]||0) > (budByTeam[tn]||0)).length
+      mainValue = `${overCount} of ${allTeams.length}`
       isInverse = overCount > 0
       subNote = overCount === 0 ? 'All teams on budget ✓' : `${overCount} team${overCount!==1?'s':''} over budget`
       break
