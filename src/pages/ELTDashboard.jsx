@@ -3211,12 +3211,11 @@ const DEFAULT_KPI_CARDS      = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 
 // Chart catalog — full library: exec defaults + all admin charts
-// Charts marked isDefault cannot be removed from the exec dashboard.
 const CHART_CATALOG = [
-  // ── Exec defaults (cannot be removed) ──
-  { id:'new-patrons-yoy',        label:'New Supporters by Month',          description:'Year-over-year comparison of new supporters by month',         isDefault:true  },
-  { id:'patron-base',            label:'Monthly Supporter Base',           description:'Recurring patron count across the selected date range',         isDefault:true  },
-  { id:'giving-vs-budget',       label:'Monthly Giving vs Budget Scenario',description:'Monthly income actuals vs budget/scenario with cumulative toggle',isDefault:true },
+  // ── Exec defaults ──
+  { id:'new-patrons-yoy',        label:'New Supporters by Month',          description:'Year-over-year comparison of new supporters by month',          isDefault:true  },
+  { id:'patron-base',            label:'Monthly Supporter Base',           description:'Recurring patron count across the selected date range',          isDefault:true  },
+  { id:'giving-vs-budget',       label:'Monthly Giving vs Budget Scenario',description:'Monthly income actuals vs budget/scenario with cumulative toggle', isDefault:true },
   // ── From admin ──
   { id:'net-position-by-month',  label:'Net Position by Month',            description:'Monthly net position (income minus expenses) as a bar chart'               },
   { id:'cash-position',          label:'Cash Position',                    description:'Cash balance vs reserve floor over time'                                    },
@@ -3541,21 +3540,18 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         <SectionHeader title="Trend Charts" editMode={editCharts} onToggleEdit={()=>setEditCharts(v=>!v)} onAdd={()=>setShowAddChart(true)}/>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {trendCharts.map(tc => {
-            const catalogEntry = CHART_CATALOG.find(c => c.id === tc.id)
-            const isDefault    = catalogEntry?.isDefault === true
-            const removeChart  = () => { if (!isDefault) setTrendCharts(p => p.filter(c => c.id !== tc.id)) }
-            const showRemove   = editCharts && !isDefault
+            const removeChart  = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
             if (tc.id === 'new-patrons-yoy') return (
               <NewPatronChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
-                editMode={showRemove} onRemove={removeChart}/>
+                editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'patron-base') return (
               <PatronBaseChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
-                editMode={showRemove} onRemove={removeChart}/>
+                editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'giving-vs-budget') return (
               <MonthlyGivingVsBudgetCard key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
-                editMode={showRemove} onRemove={removeChart}/>
+                editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'net-position-by-month') return (
               <ExecNetPositionChart key={tc.id} actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}
@@ -3616,19 +3612,31 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
               <h3 className="text-sm font-semibold text-gray-800">Chart Library</h3>
               <button onClick={()=>setShowAddChart(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
-            <p className="text-[11px] text-gray-400 mb-4">Default charts cannot be removed. Added charts can be removed via × in edit mode.</p>
+            <p className="text-[11px] text-gray-400 mb-4">All charts can be removed via × in edit mode. Default charts reappear when you reset layout.</p>
             <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
               {/* Default charts */}
-              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Default — Always On</div>
-              {CHART_CATALOG.filter(c=>c.isDefault).map(c => (
-                <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-                  <Check size={14} className="text-teal-500 mt-0.5 flex-shrink-0"/>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-700">{c.label}</div>
-                    <p className="text-[11px] text-gray-400">{c.description}</p>
-                  </div>
-                </div>
-              ))}
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Default Charts</div>
+              {CHART_CATALOG.filter(c=>c.isDefault).map(c => {
+                const already = trendCharts.some(tc=>tc.id===c.id)
+                return (
+                  <button key={c.id} disabled={already}
+                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id}]);setShowAddChart(false)}}
+                    className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
+                      already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-200 hover:border-teal-400 hover:bg-teal-50'
+                    }`}>
+                    <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
+                      {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-800">{c.label}</span>
+                        {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
+                      </div>
+                      <p className="text-xs text-gray-500">{c.description}</p>
+                    </div>
+                  </button>
+                )
+              })}
               {/* Addable charts */}
               <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-4 mb-2">From Admin Dashboard</div>
               {CHART_CATALOG.filter(c=>!c.isDefault).map(c => {
