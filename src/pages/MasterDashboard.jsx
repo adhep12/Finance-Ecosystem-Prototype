@@ -304,7 +304,7 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
         {/* Left: org identity */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{backgroundColor:'var(--color-accent)'}}>
+            style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
             {orgConfig.logoInitial || (orgConfig.name||'F').charAt(0).toUpperCase()}
           </div>
           <span className="text-sm font-semibold text-gray-800">{orgConfig.name||'Finance'}</span>

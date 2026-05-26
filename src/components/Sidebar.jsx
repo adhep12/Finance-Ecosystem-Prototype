@@ -160,9 +160,14 @@ export default function Sidebar() {
       'w-full flex items-center rounded-lg transition-colors duration-150 select-none',
       expanded ? 'gap-3 px-3 py-2' : 'justify-center py-2.5 px-0',
       active
-        ? 'bg-teal-600 text-white'
+        ? 'text-white'
         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
     ].join(' ')
+  }
+
+  function activeNavStyle(active) {
+    if (!active) return {}
+    return { backgroundColor: orgConfig?.primaryColor || '#00B3E5' }
   }
 
   const visualW = window.innerWidth < 1024 ? W_COLLAPSED : (expanded ? W_EXPANDED : W_COLLAPSED)
@@ -184,7 +189,7 @@ export default function Sidebar() {
           {/* Avatar circle */}
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-            style={{ backgroundColor: orgConfig.primaryColor || '#D4896A' }}
+            style={{ backgroundColor: orgConfig.primaryColor || '#00B3E5' }}
           >
             {orgConfig.logoInitial || '?'}
           </div>
@@ -207,6 +212,7 @@ export default function Sidebar() {
             onMouseEnter={e => showTooltip('executive', 'Executive', e.currentTarget)}
             onMouseLeave={hideTooltip}
             className={itemCls(isExecutive)}
+            style={activeNavStyle(isExecutive)}
           >
             <BarChart2 size={16} className="flex-shrink-0" />
             {expanded && <span className="text-sm font-medium flex-1 text-left truncate">Executive</span>}
@@ -226,6 +232,7 @@ export default function Sidebar() {
             onMouseEnter={e => showTooltip('teams', 'Teams', e.currentTarget)}
             onMouseLeave={hideTooltip}
             className={itemCls(isTeams)}
+            style={activeNavStyle(isTeams)}
           >
             <Users size={16} className="flex-shrink-0" />
             {expanded && (
@@ -249,12 +256,8 @@ export default function Sidebar() {
                   <button
                     key={t.id}
                     onClick={() => navigate(`/team/${t.id}/briefing`)}
-                    className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-xs font-medium
-                      transition-colors whitespace-nowrap
-                      ${isActive
-                        ? 'bg-teal-50 text-teal-700 font-semibold'
-                        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'
-                      }`}
+                    className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${isActive ? 'font-semibold text-white' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}
+                    style={isActive ? { backgroundColor: orgConfig?.primaryColor || '#00B3E5' } : {}}
                   >
                     <span
                       className="w-2 h-2 rounded-full flex-shrink-0"
@@ -273,6 +276,7 @@ export default function Sidebar() {
             onMouseEnter={e => showTooltip('admin', 'Admin', e.currentTarget)}
             onMouseLeave={hideTooltip}
             className={itemCls(isAdmin)}
+            style={activeNavStyle(isAdmin)}
           >
             <LayoutDashboard size={16} className="flex-shrink-0" />
             {expanded && <span className="text-sm font-medium flex-1 text-left truncate">Admin</span>}
@@ -289,6 +293,7 @@ export default function Sidebar() {
             onMouseEnter={e => showTooltip('settings', 'Settings', e.currentTarget)}
             onMouseLeave={hideTooltip}
             className={itemCls(isSetup)}
+            style={activeNavStyle(isSetup)}
           >
             <Settings size={16} className="flex-shrink-0" />
             {expanded && <span className="text-sm font-medium flex-1 text-left truncate">Settings</span>}

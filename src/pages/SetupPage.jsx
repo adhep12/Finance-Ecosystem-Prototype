@@ -1176,7 +1176,7 @@ function OrgSettingsForm() {
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Preview</label>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                style={{ backgroundColor: draft.primary_color || '#D4896A' }}>
+                style={{ backgroundColor: draft.primary_color || '#00B3E5' }}>
                 {draft.logo_initial || '?'}
               </div>
               <span className="text-sm text-gray-600">{draft.org_name}</span>

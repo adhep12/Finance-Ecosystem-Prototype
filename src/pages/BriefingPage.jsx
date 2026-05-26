@@ -77,7 +77,7 @@ function ExcludeModal({ allCategories, excluded, onChange, onClose }) {
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg text-sm font-medium text-white"
-            style={{ backgroundColor: 'var(--color-accent)' }}
+            style={{ backgroundColor: 'var(--color-primary)' }}
           >
             Done
           </button>

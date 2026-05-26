@@ -36,7 +36,7 @@ function TeamNotFound() {
         <a
           href="/elt"
           style={{
-            display: 'inline-block', background: '#0EA5A0', color: '#fff',
+            display: 'inline-block', background: 'var(--color-primary)', color: '#fff',
             borderRadius: 8, padding: '10px 24px', fontWeight: 600,
             fontSize: 15, textDecoration: 'none',
           }}

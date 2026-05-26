@@ -617,7 +617,7 @@ function ELTDateRangePicker({ dateRange, org, onApplyPreset, onApplyCustom, onCl
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-500">{days>0?`${days} days selected`:''}</span>
         <button onClick={() => { if(localStart&&localEnd&&localStart<=localEnd){onApplyCustom(localStart,localEnd);onClose()} }}
-          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>Apply</button>
+          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>Apply</button>
       </div>
     </div>
   )
@@ -805,7 +805,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
 
   if (editing) {
     return (
-      <div className="relative bg-white rounded-2xl border-2 shadow-sm p-5 flex-1 min-w-[240px] space-y-2.5" style={{borderColor:'var(--color-accent)'}}>
+      <div className="relative bg-white rounded-2xl border-2 shadow-sm p-5 flex-1 min-w-[240px] space-y-2.5" style={{borderColor:'var(--color-primary)'}}>
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] font-bold uppercase tracking-wider" style={{color:'var(--neutral-60)'}}>Editing Card</span>
           <button onClick={cancel} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
@@ -818,7 +818,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
           </div>
         ))}
         <p className="text-[9px] text-gray-400">Tip: Enter numeric values (e.g. $1,250,000) to auto-calculate % variance.</p>
-        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
           Save Changes
         </button>
       </div>
@@ -887,7 +887,7 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
       )}
       {/* Label + info */}
       <div className="flex items-center gap-1.5 mb-1">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-accent)'}}>
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-primary)'}}>
           Net Position YTD
         </div>
         <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
@@ -1182,7 +1182,7 @@ function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onCl
                 }}
                 disabled={!manualLabel.trim()}
                 className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
-                style={{backgroundColor:'var(--color-accent)'}}>
+                style={{backgroundColor:'var(--color-primary)'}}>
                 Add Card
               </button>
             </div>
@@ -1212,7 +1212,7 @@ function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
       <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>{title}</h2>
       <div className="flex items-center gap-2">
         {editMode && showAdd && (
-          <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+          <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
             <Plus size={11}/> Add card
           </button>
         )}
@@ -1738,7 +1738,7 @@ function highlightNumbers(text) {
   if (!text) return text
   const parts = text.split(/(\$[\d,]+(?:\.\d+)?[MKB]?|\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)/g)
   return parts.map((p,i) => /^(\$[\d,]+(?:\.\d+)?[MKB]?|\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)$/.test(p)
-    ? <span key={i} style={{color:'var(--color-accent)'}}>{p}</span> : p)
+    ? <span key={i} style={{color:'var(--color-primary)'}}>{p}</span> : p)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2137,7 +2137,7 @@ function GenerateButton({ hasContent, loading, error, onGenerate }) {
       <button
         onClick={onGenerate}
         className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all"
-        style={{ borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}>
+        style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}>
         {hasContent ? '↺ Regenerate' : '✦ Generate'}
       </button>
     </div>
@@ -2467,7 +2467,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                     else generateAll()
                   }}
                   className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap"
-                  style={{ borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}>
+                  style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}>
                   ✦ Generate All
                 </button>
               )
@@ -2487,7 +2487,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             )}
             <button onClick={() => setShowAddMonth(true)}
               className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap"
-              style={{backgroundColor:'var(--color-accent)'}}>
+              style={{backgroundColor:'var(--color-primary)'}}>
               <Plus size={11}/> New Month
             </button>
             <button onClick={() => setEditMode(v => !v)}
@@ -2505,7 +2505,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             <p className="text-sm text-gray-400 mb-6">Create a monthly narrative summary for this period.</p>
             <button onClick={() => { onAddSummary(currentMonth); setEditMode(true) }}
               className="px-5 py-2 rounded-lg text-sm font-medium text-white"
-              style={{backgroundColor:'var(--color-accent)'}}>
+              style={{backgroundColor:'var(--color-primary)'}}>
               Create Summary
             </button>
           </div>
@@ -2554,7 +2554,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
           {/* ── MONTHLY ACTIVITY ── */}
           <div className="flex items-center justify-between mb-4">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-primary)'}}>
               Monthly Activity — {currentMonth}
             </span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
@@ -2575,7 +2575,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
           {/* ── KEY TAKEAWAYS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Key Takeaways</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-primary)'}}>Key Takeaways</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             <div className="flex items-center gap-2">
               <GenerateButton
@@ -2583,7 +2583,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                 loading={generating.has('takeaways')}
                 error={genErrors.takeaways}
                 onGenerate={() => generateSection('takeaways')}/>
-              {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+              {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-primary)'}}><Plus size={11}/> Add</button>}
             </div>
           </div>
           {generating.has('takeaways') ? (
@@ -2601,7 +2601,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
               {(summary.keyTakeaways||[]).map((kt, idx) => (
                 <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
                   <div className="flex items-start gap-4">
-                    <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-accent)'}}>{String(idx+1).padStart(2,'0')}</span>
+                    <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-primary)'}}>{String(idx+1).padStart(2,'0')}</span>
                     <div className="flex-1 min-w-0">
                       {editMode ? (
                         <>
@@ -2640,7 +2640,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
           {/* ── WATCH AREAS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Watch Areas</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-primary)'}}>Watch Areas</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
             <div className="flex items-center gap-2">
               <GenerateButton
@@ -2648,7 +2648,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                 loading={generating.has('watchAreas')}
                 error={genErrors.watchAreas}
                 onGenerate={() => generateSection('watchAreas')}/>
-              {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+              {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-primary)'}}><Plus size={11}/> Add</button>}
             </div>
           </div>
           {generating.has('watchAreas') ? (
@@ -2703,7 +2703,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
           {/* ── RESERVES ── */}
           <div className="flex items-center justify-between mb-2">
-            <SectionLabel className="mb-0" color="var(--color-accent)">Reserves</SectionLabel>
+            <SectionLabel className="mb-0" color="var(--color-primary)">Reserves</SectionLabel>
             <GenerateButton
               hasContent={!!summary.reserves}
               loading={generating.has('reserves')}
@@ -2744,7 +2744,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
               </button>
               <button onClick={generateAll}
                 className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-                style={{backgroundColor:'var(--color-accent)'}}>
+                style={{backgroundColor:'var(--color-primary)'}}>
                 Generate All
               </button>
             </div>
@@ -2763,7 +2763,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             </select>
             <div className="flex gap-2">
               <button onClick={()=>setShowAddMonth(false)} className="flex-1 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
-              <button onClick={handleCreateMonth} className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors" style={{backgroundColor:'var(--color-accent)'}}>Create</button>
+              <button onClick={handleCreateMonth} className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors" style={{backgroundColor:'var(--color-primary)'}}>Create</button>
             </div>
           </div>
         </div>
@@ -2987,7 +2987,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
         {/* Logo slot — swap orgConfig.logoUrl for a real image when ready */}
         <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm"
-             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-accent)'}}>
+             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
           {orgConfig?.logoUrl
             ? <img src={orgConfig.logoUrl} alt={orgConfig?.name} className="w-8 h-8 object-contain rounded"/>
             : <BarChart2 size={22} className="text-white"/>}
@@ -3851,7 +3851,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       {/* Page header */}
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-accent)'}}>
+             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
           <Users size={18} className="text-white"/>
         </div>
         <div className="min-w-0">
@@ -4172,7 +4172,7 @@ function DocumentsTab({ orgConfig }) {
             )}
           </div>
           <button onClick={() => setShowUpload(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
             <Upload size={11}/> Upload document
           </button>
         </div>
@@ -4303,7 +4303,7 @@ function DocumentsTab({ orgConfig }) {
                 </button>
                 <button onClick={handleUpload} disabled={!upName.trim()}
                   className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
-                  style={{backgroundColor:'var(--color-accent)'}}>
+                  style={{backgroundColor:'var(--color-primary)'}}>
                   Add Document
                 </button>
               </div>
@@ -4587,7 +4587,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
       {/* Generate button */}
       <button onClick={handleExport} disabled={sections.length===0}
         className="w-full py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 flex items-center justify-center gap-2 transition-opacity"
-        style={{backgroundColor:'var(--color-accent)'}}>
+        style={{backgroundColor:'var(--color-primary)'}}>
         <Download size={14}/> Generate PDF
       </button>
       <p className="text-[10px] text-center" style={{color:'var(--fg-3)'}}>Opens a print-ready page in a new tab · use browser Print → Save as PDF</p>
@@ -4862,7 +4862,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
 
         <button onClick={handleImport} disabled={!fileName}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-          style={{backgroundColor:'var(--color-accent)'}}>
+          style={{backgroundColor:'var(--color-primary)'}}>
           {mode === 'append' ? 'Append Data' : 'Replace Data'}
         </button>
       </div>
@@ -4919,7 +4919,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
                 {ALL_MONTHS.map(m=><option key={m} value={m}>{m}{summaries[m]?' ✓':''}</option>)}
               </select>
               {!targetSummary && (
-                <button onClick={handleQuickAdd} className="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style={{backgroundColor:'var(--color-accent)'}}>
+                <button onClick={handleQuickAdd} className="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style={{backgroundColor:'var(--color-primary)'}}>
                   + Create
                 </button>
               )}
