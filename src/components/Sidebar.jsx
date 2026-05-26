@@ -17,7 +17,6 @@ import {
   BarChart2, Users, LayoutDashboard, Settings,
   ChevronLeft, ChevronRight, ChevronDown,
 } from 'lucide-react'
-import { supabase, ORG_ID } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +75,6 @@ export default function Sidebar() {
   })
 
   const [teamsOpen, setTeamsOpen] = useState(() => readLS('teams_nav_expanded', false))
-  const [teams,     setTeams]     = useState(FALLBACK_TEAMS)
 
   // Tooltip: { id: string, label: string, top: number } | null
   const [tooltip, setTooltip]     = useState(null)
@@ -84,7 +82,8 @@ export default function Sidebar() {
 
   const navigate = useNavigate()
   const location = useLocation()
-  const { orgConfig } = useApp()
+  const { orgConfig, teams: contextTeams } = useApp()
+  const teams = contextTeams.length > 0 ? contextTeams : FALLBACK_TEAMS
 
   // ── Active state from URL ─────────────────────────────────────────────────
   const pathname     = location.pathname
@@ -94,12 +93,6 @@ export default function Sidebar() {
   const isSetup      = pathname.startsWith('/master') && search.includes('tab=setup')
   const isAdmin      = pathname.startsWith('/master') && !search.includes('tab=setup')
   const activeTeamId = pathname.match(/\/team\/([^/]+)/)?.[1] || null
-
-  // ── Fetch teams ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    supabase.from('teams').select('id, team_name').eq('org_id', ORG_ID).order('team_name')
-      .then(({ data }) => { if (data?.length) setTeams(data) })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-expand teams sub-list when visiting a team page ─────────────────
   useEffect(() => {
