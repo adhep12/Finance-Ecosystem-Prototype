@@ -323,10 +323,18 @@ function CommentDetailPanel({ comment, onClose }) {
 // Kanban Card
 // ─────────────────────────────────────────────────────────────────────────────
 
+function formatSourcePeriod(source_period) {
+  if (!source_period) return null
+  const d = new Date(source_period + '-01T00:00:00')
+  if (isNaN(d.getTime())) return source_period
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+}
+
 function SourceLabel({ comment }) {
-  const { source_dashboard, source_page } = comment
+  const { source_dashboard, source_page, source_period } = comment
   if (!source_dashboard && !source_page) return null
-  const label = [source_dashboard, source_page].filter(Boolean).join(' · ')
+  const periodLabel = formatSourcePeriod(source_period)
+  const label = [source_dashboard, source_page, periodLabel].filter(Boolean).join(' · ')
   return (
     <div className="text-[11px] mb-1.5" style={{ color: '#9CA3AF' }}>{label}</div>
   )
@@ -448,7 +456,7 @@ function ListView({ comments, onSelect }) {
       {comments.map(c => {
         const ref = txRef(c)
         const anchor = ref ? `· Txn · ${ref.department || '—'} · Staff` : (c.page ? `· ${c.page.charAt(0).toUpperCase() + c.page.slice(1)}` : '')
-        const sourceLabel = [c.source_dashboard, c.source_page].filter(Boolean).join(' · ')
+        const sourceLabel = [c.source_dashboard, c.source_page, formatSourcePeriod(c.source_period)].filter(Boolean).join(' · ')
         return (
           <div
             key={c.id}

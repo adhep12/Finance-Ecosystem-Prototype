@@ -2903,6 +2903,14 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           }}
           onClose={()=>setShowAddKPI(false)}/>
       )}
+
+      {/* Comment pin FAB — carries current summary month as source_period */}
+      <CommentPinFAB
+        page="elt-summary"
+        sourceDashboard="Executive"
+        sourcePage="Summary"
+        sourcePeriod={monthLabelToPeriod(currentMonth)}
+      />
     </div>
   )
 }
@@ -3304,6 +3312,9 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
           </div>
         </div>
       )}
+
+      {/* Comment pin FAB */}
+      <CommentPinFAB page="elt-dashboard" sourceDashboard="Executive" sourcePage="Dashboard" />
     </div>
   )
 }

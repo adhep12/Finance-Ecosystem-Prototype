@@ -148,7 +148,7 @@ function PinCircle({ pin }) {
 }
 
 // ─── Comment post modal ───────────────────────────────────────────────────────
-function CommentPinModal({ page, sourceDashboard, sourcePage, pinPosition, onClose }) {
+function CommentPinModal({ page, sourceDashboard, sourcePage, sourcePeriod, pinPosition, onClose }) {
   const { addComment } = useApp()
   const [selectedType, setSelectedType] = useState('question')
   const [text,   setText]   = useState('')
@@ -167,6 +167,7 @@ function CommentPinModal({ page, sourceDashboard, sourcePage, pinPosition, onClo
       page,
       source_dashboard: sourceDashboard || null,
       source_page:      sourcePage      || null,
+      source_period:    sourcePeriod    || null,
       category: null,
       anchor:   null,
       status:   'open',
@@ -259,7 +260,7 @@ function CommentPinModal({ page, sourceDashboard, sourcePage, pinPosition, onClo
 }
 
 // ─── Main FAB export ──────────────────────────────────────────────────────────
-export default function CommentPinFAB({ page, sourceDashboard, sourcePage, rightClassName = 'right-6' }) {
+export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourcePeriod, rightClassName = 'right-6' }) {
   const { comments, updateCommentStatus, deleteComment } = useApp()
   const [showPins,   setShowPins]   = useState(true)
   const [placing,    setPlacing]    = useState(false)   // placement mode
@@ -349,6 +350,7 @@ export default function CommentPinFAB({ page, sourceDashboard, sourcePage, right
           page={page}
           sourceDashboard={sourceDashboard}
           sourcePage={sourcePage}
+          sourcePeriod={sourcePeriod}
           pinPosition={pinPos}
           onClose={handleCloseModal}
         />
