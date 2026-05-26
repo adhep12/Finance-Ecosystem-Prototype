@@ -1241,14 +1241,6 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
         </div>
       </section>
 
-      {/* ── Add KPI Modal ── */}
-      {showAddKPI && (
-        <AddFinanceKPIPanel
-          existingIds={visibleKPIs}
-          onAdd={id => setVisibleKPIs(p => [...p, id])}
-          onClose={() => setShowAddKPI(false)}/>
-      )}
-
     </div>
   )
 }
