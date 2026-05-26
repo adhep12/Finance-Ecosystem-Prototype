@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine,
 } from 'recharts'
 import {
   ChevronDown, Pencil, Plus, X, Check, ChevronRight,
@@ -13,12 +13,14 @@ import {
   Download, Calendar, Trash2, Save
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useChartPreferences } from '../context/ChartPreferencesContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import CommentPinFAB from '../components/CommentPinFAB'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
-import { ORG_COLORS, DATA_COLORS, STATUS_COLORS } from '../constants/colors'
+import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
+import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -1268,9 +1270,28 @@ function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chart Type Toggle
+// Chart Type Switcher — reads/writes ChartPreferencesContext; shows only valid types
 // ─────────────────────────────────────────────────────────────────────────────
 
+function ChartTypeSwitcher({ chartKey, allowedTypes }) {
+  const { getChartType, setChartType } = useChartPreferences()
+  const current = getChartType(chartKey)
+  if (!allowedTypes || allowedTypes.length <= 1) return null
+  return (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+      {allowedTypes.map(t => (
+        <button key={t} onClick={() => setChartType(chartKey, t)}
+          className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+            current === t ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+          }`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Legacy toggle — kept for TeamDetailDrawer which uses local state, not context
 function ChartTypeToggle({ type, onChange }) {
   return (
     <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5">
@@ -1512,7 +1533,9 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
 const TOOLTIP_STYLE = { backgroundColor:'#fff', border:'1px solid var(--neutral-10)', borderRadius:'10px', fontSize:'12px', boxShadow:'0 4px 16px rgba(24,20,14,0.10)' }
 
 // Chart 1: New Supporters by Month — year-over-year comparison, live from patron_data
-function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=false, onChangeType, onRemove }) {
+function NewPatronChartCard({ patronData, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('new_supporters_by_month')
   // Build YoY dataset: x-axis = months Jan–Dec, one line per calendar year
   const chartData = useMemo(() => {
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -1566,7 +1589,7 @@ function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=
           <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
           <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
         </div>
-        {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+        <ChartTypeSwitcher chartKey="new_supporters_by_month" allowedTypes={['line','area']}/>
       </div>
       {noData
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data imported yet</div>
@@ -1584,7 +1607,9 @@ function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=
 }
 
 // Chart 2: Monthly Supporter Base — recurring_patron_count by period
-function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=false, onChangeType, onRemove }) {
+function PatronBaseChartCard({ patronData, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('monthly_supporter_base')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
 
@@ -1613,7 +1638,7 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
           <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
           <div className="text-[10px] text-gray-400">Recurring patrons in range</div>
         </div>
-        {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+        <ChartTypeSwitcher chartKey="monthly_supporter_base" allowedTypes={['bar','line']}/>
       </div>
       {chartData.length === 0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data in range</div>
@@ -1630,8 +1655,10 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
   )
 }
 
-// Chart 3: Monthly Giving vs Budget — income actual vs budget, with cumulative toggle
-function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, chartType='line', editMode=false, onChangeType, onRemove }) {
+// Chart 3: Monthly Giving vs Budget Scenario — income actual vs budget, with cumulative toggle
+function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('monthly_giving_vs_budget')
   const [mode, setMode] = useState('monthly')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
@@ -1698,11 +1725,11 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Giving vs Budget</div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Giving vs Budget Scenario</div>
           <div className="text-[10px] text-gray-400">Actual income vs {scenario||'budget'}</div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+          <ChartTypeSwitcher chartKey="monthly_giving_vs_budget" allowedTypes={['line','area']}/>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             {['monthly','cumulative'].map(m=>(
               <button key={m} onClick={()=>setMode(m)}
@@ -2916,23 +2943,293 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Admin-sourced chart cards — available to add to the exec dashboard
+// ─────────────────────────────────────────────────────────────────────────────
+
+function eltPeriodLabel(ym) {
+  if (!ym) return ''
+  const [y, m] = ym.split('-')
+  return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleString('en-US', { month:'short' })
+}
+function eltFmtCompact(v) {
+  if (v == null) return '—'
+  const abs = Math.abs(v)
+  if (abs >= 1e6) return `$${(v/1e6).toFixed(1)}M`
+  if (abs >= 1e3) return `$${(v/1e3).toFixed(0)}K`
+  return `$${Math.round(v)}`
+}
+const ELT_AXIS = { fontSize:10, fill:'#9CA3AF' }
+const ELT_TIP  = { backgroundColor:'#fff', border:'1px solid #F3F4F6', borderRadius:'10px', fontSize:12, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }
+
+// Net Position by Month — bar chart (fixed type, no switcher)
+function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const chartData = useMemo(() => {
+    const expRange = filterActualsByRange(actuals, startDate, endDate).filter(t => t.record_type !== 'income')
+    const expByP = {}
+    for (const t of expRange) {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null); if (!p) continue
+      expByP[p] = (expByP[p] || 0) + Math.abs(t.amount || 0)
+    }
+    const incByP = {}
+    const incRange = (incomeMonths || []).filter(m => {
+      const p = m.period || (m.date ? m.date.slice(0,7) : null)
+      return p && p >= startP && p <= endP
+    })
+    for (const m of incRange) {
+      const p = m.period || (m.date ? m.date.slice(0,7) : null); if (!p) continue
+      incByP[p] = (incByP[p] || 0) + (m.contributions + m.merch + m.other)
+    }
+    const periods = [...new Set([...Object.keys(incByP), ...Object.keys(expByP)])].filter(p => p >= startP && p <= endP).sort()
+    return periods.map(p => ({ label: eltPeriodLabel(p), net: (incByP[p]||0) - (expByP[p]||0) }))
+  }, [actuals, incomeMonths, startDate, endDate, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Net']}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Net Position by Month</div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="4 4"/>
+              <Bar dataKey="net" radius={[3,3,0,0]}>
+                {chartData.map((d,i) => <Cell key={i} fill={d.net >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative}/>)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+      }
+    </div>
+  )
+}
+
+// Cash Position — line chart (fixed type, no switcher)
+function ExecCashPositionChart({ cashData, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const chartData = useMemo(() =>
+    cashData.filter(r => r.period >= startP && r.period <= endP)
+      .sort((a,b) => a.period.localeCompare(b.period))
+      .map(r => ({ label: eltPeriodLabel(r.period), cash: r.cash_balance, floor: r.reserve_floor }))
+  , [cashData, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={(v,n) => [eltFmtCompact(v), n]}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Cash Position</div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No cash flow data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+              <Line type="monotone" dataKey="cash"  name="Cash Balance"  stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+              <Line type="monotone" dataKey="floor" name="Reserve Floor" stroke={STATUS_COLORS.negative} strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
+            </LineChart>
+          </ResponsiveContainer>
+      }
+    </div>
+  )
+}
+
+// Cash Position Above Floor — bar chart (fixed type, no switcher)
+function ExecCashAboveFloorChart({ cashData, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const chartData = useMemo(() =>
+    cashData.filter(r => r.period >= startP && r.period <= endP)
+      .sort((a,b) => a.period.localeCompare(b.period))
+      .map(r => ({ label: eltPeriodLabel(r.period), above: Math.max(0, (r.cash_balance||0) - (r.reserve_floor||0)) }))
+  , [cashData, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Above Floor']}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Cash Position Above Floor</div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No cash flow data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <Bar dataKey="above" name="Above Floor" fill={STATUS_COLORS.positive} radius={[3,3,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+      }
+    </div>
+  )
+}
+
+// Team Spend Comparison — bar or line (from context)
+function ExecTeamSpendChart({ actuals, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('team_spend_comparison')
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const { chartData, teams } = useMemo(() => {
+    const expRange = filterActualsByRange(actuals, startDate, endDate).filter(t => t.record_type !== 'income')
+    const byPT = {}, teamSet = new Set()
+    for (const t of expRange) {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null); if (!p || p < startP || p > endP) continue
+      const team = t.team_name || 'Unknown'
+      teamSet.add(team)
+      if (!byPT[p]) byPT[p] = {}
+      byPT[p][team] = (byPT[p][team] || 0) + Math.abs(t.amount || 0)
+    }
+    const teams = [...teamSet].sort()
+    const data = Object.entries(byPT).sort(([a],[b]) => a.localeCompare(b)).map(([p,tm]) => ({ label:eltPeriodLabel(p), ...tm }))
+    return { chartData:data, teams }
+  }, [actuals, startDate, endDate, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={(v,n) => [eltFmtCompact(v), n]}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs font-semibold text-gray-700">Team Spend Comparison</div>
+        <ChartTypeSwitcher chartKey="team_spend_comparison" allowedTypes={['bar','line']}/>
+      </div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            {chartType === 'line'
+              ? <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                  {grid}{xa}{ya}{tip}
+                  <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                  {teams.map(t => <Line key={t} type="monotone" dataKey={t} name={t} stroke={getTeamColor(t)} strokeWidth={2} dot={false} activeDot={{r:3}}/>)}
+                </LineChart>
+              : <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                  {grid}{xa}{ya}{tip}
+                  <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                  {teams.map((t,i) => <Bar key={t} dataKey={t} name={t} stackId="a" fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>)}
+                </BarChart>
+            }
+          </ResponsiveContainer>
+      }
+    </div>
+  )
+}
+
+// Budget Watch Areas — progress bars (no chart type, fixed)
+function ExecBudgetWatchChart({ actuals, budgetFlat, scenario, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const inRange    = useMemo(() => filterActualsByRange(actuals, startDate, endDate), [actuals, startDate, endDate])
+  const budgetByCat= useMemo(() => calcBudgetByCategory(budgetFlat, scenario, startDate, endDate), [budgetFlat, scenario, startDate, endDate])
+  const byCat      = useMemo(() => inRange.reduce((acc,t) => { acc[t.category] = (acc[t.category]||0) + t.amount; return acc }, {}), [inRange])
+  const alerts     = useMemo(() =>
+    Object.entries(budgetByCat)
+      .map(([cat,bud]) => ({ cat, bud, actual:byCat[cat]||0, pct: bud > 0 ? ((byCat[cat]||0)/bud*100) : 0 }))
+      .filter(r => r.pct >= 80).sort((a,b) => b.pct - a.pct).slice(0,5)
+  , [budgetByCat, byCat])
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Budget Watch Areas</div>
+      {alerts.length === 0
+        ? <div className="text-xs text-gray-400 text-center py-4">All categories under 80% of budget</div>
+        : alerts.map(({cat,bud,actual,pct}) => {
+            const c = pct > 100 ? STATUS_COLORS.negative : STATUS_COLORS.warning
+            return (
+              <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:c}}/>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
+                  <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                    <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:c}}/>
+                  </div>
+                </div>
+                <div className="text-xs font-semibold flex-shrink-0" style={{color:c}}>{Math.round(pct)}%</div>
+              </div>
+            )
+          })
+      }
+    </div>
+  )
+}
+
+// Patron Watch Areas — text signals (no chart type, fixed)
+function ExecPatronWatchChart({ patronData, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
+  const signals = useMemo(() => {
+    const inRange = patronData.filter(p => p.period >= startM && p.period <= endM).sort((a,b) => a.period.localeCompare(b.period))
+    if (inRange.length < 2) return []
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    function mLabel(period) { const [y,m] = period.split('-'); return MN[parseInt(m)-1]+' '+y }
+    const alerts = []
+    let decline = 0, decMonths = []
+    for (let i = 1; i < inRange.length; i++) {
+      const prev = inRange[i-1].new_patrons_total||0, curr = inRange[i].new_patrons_total||0
+      if (curr < prev) { decline++; if (decline===1) decMonths=[inRange[i-1].period,inRange[i].period]; else decMonths[1]=inRange[i].period }
+      else { decline=0; decMonths=[] }
+      if (decline >= 2) { alerts.push({ level:'warn', text:`New supporters declining: ${mLabel(decMonths[0])} → ${mLabel(decMonths[1])}` }); break }
+    }
+    const last = inRange[inRange.length-1], prev2 = inRange[inRange.length-2]
+    if (last && prev2) {
+      const growth = prev2.recurring_patron_count > 0 ? ((last.recurring_patron_count - prev2.recurring_patron_count)/prev2.recurring_patron_count*100) : 0
+      if (growth < -2) alerts.push({ level:'warn', text:`Recurring base down ${Math.abs(growth).toFixed(1)}% in ${mLabel(last.period)}` })
+      else if (growth > 5) alerts.push({ level:'ok', text:`Strong growth: +${growth.toFixed(1)}% recurring supporters in ${mLabel(last.period)}` })
+    }
+    return alerts
+  }, [patronData, startM, endM])
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Patron Watch Areas</div>
+      {patronData.length === 0
+        ? <div className="text-xs text-gray-400 text-center py-4">No patron data imported</div>
+        : signals.length === 0
+          ? <div className="text-xs text-gray-400 text-center py-4">All signals healthy</div>
+          : signals.map((s,i) => (
+              <div key={i} className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
+                <div className="w-2 h-2 rounded-full mt-1 flex-shrink-0" style={{backgroundColor: s.level==='ok' ? STATUS_COLORS.positive : STATUS_COLORS.warning}}/>
+                <p className="text-xs text-gray-700">{s.text}</p>
+              </div>
+            ))
+      }
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Dashboard Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_KPI_CARDS      = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 
-// Chart catalog — preset charts that can be added / removed
+// Chart catalog — full library: exec defaults + all admin charts
+// Charts marked isDefault cannot be removed from the exec dashboard.
 const CHART_CATALOG = [
-  { id:'new-patrons-yoy', label:'New Supporters YoY',     description:'Year-over-year comparison of new supporters by month', defaultType:'line' },
-  { id:'patron-base',     label:'Monthly Supporter Base', description:'Recurring patron count across the selected date range', defaultType:'bar' },
-  { id:'giving-vs-budget',label:'Giving vs Budget',       description:'Monthly income actuals vs budget/scenario with cumulative toggle', defaultType:'line' },
+  // ── Exec defaults (cannot be removed) ──
+  { id:'new-patrons-yoy',        label:'New Supporters by Month',          description:'Year-over-year comparison of new supporters by month',         isDefault:true  },
+  { id:'patron-base',            label:'Monthly Supporter Base',           description:'Recurring patron count across the selected date range',         isDefault:true  },
+  { id:'giving-vs-budget',       label:'Monthly Giving vs Budget Scenario',description:'Monthly income actuals vs budget/scenario with cumulative toggle',isDefault:true },
+  // ── From admin ──
+  { id:'net-position-by-month',  label:'Net Position by Month',            description:'Monthly net position (income minus expenses) as a bar chart'               },
+  { id:'cash-position',          label:'Cash Position',                    description:'Cash balance vs reserve floor over time'                                    },
+  { id:'cash-position-above-floor',label:'Cash Position Above Floor',      description:'Monthly gap between cash balance and reserve floor'                         },
+  { id:'team-spend',             label:'Team Spend Comparison',            description:'Expense spend by team per month — stacked or grouped'                       },
+  { id:'budget-watch-areas',     label:'Budget Watch Areas',               description:'Categories approaching or over budget — shows top 5 alerts'                 },
+  { id:'patron-watch-areas',     label:'Patron Watch Areas',               description:'Patron health signals: declining new sign-ups, churn risk, growth stalls'   },
 ]
 
 const DEFAULT_TREND_CHARTS = [
-  { id:'new-patrons-yoy',  chartType:'line' },
-  { id:'patron-base',      chartType:'bar'  },
-  { id:'giving-vs-budget', chartType:'line' },
+  { id:'new-patrons-yoy'  },
+  { id:'patron-base'      },
+  { id:'giving-vs-budget' },
 ]
 
 // ── Layout persistence helpers (localStorage, per-browser = per-user) ─────────
@@ -3244,19 +3541,45 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         <SectionHeader title="Trend Charts" editMode={editCharts} onToggleEdit={()=>setEditCharts(v=>!v)} onAdd={()=>setShowAddChart(true)}/>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {trendCharts.map(tc => {
-            const updateType = t => setTrendCharts(p => p.map(c => c.id===tc.id ? {...c, chartType:t} : c))
-            const removeChart = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
+            const catalogEntry = CHART_CATALOG.find(c => c.id === tc.id)
+            const isDefault    = catalogEntry?.isDefault === true
+            const removeChart  = () => { if (!isDefault) setTrendCharts(p => p.filter(c => c.id !== tc.id)) }
+            const showRemove   = editCharts && !isDefault
             if (tc.id === 'new-patrons-yoy') return (
               <NewPatronChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
-                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+                editMode={showRemove} onRemove={removeChart}/>
             )
             if (tc.id === 'patron-base') return (
               <PatronBaseChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
-                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+                editMode={showRemove} onRemove={removeChart}/>
             )
             if (tc.id === 'giving-vs-budget') return (
               <MonthlyGivingVsBudgetCard key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
-                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+                editMode={showRemove} onRemove={removeChart}/>
+            )
+            if (tc.id === 'net-position-by-month') return (
+              <ExecNetPositionChart key={tc.id} actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'cash-position') return (
+              <ExecCashPositionChart key={tc.id} cashData={cashData} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'cash-position-above-floor') return (
+              <ExecCashAboveFloorChart key={tc.id} cashData={cashData} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'team-spend') return (
+              <ExecTeamSpendChart key={tc.id} actuals={actuals} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'budget-watch-areas') return (
+              <ExecBudgetWatchChart key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'patron-watch-areas') return (
+              <ExecPatronWatchChart key={tc.id} patronData={patronData} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
             )
             return null
           })}
@@ -3288,23 +3611,44 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         onClose={()=>setShowAddPatronMetric(false)}/>}
       {showAddChart&&(
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setShowAddChart(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-800">Add Trend Chart</h3>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold text-gray-800">Chart Library</h3>
               <button onClick={()=>setShowAddChart(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
-            <div className="space-y-2">
-              {CHART_CATALOG.map(c => {
+            <p className="text-[11px] text-gray-400 mb-4">Default charts cannot be removed. Added charts can be removed via × in edit mode.</p>
+            <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
+              {/* Default charts */}
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Default — Always On</div>
+              {CHART_CATALOG.filter(c=>c.isDefault).map(c => (
+                <div key={c.id} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                  <Check size={14} className="text-teal-500 mt-0.5 flex-shrink-0"/>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-700">{c.label}</div>
+                    <p className="text-[11px] text-gray-400">{c.description}</p>
+                  </div>
+                </div>
+              ))}
+              {/* Addable charts */}
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-4 mb-2">From Admin Dashboard</div>
+              {CHART_CATALOG.filter(c=>!c.isDefault).map(c => {
                 const already = trendCharts.some(tc=>tc.id===c.id)
                 return (
                   <button key={c.id} disabled={already}
-                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id,chartType:c.defaultType}]);setShowAddChart(false)}}
-                    className={`w-full text-left p-3.5 rounded-xl border-2 transition-all ${already?'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed':'border-gray-200 hover:border-teal-400 hover:bg-teal-50'}`}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-sm font-semibold text-gray-800">{c.label}</span>
-                      {already && <span className="text-[10px] text-gray-400 font-medium">Already added</span>}
+                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id}]);setShowAddChart(false)}}
+                    className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
+                      already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-200 hover:border-teal-400 hover:bg-teal-50'
+                    }`}>
+                    <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
+                      {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
                     </div>
-                    <p className="text-xs text-gray-500">{c.description}</p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-800">{c.label}</span>
+                        {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
+                      </div>
+                      <p className="text-xs text-gray-500">{c.description}</p>
+                    </div>
                   </button>
                 )
               })}

@@ -76,22 +76,23 @@ function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts
   if (!drillOrder.length) return {}
   const lu = {}
   const add = (k, mo, amt) => { if (!lu[k]) lu[k] = {}; lu[k][mo] = (lu[k][mo] || 0) + amt }
+  const monthSet = new Set(months.map(m => m.key))
   const f0 = drillOrder[0]
   const f1 = drillOrder[1]
-  for (const m of months) {
-    for (const e of (budgetFlat || [])) {
-      if (e.scenario !== scenario) continue
-      const d   = e.department || 'Unknown'
-      const cat = e.category   || 'N/A'
-      const amt = e.monthlyAmount || 0
-      if (activeDepts && !activeDepts.has(d)) continue
-      if (f0 === 'department') {
-        add(d, m.key, amt)
-        if (f1 === 'category') add(`${d}|${cat}`, m.key, amt)
-      } else if (f0 === 'category') {
-        add(cat, m.key, amt)
-        if (f1 === 'department') add(`${cat}|${d}`, m.key, amt)
-      }
+  for (const e of (budgetFlat || [])) {
+    if (e.scenario !== scenario) continue
+    const mo = e.period ? String(e.period).slice(0, 7) : null
+    if (!mo || !monthSet.has(mo)) continue   // only include months in the selected range
+    const d   = e.department || 'Unknown'
+    const cat = e.category   || 'N/A'
+    const amt = Math.abs(e.amount || 0)      // use e.amount — monthlyAmount does not exist
+    if (activeDepts && !activeDepts.has(d)) continue
+    if (f0 === 'department') {
+      add(d, mo, amt)
+      if (f1 === 'category') add(`${d}|${cat}`, mo, amt)
+    } else if (f0 === 'category') {
+      add(cat, mo, amt)
+      if (f1 === 'department') add(`${cat}|${d}`, mo, amt)
     }
   }
   return lu

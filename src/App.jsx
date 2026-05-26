@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider, useApp } from './context/AppContext'
 import { TeamProvider }        from './context/TeamContext'
 import { useTeam }             from './context/TeamContext'
+import { ChartPreferencesProvider } from './context/ChartPreferencesContext'
 import BriefingPage      from './pages/BriefingPage'
 import BreakdownPage     from './pages/BreakdownPage'
 import CommentsPage      from './pages/CommentsPage'
@@ -150,7 +151,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AppProvider>
-        <AppRoutes />
+        <ChartPreferencesProvider>
+          <AppRoutes />
+        </ChartPreferencesProvider>
       </AppProvider>
     </BrowserRouter>
   )

@@ -16,6 +16,7 @@ import {
   TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useChartPreferences } from '../context/ChartPreferencesContext'
 import CommentsPage from './CommentsPage'
 import SetupPage from './SetupPage'
 import TransactionImportFlow from './TransactionImportFlow'
@@ -893,8 +894,31 @@ function fmtCompact(v){ // raw dollars → compact string
   return `$${Math.round(v)}`
 }
 
-// Chart 1: Monthly Spend vs Planned — full width, line chart, with stats + toggle
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart Type Switcher — reads from ChartPreferencesContext
+// ─────────────────────────────────────────────────────────────────────────────
+function ChartTypeSwitcher({ chartKey, allowedTypes }) {
+  const { getChartType, setChartType } = useChartPreferences()
+  const current = getChartType(chartKey)
+  if (!allowedTypes || allowedTypes.length <= 1) return null
+  return (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+      {allowedTypes.map(t => (
+        <button key={t} onClick={() => setChartType(chartKey, t)}
+          className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+            current === t ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+          }`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Chart 1: Monthly Giving vs Budget Scenario — full width, line/area chart, with stats + toggle
 function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('monthly_giving_vs_budget')
   const [mode, setMode] = useState('monthly')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
@@ -942,14 +966,17 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       <div className="flex items-center justify-between mb-4">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Monthly Spend vs Planned</div>
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {['monthly','cumulative'].map(m=>(
-            <button key={m} onClick={()=>setMode(m)}
-              className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
-              {m==='monthly'?'Monthly':'Cumulative'}
-            </button>
-          ))}
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Monthly Giving vs Budget Scenario</div>
+        <div className="flex items-center gap-2">
+          <ChartTypeSwitcher chartKey="monthly_giving_vs_budget" allowedTypes={['line','area']}/>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {['monthly','cumulative'].map(m=>(
+              <button key={m} onClick={()=>setMode(m)}
+                className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+                {m==='monthly'?'Monthly':'Cumulative'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {/* Stats */}
@@ -973,12 +1000,20 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <div style={{height:200}}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
-                {grid}{xa}{ya}{tip}
-                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
-                <Line type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
-              </LineChart>
+              {chartType === 'area'
+                ? <AreaChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    <Area type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} fill={ORG_COLORS.primary} fillOpacity={0.15} strokeWidth={2} dot={false}/>
+                    <Area type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} fill={STATUS_COLORS.warning} fillOpacity={0.08} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+                  </AreaChart>
+                : <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    <Line type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                    <Line type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+                  </LineChart>
+              }
             </ResponsiveContainer>
           </div>
       }
@@ -1072,8 +1107,10 @@ const CashPositionCard = React.memo(function CashPositionCard({ cashFlowData, da
   )
 })
 
-// Chart 4: Team Spend Comparison — stacked bar chart, one segment per team
+// Chart 4: Team Spend Comparison — stacked bar or line chart, one series per team
 const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('team_spend_comparison')
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -1104,19 +1141,32 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Team Spend Comparison</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Team Spend Comparison</div>
+        <ChartTypeSwitcher chartKey="team_spend_comparison" allowedTypes={['bar','line']}/>
+      </div>
       {chartData.length===0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <div style={{height:180}}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
-                {grid}{xa}{ya}{tip}
-                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                {teams.map((t,i)=>(
-                  <Bar key={t} dataKey={t} name={t} stackId="a"
-                    fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
-                ))}
-              </BarChart>
+              {chartType === 'line'
+                ? <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    {teams.map(t=>(
+                      <Line key={t} type="monotone" dataKey={t} name={t}
+                        stroke={getTeamColor(t)} strokeWidth={2} dot={false} activeDot={{r:3}}/>
+                    ))}
+                  </LineChart>
+                : <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    {teams.map((t,i)=>(
+                      <Bar key={t} dataKey={t} name={t} stackId="a"
+                        fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
+                    ))}
+                  </BarChart>
+              }
             </ResponsiveContainer>
           </div>
       }
