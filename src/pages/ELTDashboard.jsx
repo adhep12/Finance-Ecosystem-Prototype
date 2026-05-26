@@ -1741,7 +1741,356 @@ function highlightNumbers(text) {
     ? <span key={i} style={{color:'var(--color-accent)'}}>{p}</span> : p)
 }
 
-function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Summary helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** "April 2026" → "2026-04" */
+function monthLabelToPeriod(label) {
+  if (!label) return null
+  const d = new Date('1 ' + label)
+  if (isNaN(d.getTime())) return null
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Format a dollar amount as e.g. "$10.6M", "$340K", "$12,400" */
+function fmtDollars(n) {
+  if (n == null || isNaN(n)) return '$0'
+  const abs = Math.abs(n)
+  const sign = n < 0 ? '-' : ''
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(0)}K`
+  return `${sign}$${abs.toLocaleString()}`
+}
+
+/** Build aggregated AI context from actuals + budgetFlat for the given period */
+function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig }) {
+  if (!period) return null
+
+  // ── Current month P&L ──────────────────────────────────────────────────────
+  const monthActuals = actuals.filter(t => (t.period || '').startsWith(period))
+  const monthBudgets = budgetFlat.filter(b =>
+    (b.period || '').startsWith(period) && (!activeBudget || b.scenario === activeBudget)
+  )
+
+  // Aggregate by record_type + category
+  const monthlySummary = {}
+  for (const t of monthActuals) {
+    const key = `${t.record_type}|${t.category || 'Uncategorized'}`
+    if (!monthlySummary[key]) monthlySummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0, budget: 0 }
+    monthlySummary[key].actual += t.record_type === 'income' ? -(t.amount || 0) : (t.amount || 0)
+  }
+  for (const b of monthBudgets) {
+    const key = `${b.record_type}|${b.category || 'Uncategorized'}`
+    if (!monthlySummary[key]) monthlySummary[key] = { record_type: b.record_type, category: b.category || 'Uncategorized', actual: 0, budget: 0 }
+    monthlySummary[key].budget += b.amount || 0
+  }
+
+  // ── YTD P&L ────────────────────────────────────────────────────────────────
+  const [yr, mo] = period.split('-').map(Number)
+  const fyM  = orgConfig.fiscalYearStartMonth  || 10
+  const fyYr = orgConfig.fiscalYearStartYear   || yr
+  const fyStart = `${fyYr}-${String(fyM).padStart(2, '0')}`
+
+  const ytdActuals = actuals.filter(t => {
+    const p = t.period || ''
+    return p >= fyStart && p <= period
+  })
+  const ytdBudgets = budgetFlat.filter(b => {
+    const p = b.period || ''
+    return p >= fyStart && p <= period && (!activeBudget || b.scenario === activeBudget)
+  })
+
+  const ytdSummary = {}
+  for (const t of ytdActuals) {
+    const key = `${t.record_type}|${t.category || 'Uncategorized'}`
+    if (!ytdSummary[key]) ytdSummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0, budget: 0 }
+    ytdSummary[key].actual += t.record_type === 'income' ? -(t.amount || 0) : (t.amount || 0)
+  }
+  for (const b of ytdBudgets) {
+    const key = `${b.record_type}|${b.category || 'Uncategorized'}`
+    if (!ytdSummary[key]) ytdSummary[key] = { record_type: b.record_type, category: b.category || 'Uncategorized', actual: 0, budget: 0 }
+    ytdSummary[key].budget += b.amount || 0
+  }
+
+  // ── Prior year same period ─────────────────────────────────────────────────
+  const priorYearPeriod = `${yr - 1}-${String(mo).padStart(2, '0')}`
+  const priorActuals = actuals.filter(t => (t.period || '').startsWith(priorYearPeriod))
+  const priorSummary = {}
+  for (const t of priorActuals) {
+    const key = `${t.record_type}|${t.category || 'Uncategorized'}`
+    if (!priorSummary[key]) priorSummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0 }
+    priorSummary[key].actual += t.record_type === 'income' ? -(t.amount || 0) : (t.amount || 0)
+  }
+
+  // ── Totals ─────────────────────────────────────────────────────────────────
+  const monthRows  = Object.values(monthlySummary)
+  const ytdRows    = Object.values(ytdSummary)
+
+  const totalIncome   = monthRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.actual, 0)
+  const totalExpenses = monthRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.actual, 0)
+  const totalIncBudget = monthRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.budget, 0)
+  const totalExpBudget = monthRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.budget, 0)
+
+  const ytdTotalIncome   = ytdRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.actual, 0)
+  const ytdTotalExpenses = ytdRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.actual, 0)
+  const ytdTotalIncBudget = ytdRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.budget, 0)
+  const ytdTotalExpBudget = ytdRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.budget, 0)
+
+  // Fiscal month index (1-based)
+  const fiscalMonthIndex = ((yr - fyYr) * 12 + mo - fyM + 12) % 12 + 1
+
+  // ── Format rows for prompt ─────────────────────────────────────────────────
+  function formatRows(rows) {
+    return rows
+      .sort((a, b) => b.actual - a.actual)
+      .map(r => {
+        const varAmt = r.actual - r.budget
+        const varPct = r.budget !== 0 ? Math.round((varAmt / r.budget) * 100) : null
+        return {
+          type:     r.record_type,
+          category: r.category,
+          actual:   fmtDollars(r.actual),
+          budget:   r.budget ? fmtDollars(r.budget) : 'no budget',
+          variance: r.budget ? `${fmtDollars(varAmt)} (${varPct}%)` : 'n/a',
+        }
+      })
+  }
+
+  return {
+    period,
+    monthLabel: new Date(yr, mo - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+    fiscalYearStart: fyStart,
+    fiscalMonthIndex,
+    orgName: orgConfig.name || 'the organization',
+    materialityThreshold: orgConfig.materialityThreshold ?? 0.10,
+    currentMonth: {
+      rows: formatRows(monthRows),
+      totalIncome:    fmtDollars(totalIncome),
+      totalExpenses:  fmtDollars(totalExpenses),
+      totalIncBudget: fmtDollars(totalIncBudget),
+      totalExpBudget: fmtDollars(totalExpBudget),
+      netActual:      fmtDollars(totalIncome - totalExpenses),
+      netBudget:      fmtDollars(totalIncBudget - totalExpBudget),
+    },
+    ytd: {
+      rows: formatRows(ytdRows),
+      totalIncome:    fmtDollars(ytdTotalIncome),
+      totalExpenses:  fmtDollars(ytdTotalExpenses),
+      totalIncBudget: fmtDollars(ytdTotalIncBudget),
+      totalExpBudget: fmtDollars(ytdTotalExpBudget),
+      netActual:      fmtDollars(ytdTotalIncome - ytdTotalExpenses),
+      netBudget:      fmtDollars(ytdTotalIncBudget - ytdTotalExpBudget),
+    },
+    priorYear: {
+      rows: formatRows(Object.values(priorSummary)),
+    },
+    // Raw numbers for watch area materiality checks
+    _totals: { totalIncome, totalExpenses, materialityThreshold: orgConfig.materialityThreshold ?? 0.10 },
+  }
+}
+
+/** Build the API prompt for a given section + context */
+function buildSectionPrompt(section, ctx) {
+  const monthStr = ctx.monthLabel
+  const fyStart  = ctx.fiscalYearStart.replace('-', '/')
+  const monthNum = ctx.fiscalMonthIndex
+  const orgName  = ctx.orgName
+  const threshold = Math.round(ctx.materialityThreshold * 100)
+
+  const currentMonthData  = JSON.stringify(ctx.currentMonth, null, 2)
+  const ytdData           = JSON.stringify(ctx.ytd,          null, 2)
+  const priorYearData     = JSON.stringify(ctx.priorYear,    null, 2)
+
+  if (section === 'overall') {
+    return `You are a financial writer for a nonprofit organization. Write a monthly financial summary in plain, direct language for organizational leaders. Avoid corporate jargon. Be specific with numbers. Write with confidence but not arrogance.
+
+Here is the financial data for ${monthStr}:
+
+CURRENT MONTH:
+${currentMonthData}
+
+FISCAL YEAR TO DATE (${fyStart} through ${ctx.period}):
+${ytdData}
+
+PRIOR YEAR SAME PERIOD:
+${priorYearData}
+
+ORG NAME: ${orgName}
+
+Write two things:
+1. A bold one-sentence headline that captures the month's overall financial story. Be direct and specific. Example style: "A steady month. Giving is strong, expenses disciplined, and we're ahead of plan."
+
+2. A narrative paragraph (3-5 sentences) that explains:
+   - How far into the fiscal year we are (month ${monthNum} of 12) and what the overall position looks like
+   - How giving/income is tracking vs budget with the key driver
+   - How expenses are tracking vs budget
+   - What the net position means in plain terms
+
+Return as JSON: {"headline": "...", "narrative": "..."}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'takeaways') {
+    return `You are a financial analyst for a nonprofit. Write 3-5 key takeaways for organizational leaders based on this financial data. Each takeaway should have a bold headline and 1-2 sentences of explanation. Use specific numbers. Be direct. Prioritize what matters most to mission-driven leaders: are we healthy, are we growing, are we sustainable?
+
+FINANCIAL DATA:
+CURRENT MONTH:
+${currentMonthData}
+
+FISCAL YEAR TO DATE:
+${ytdData}
+
+PRIOR YEAR:
+${priorYearData}
+
+ORG NAME: ${orgName}
+MONTH: ${monthStr}
+FISCAL YEAR POSITION: Month ${monthNum} of 12
+
+Questions to answer through the takeaways:
+- What is driving performance?
+- Where are we vs where we expected to be?
+- What trends are visible in the data?
+- Are we in a healthy, strong, or concerning position?
+
+Return as JSON:
+{
+  "takeaways": [
+    {"headline": "...", "body": "..."},
+    {"headline": "...", "body": "..."}
+  ]
+}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'watchAreas') {
+    const ti  = ctx._totals.totalIncome
+    const te  = ctx._totals.totalExpenses
+    const thr = ctx._totals.materialityThreshold
+    return `You are a financial analyst for a nonprofit. Identify 3-5 watch areas for organizational leaders. These are the most important financial signals — positive and negative — that leaders need to be aware of.
+
+MATERIALITY THRESHOLD: ${threshold}% of total org budget.
+Only flag items that represent at least ${threshold}% of total income or total expenses. Do not flag minor line items.
+
+FINANCIAL DATA:
+CURRENT MONTH:
+${currentMonthData}
+
+FISCAL YEAR TO DATE:
+${ytdData}
+
+PRIOR YEAR:
+${priorYearData}
+
+TOTAL INCOME (current month): ${fmtDollars(ti)}
+TOTAL EXPENSES (current month): ${fmtDollars(te)}
+MATERIALITY FLOOR (income): ${fmtDollars(ti * thr)}
+MATERIALITY FLOOR (expenses): ${fmtDollars(te * thr)}
+
+Generate exactly 3-5 watch areas. Prioritize the most important.
+Each watch area must:
+- Have a status: "needs-attention", "monitoring", or "on-track"
+- Have a title (one short sentence)
+- Have a body (2-3 sentences with specific numbers and context)
+- Represent a material item above the threshold
+
+Return as JSON:
+{
+  "watch_areas": [
+    {
+      "status": "needs-attention",
+      "title": "...",
+      "body": "..."
+    }
+  ]
+}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'reserves') {
+    // Use cash data if available, else fall back to net position
+    const netPos = ctx.currentMonth.netActual
+    return `Write 2-3 sentences about an organization's financial reserves position based on this data. Be specific with numbers. Only describe what the data shows — do not add context about investment strategy or board policy.
+
+FINANCIAL DATA FOR ${monthStr}:
+Net position (income minus expenses): ${netPos}
+Net position vs budget: ${ctx.currentMonth.netBudget}
+YTD net position: ${ctx.ytd.netActual}
+YTD vs budget: ${ctx.ytd.netBudget}
+
+ORG NAME: ${orgName}
+MONTH: ${monthStr}
+FISCAL YEAR POSITION: Month ${monthNum} of 12
+
+Write only about: current net position, YTD position vs budget, and what this means for financial health.
+
+Return as JSON: {"reserves": "..."}
+Return only the JSON object, no other text.`
+  }
+
+  return ''
+}
+
+/** Call the generate-summary edge function */
+async function callGenerateAPI(prompt) {
+  const { data, error } = await supabase.functions.invoke('generate-summary', {
+    body: { prompt, max_tokens: 1000 },
+  })
+  if (error) throw new Error(error.message || 'Edge function error')
+  if (!data?.content) throw new Error('Empty response from AI')
+  return data.content
+}
+
+/** Parse JSON safely from Claude's response */
+function parseAIResponse(text) {
+  try {
+    // Strip markdown code blocks if present
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+    return JSON.parse(cleaned)
+  } catch {
+    throw new Error('AI returned invalid JSON')
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generate button sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function GenerateButton({ hasContent, loading, error, onGenerate }) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        <div className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-transparent animate-spin"/>
+        Generating…
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {error && <span className="text-xs text-red-500">{error}</span>}
+      <button
+        onClick={onGenerate}
+        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all"
+        style={{ borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}>
+        {hasContent ? '↺ Regenerate' : '✦ Generate'}
+      </button>
+    </div>
+  )
+}
+
+function GenerateSkeleton() {
+  return (
+    <div className="space-y-2 animate-pulse">
+      <div className="h-3 bg-gray-100 rounded w-3/4"/>
+      <div className="h-3 bg-gray-100 rounded w-full"/>
+      <div className="h-3 bg-gray-100 rounded w-5/6"/>
+      <div className="h-3 bg-gray-100 rounded w-2/3"/>
+    </div>
+  )
+}
+
+function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig, actuals, budgetFlat, activeBudget }) {
   // Months that have data
   const existingMonths = Object.keys(summaries).sort((a,b) => new Date('1 '+b)-new Date('1 '+a))
   const [currentMonth, setCurrentMonth] = useState(existingMonths[0] || ALL_MONTHS[0])
@@ -1750,6 +2099,11 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
   const [showAddKPI, setShowAddKPI] = useState(false)
   const [newMonthSel, setNewMonthSel] = useState(ALL_MONTHS[0])
   const [manualCards, setManualCards] = useState({})
+
+  // AI generation state
+  const [generating, setGenerating] = useState(new Set()) // section names being generated
+  const [genErrors, setGenErrors]   = useState({})        // { section: errorMessage }
+  const [showGenAllConfirm, setShowGenAllConfirm] = useState(false)
 
   const summary = summaries[currentMonth]
   const noData  = !summary
@@ -1801,6 +2155,71 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
     setCurrentMonth(newMonthSel)
     setShowAddMonth(false)
     setEditMode(true)
+  }
+
+  // ── AI generation ──────────────────────────────────────────────────────────
+
+  function setGen(section, on) {
+    setGenerating(prev => {
+      const next = new Set(prev)
+      if (on) next.add(section); else next.delete(section)
+      return next
+    })
+  }
+
+  function setGenError(section, msg) {
+    setGenErrors(prev => ({ ...prev, [section]: msg }))
+  }
+
+  async function generateSection(section) {
+    const period = monthLabelToPeriod(currentMonth)
+    if (!period) { setGenError(section, 'Cannot determine period for this month'); return }
+
+    const ctx = buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig })
+    if (!ctx) { setGenError(section, 'No data available for this month'); return }
+
+    setGen(section, true)
+    setGenError(section, null)
+
+    try {
+      const prompt = buildSectionPrompt(section, ctx)
+      const raw    = await callGenerateAPI(prompt)
+      const parsed = parseAIResponse(raw)
+
+      if (section === 'overall') {
+        update('title', parsed.headline || '')
+        update('overallSummary', parsed.narrative || '')
+      } else if (section === 'takeaways') {
+        const kts = (parsed.takeaways || []).map((t, i) => ({
+          id: 'kt-ai-' + Date.now() + '-' + i,
+          title: t.headline || t.title || '',
+          body:  t.body || '',
+        }))
+        update('keyTakeaways', kts)
+      } else if (section === 'watchAreas') {
+        const was = (parsed.watch_areas || []).map((w, i) => ({
+          id:     'wa-ai-' + Date.now() + '-' + i,
+          status: w.status || 'monitoring',
+          title:  w.title || '',
+          body:   w.body  || '',
+        }))
+        update('watchAreas', was)
+      } else if (section === 'reserves') {
+        update('reserves', parsed.reserves || '')
+      }
+    } catch (err) {
+      setGenError(section, 'Generation failed — check your connection and try again')
+      console.error('AI generation error:', err)
+    } finally {
+      setGen(section, false)
+    }
+  }
+
+  async function generateAll() {
+    setShowGenAllConfirm(false)
+    const sections = ['overall', 'takeaways', 'watchAreas', 'reserves']
+    // Run all in parallel
+    await Promise.all(sections.map(s => generateSection(s)))
   }
 
   const fin = summary?.financials || {}
@@ -1888,6 +2307,25 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           </div>
           {/* Right: action buttons */}
           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+            {summary && (
+              generating.size > 0 ? (
+                <div className="flex items-center gap-1.5 text-xs text-gray-400 px-3 py-1.5">
+                  <div className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-transparent animate-spin"/>
+                  Generating…
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const hasContent = summary.title || summary.overallSummary || (summary.keyTakeaways||[]).length || (summary.watchAreas||[]).length || summary.reserves
+                    if (hasContent) setShowGenAllConfirm(true)
+                    else generateAll()
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap"
+                  style={{ borderColor: 'var(--color-accent)', color: 'var(--color-accent)' }}>
+                  ✦ Generate All
+                </button>
+              )
+            )}
             <button onClick={() => setShowAddMonth(true)}
               className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap"
               style={{backgroundColor:'var(--color-accent)'}}>
@@ -1916,13 +2354,29 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           <>
 
           {/* ── OVERALL SUMMARY ── */}
-          <SectionLabel>Overall Summary</SectionLabel>
-          <div className="mb-2">
-            <EditableTitle value={summary.title} onChange={v=>update('title',v)} editMode={editMode}
-              className="text-3xl font-bold text-gray-900 leading-tight mb-4"/>
+          <div className="flex items-center justify-between mb-2">
+            <SectionLabel className="mb-0">Overall Summary</SectionLabel>
+            <GenerateButton
+              hasContent={!!(summary.title || summary.overallSummary)}
+              loading={generating.has('overall')}
+              error={genErrors.overall}
+              onGenerate={() => generateSection('overall')}/>
           </div>
-          <EditableArea value={summary.overallSummary} onChange={v=>update('overallSummary',v)} editMode={editMode}
-            className="text-sm text-gray-600 leading-relaxed" rows={4} placeholder="Write an overall summary of the month..."/>
+          {generating.has('overall') ? (
+            <div className="mb-6 space-y-3">
+              <div className="h-8 bg-gray-100 rounded w-2/3 animate-pulse"/>
+              <GenerateSkeleton/>
+            </div>
+          ) : (
+            <>
+              <div className="mb-2">
+                <EditableTitle value={summary.title} onChange={v=>update('title',v)} editMode={editMode}
+                  className="text-3xl font-bold text-gray-900 leading-tight mb-4"/>
+              </div>
+              <EditableArea value={summary.overallSummary} onChange={v=>update('overallSummary',v)} editMode={editMode}
+                className="text-sm text-gray-600 leading-relaxed" rows={4} placeholder="Write an overall summary of the month..."/>
+            </>
+          )}
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── FINANCIAL POSITION ── */}
@@ -1947,42 +2401,61 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           <div className="flex items-center justify-between mb-6">
             <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Key Takeaways</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
-            {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+            <div className="flex items-center gap-2">
+              <GenerateButton
+                hasContent={(summary.keyTakeaways||[]).length > 0}
+                loading={generating.has('takeaways')}
+                error={genErrors.takeaways}
+                onGenerate={() => generateSection('takeaways')}/>
+              {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+            </div>
           </div>
-          <div className="space-y-0">
-            {(summary.keyTakeaways||[]).map((kt, idx) => (
-              <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
-                <div className="flex items-start gap-4">
-                  <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-accent)'}}>{String(idx+1).padStart(2,'0')}</span>
-                  <div className="flex-1 min-w-0">
-                    {editMode ? (
-                      <>
-                        <input value={kt.title} onChange={e=>editTakeaway(idx,'title',e.target.value)}
-                          className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500 mb-2"/>
-                        <textarea value={kt.body} onChange={e=>editTakeaway(idx,'body',e.target.value)} rows={3}
-                          className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-semibold text-gray-900 mb-1">{kt.title}</p>
-                        <p className="text-sm text-gray-600 leading-relaxed">{highlightNumbers(kt.body)}</p>
-                      </>
+          {generating.has('takeaways') ? (
+            <div className="space-y-3">
+              {[1,2,3].map(i => (
+                <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 animate-pulse">
+                  <div className="h-4 bg-gray-100 rounded w-1/2 mb-2"/>
+                  <div className="h-3 bg-gray-100 rounded w-full mb-1"/>
+                  <div className="h-3 bg-gray-100 rounded w-4/5"/>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-0">
+              {(summary.keyTakeaways||[]).map((kt, idx) => (
+                <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
+                  <div className="flex items-start gap-4">
+                    <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-accent)'}}>{String(idx+1).padStart(2,'0')}</span>
+                    <div className="flex-1 min-w-0">
+                      {editMode ? (
+                        <>
+                          <input value={kt.title} onChange={e=>editTakeaway(idx,'title',e.target.value)}
+                            className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500 mb-2"/>
+                          <textarea value={kt.body} onChange={e=>editTakeaway(idx,'body',e.target.value)} rows={3}
+                            className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-gray-900 mb-1">{kt.title}</p>
+                          <p className="text-sm text-gray-600 leading-relaxed">{highlightNumbers(kt.body)}</p>
+                        </>
+                      )}
+                    </div>
+                    {editMode && (
+                      <div className="flex flex-col gap-1 flex-shrink-0">
+                        <button onClick={()=>moveTakeaway(idx,-1)} disabled={idx===0} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={14}/></button>
+                        <button onClick={()=>moveTakeaway(idx,1)} disabled={idx===(summary.keyTakeaways.length-1)} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={14}/></button>
+                        <button onClick={()=>removeTakeaway(idx)} className="p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
+                      </div>
                     )}
                   </div>
-                  {editMode && (
-                    <div className="flex flex-col gap-1 flex-shrink-0">
-                      <button onClick={()=>moveTakeaway(idx,-1)} disabled={idx===0} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={14}/></button>
-                      <button onClick={()=>moveTakeaway(idx,1)} disabled={idx===(summary.keyTakeaways.length-1)} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={14}/></button>
-                      <button onClick={()=>removeTakeaway(idx)} className="p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))}
-            {(summary.keyTakeaways||[]).length===0 && editMode && (
-              <p className="text-sm text-gray-400 italic py-4">No takeaways yet. Click "+ Add" to add one.</p>
-            )}
-          </div>
+              ))}
+              {(summary.keyTakeaways||[]).length===0 && !generating.has('takeaways') && (
+                <p className="text-sm text-gray-400 italic py-4">No takeaways yet. Click "✦ Generate" or "+ Add" to add some.</p>
+              )}
+            </div>
+          )}
           <div className="my-8"/>
 
           {/* ── ROLLING QUOTE ── */}
@@ -1993,49 +2466,80 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           <div className="flex items-center justify-between mb-6">
             <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Watch Areas</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
-            {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+            <div className="flex items-center gap-2">
+              <GenerateButton
+                hasContent={(summary.watchAreas||[]).length > 0}
+                loading={generating.has('watchAreas')}
+                error={genErrors.watchAreas}
+                onGenerate={() => generateSection('watchAreas')}/>
+              {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+            </div>
           </div>
-          <div className="space-y-6">
-            {(summary.watchAreas||[]).map((wa, idx) => {
-              const s = WATCH_STATUSES[wa.status] || WATCH_STATUSES['monitoring']
-              return (
-                <div key={wa.id} className="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
-                  {editMode ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <select value={wa.status} onChange={e=>editWatchArea(idx,'status',e.target.value)}
-                          className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-gray-200 focus:outline-none bg-white cursor-pointer">
-                          <option value="needs-attention">Needs Attention</option>
-                          <option value="monitoring">Monitoring</option>
-                          <option value="on-track">On Track</option>
-                        </select>
-                        <button onClick={()=>removeWatchArea(idx)} className="ml-auto p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
-                      </div>
-                      <input value={wa.title} onChange={e=>editWatchArea(idx,'title',e.target.value)}
-                        className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
-                      <textarea value={wa.body} onChange={e=>editWatchArea(idx,'body',e.target.value)} rows={3}
-                        className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
-                    </div>
-                  ) : (
-                    <>
-                      <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded mb-3 ${s.pill}`}>{s.label}</span>
-                      <p className="font-semibold text-gray-900 mb-1.5">{wa.title}</p>
-                      <p className="text-sm text-gray-600 leading-relaxed">{wa.body}</p>
-                    </>
-                  )}
+          {generating.has('watchAreas') ? (
+            <div className="space-y-6">
+              {[1,2,3].map(i => (
+                <div key={i} className="border-b border-gray-100 pb-6 animate-pulse">
+                  <div className="h-5 bg-gray-100 rounded w-24 mb-3"/>
+                  <div className="h-4 bg-gray-100 rounded w-1/2 mb-2"/>
+                  <div className="h-3 bg-gray-100 rounded w-full mb-1"/>
+                  <div className="h-3 bg-gray-100 rounded w-4/5"/>
                 </div>
-              )
-            })}
-            {(summary.watchAreas||[]).length===0 && editMode && (
-              <p className="text-sm text-gray-400 italic">No watch areas yet. Click "+ Add" to add one.</p>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {(summary.watchAreas||[]).map((wa, idx) => {
+                const s = WATCH_STATUSES[wa.status] || WATCH_STATUSES['monitoring']
+                return (
+                  <div key={wa.id} className="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
+                    {editMode ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <select value={wa.status} onChange={e=>editWatchArea(idx,'status',e.target.value)}
+                            className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-gray-200 focus:outline-none bg-white cursor-pointer">
+                            <option value="needs-attention">Needs Attention</option>
+                            <option value="monitoring">Monitoring</option>
+                            <option value="on-track">On Track</option>
+                          </select>
+                          <button onClick={()=>removeWatchArea(idx)} className="ml-auto p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
+                        </div>
+                        <input value={wa.title} onChange={e=>editWatchArea(idx,'title',e.target.value)}
+                          className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
+                        <textarea value={wa.body} onChange={e=>editWatchArea(idx,'body',e.target.value)} rows={3}
+                          className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
+                      </div>
+                    ) : (
+                      <>
+                        <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded mb-3 ${s.pill}`}>{s.label}</span>
+                        <p className="font-semibold text-gray-900 mb-1.5">{wa.title}</p>
+                        <p className="text-sm text-gray-600 leading-relaxed">{wa.body}</p>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+              {(summary.watchAreas||[]).length===0 && !generating.has('watchAreas') && (
+                <p className="text-sm text-gray-400 italic">No watch areas yet. Click "✦ Generate" or "+ Add" to add one.</p>
+              )}
+            </div>
+          )}
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── RESERVES ── */}
-          <SectionLabel color="var(--color-accent)">Reserves</SectionLabel>
-          <EditableArea value={summary.reserves} onChange={v=>update('reserves',v)} editMode={editMode}
-            className="text-sm text-gray-700 leading-relaxed mb-4" rows={4} placeholder="Describe the reserves position, rationale, and outlook..."/>
+          <div className="flex items-center justify-between mb-2">
+            <SectionLabel className="mb-0" color="var(--color-accent)">Reserves</SectionLabel>
+            <GenerateButton
+              hasContent={!!summary.reserves}
+              loading={generating.has('reserves')}
+              error={genErrors.reserves}
+              onGenerate={() => generateSection('reserves')}/>
+          </div>
+          {generating.has('reserves') ? (
+            <div className="mb-4"><GenerateSkeleton/></div>
+          ) : (
+            <EditableArea value={summary.reserves} onChange={v=>update('reserves',v)} editMode={editMode}
+              className="text-sm text-gray-700 leading-relaxed mb-4" rows={4} placeholder="Describe the reserves position, rationale, and outlook..."/>
+          )}
           {(editMode || summary.reservesNote) && (
             <EditableArea value={summary.reservesNote} onChange={v=>update('reservesNote',v)} editMode={editMode}
               className="text-xs text-gray-400 leading-relaxed" rows={2} placeholder="Add a footnote or note about reserve reporting timing..."/>
@@ -2050,6 +2554,27 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
         )}
 
       </div>{/* end max-w-2xl */}
+
+      {/* Generate All Confirmation Modal */}
+      {showGenAllConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-96 p-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Replace existing content?</h3>
+            <p className="text-sm text-gray-500 mb-5">This will replace existing content in all sections. Continue?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowGenAllConfirm(false)}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+                Cancel
+              </button>
+              <button onClick={generateAll}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                style={{backgroundColor:'var(--color-accent)'}}>
+                Generate All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Month Modal */}
       {showAddMonth && (
@@ -4277,7 +4802,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals, availableScenarios, selectedScenario } = useApp()
+  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
@@ -4314,7 +4839,7 @@ export default function ELTDashboard() {
         activeBudget={activeBudget} onSetBudget={setActiveBudget}/>
       <main className="flex-1 overflow-auto">
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
-        {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
+        {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} orgConfig={orgConfig} actuals={actuals} budgetFlat={budgetFlat} activeBudget={activeBudget}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
         {activeTab==='comments'  && <CommentsPage context="executive" />}

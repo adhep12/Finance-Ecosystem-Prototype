@@ -1251,6 +1251,18 @@ function OrgSettingsForm() {
           </div>
           <p className="text-xs text-gray-400 mt-1">Minimum cash balance for Cash Position KPI</p>
         </div>
+
+        <div className="w-64 mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Watch Area Materiality Threshold</label>
+          <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-400">
+            <input type="number" min={0} max={100} step={1}
+              value={Math.round((draft.materiality_threshold ?? 0.10) * 100)}
+              onChange={e => set('materiality_threshold', (parseFloat(e.target.value) || 0) / 100)}
+              className="flex-1 px-3 py-2 text-sm focus:outline-none"/>
+            <span className="px-3 text-sm text-gray-400 bg-gray-50 border-l border-gray-200 py-2">%</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Minimum % of total org expenses or income for an item to be flagged as a watch area. Default is 10%.</p>
+        </div>
       </div>
 
       <button onClick={handleSave} disabled={saving}

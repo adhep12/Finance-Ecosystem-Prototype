@@ -182,6 +182,7 @@ export function AppProvider({ children }) {
         operatingYearStartMonth: oyM,
         operatingYearStartYear:  oyYear,
         reserveFloor:            settingsRow.reserve_floor ?? 0,
+        materialityThreshold:    settingsRow.materiality_threshold ?? 0.10,
       })
 
       // ── Phase 2: fetch actuals + lookup tables in parallel ───────────────────
