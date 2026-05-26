@@ -75,6 +75,8 @@ const DEFAULT_FINANCE_KPI_IDS = [...FINANCIAL_KPI_IDS, ...SUPPORTER_KPI_IDS]
 function pad2(n){ return String(n).padStart(2,'0') }
 function ymd(y,m,d){ return `${y}-${pad2(m)}-${pad2(d)}` }
 function monthKey(dateStr){ return dateStr.slice(0,7) }
+function prevMonthStr(period){ const [y,m]=period.split('-').map(Number); return m===1?`${y-1}-12`:`${y}-${pad2(m-1)}` }
+function prevYearStr(period){ return `${Number(period.slice(0,4))-1}-${period.slice(5,7)}` }
 
 function getMasterPresetRange(preset, org = {}){
   const today = new Date()
@@ -521,14 +523,34 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
       break
     }
     case 'new-supporters': {
-      const newTotal = patronInRange.reduce((s,p) => s + (p.new_patrons_total||0), 0)
-      mainValue = newTotal > 0 ? newTotal.toLocaleString() : '—'
-      subNote = `${patronInRange.length} month${patronInRange.length!==1?'s':''} in range`
+      const currentNew = latestPatron?.new_patrons_total || 0
+      mainValue = latestPatron ? currentNew.toLocaleString() : '—'
+      if (latestPatron) {
+        const priorPeriod = prevMonthStr(latestPatron.period)
+        const priorRow = patronData.find(p => p.period === priorPeriod)
+        if (priorRow != null) {
+          const priorNew = priorRow.new_patrons_total || 0
+          cmp1 = { label: `vs ${priorPeriod} (Prior Month)`, delta: currentNew - priorNew, base: priorNew, format: 'count' }
+        }
+        subNote = `Most recent: ${latestPatron.period}`
+      } else {
+        subNote = 'No patron data'
+      }
       break
     }
     case 'avg-gift': {
-      mainValue = latestPatron?.avg_gift_size > 0 ? formatCurrency(latestPatron.avg_gift_size) : '—'
-      subNote = latestPatron ? `as of ${latestPatron.period}` : 'No patron data'
+      const currentGift = latestPatron?.avg_gift_size || 0
+      mainValue = currentGift > 0 ? formatCurrency(currentGift) : '—'
+      if (latestPatron) {
+        const priorYearPeriod = prevYearStr(latestPatron.period)
+        const priorRow = patronData.find(p => p.period === priorYearPeriod)
+        if (priorRow?.avg_gift_size > 0) {
+          cmp1 = { label: `vs ${priorYearPeriod} (Prior Year)`, delta: currentGift - priorRow.avg_gift_size, base: priorRow.avg_gift_size }
+        }
+        subNote = `as of ${latestPatron.period}`
+      } else {
+        subNote = 'No patron data'
+      }
       break
     }
     case 'recurring-patrons': {
@@ -577,15 +599,18 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
   function CmpRow({ cmp }) {
     if (!cmp) return null
     const pct = makePct(cmp.delta, cmp.base)
+    const isCount = cmp.format === 'count'
+    const fmtDelta = isCount ? Math.round(cmp.delta).toLocaleString() : formatCurrency(cmp.delta)
+    const fmtBase  = isCount ? Math.round(cmp.base).toLocaleString()  : formatCurrency(cmp.base)
     return (
       <div>
         <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp.label}</div>
         <div className="flex items-center gap-2 flex-wrap">
           <TrendBadge delta={cmp.delta} inverse={isInverse} label={pct}/>
           <span className={`text-sm font-semibold ${varColor(cmp.delta, isInverse)}`}>
-            {cmp.delta >= 0 ? '+' : ''}{formatCurrency(cmp.delta)}
+            {cmp.delta >= 0 ? '+' : ''}{fmtDelta}
           </span>
-          <span className="text-xs text-gray-400">vs {formatCurrency(cmp.base)}</span>
+          <span className="text-xs text-gray-400">vs {fmtBase}</span>
         </div>
       </div>
     )
