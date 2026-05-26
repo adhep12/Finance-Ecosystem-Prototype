@@ -2110,16 +2110,24 @@ Return only the JSON object, no other text.`
 
 /** Call the generate-summary edge function */
 async function callGenerateAPI(prompt) {
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('Generation timed out — please try again')), 30000)
-  )
-  const invoke = supabase.functions.invoke('generate-summary', {
-    body: { prompt, max_tokens: 1000 },
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Generation timed out — please try again')), 30000)
   })
-  const { data, error } = await Promise.race([invoke, timeout])
-  if (error) throw new Error(error.message || 'Edge function error')
-  if (!data?.content) throw new Error('Empty response from AI')
-  return data.content
+  try {
+    const { data, error } = await Promise.race([
+      supabase.functions.invoke('generate-summary', {
+        body: { prompt, max_tokens: 1000 },
+      }),
+      timeout,
+    ])
+    if (error) throw new Error(error.message || 'Edge function error')
+    if (!data?.content) throw new Error('Empty response from AI')
+    return data.content
+  } finally {
+    // Always cancel the timer — prevents unhandled rejection if invoke wins
+    clearTimeout(timeoutId)
+  }
 }
 
 /** Parse JSON safely from Claude's response */

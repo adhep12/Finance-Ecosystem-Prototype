@@ -13,6 +13,7 @@ import {
   Building2, Calendar, GripVertical, RotateCcw,
   Ban, ArrowUp, ArrowDown, CheckSquare, Square,
   ArrowUpDown,
+  TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'
