@@ -625,7 +625,55 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
     )
   }
 
-  // Status-driven styling for specific cards
+  // ── Net Position — dark hero card (matches executive dashboard) ──────────────
+  if (id === 'net-position') {
+    const netValue  = totalGiving - totalExpenses
+    const isPos     = netValue >= 0
+    const accent    = isPos ? '#4CAF82' : '#FF6B6B'
+    const leftBorder= isPos ? STATUS_COLORS.positive : STATUS_COLORS.negative
+    const shadow    = isPos ? '0 4px 20px rgba(61,153,112,0.15)' : '0 4px 20px rgba(192,57,43,0.15)'
+    return (
+      <div className="relative w-full rounded-xl"
+        style={{
+          background: '#1a1f2e',
+          borderLeft: `5px solid ${leftBorder}`,
+          borderRadius: '12px',
+          boxShadow: shadow,
+          padding: '28px 32px',
+        }}>
+        {editMode && (
+          <button onClick={onRemove}
+            className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+            style={{backgroundColor:'rgba(255,255,255,0.1)',color:'#9CA3AF'}}>
+            <X size={11}/>
+          </button>
+        )}
+        <div className="flex items-start justify-between mb-4">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>
+            {catalogDef?.label || 'Net Position'} YTD
+          </div>
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold"
+            style={{background:`rgba(${isPos?'61,153,112':'192,57,43'},0.25)`,color:accent,border:`1px solid rgba(${isPos?'61,153,112':'192,57,43'},0.4)`}}>
+            {isPos ? 'Surplus' : 'Deficit'}
+          </span>
+        </div>
+        <div className="font-bold mb-5" style={{fontSize:'52px',color:accent,lineHeight:1}}>
+          {mainValue}
+        </div>
+        {cmp1 && (
+          <div className="flex items-center gap-3 text-xs mb-1.5" style={{color:'#6B7384'}}>
+            <span>VS BUDGET</span>
+            <span style={{color: cmp1.delta >= 0 ? '#4CAF82' : '#FF6B6B'}}>
+              {cmp1.delta >= 0 ? '+' : ''}{formatCurrency(cmp1.delta,{compact:true})}
+            </span>
+            <span>vs {formatCurrency(cmp1.base,{compact:true})}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Status-driven styling for remaining cards
   let valueColor = '#111827'
   let cardBgColor = '#FFFFFF'
   let cardBorderColor = 'rgba(0, 0, 0, 0.06)'
@@ -635,25 +683,7 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
   let fontSize = 'text-2xl' // Tier 3 default (28px)
   let padding = 'p-5' // Default 20px padding
 
-  if (id === 'net-position') {
-    const netValue = totalGiving - totalExpenses
-    const isPositive = netValue >= 0
-    valueColor = isPositive ? STATUS_COLORS.positive : STATUS_COLORS.negative
-    fontSize = 'text-6xl' // 48px for Net Position
-    padding = 'p-6' // 24px padding
-
-    if (isPositive) {
-      cardBgColor = '#F0FDF4'
-      cardBorderColor = 'rgba(61, 153, 112, 0.2)'
-      cardBorderLeftColor = STATUS_COLORS.positive
-      cardBadge = 'Surplus'
-    } else {
-      cardBgColor = '#FEF2F2'
-      cardBorderColor = 'rgba(192, 57, 43, 0.2)'
-      cardBorderLeftColor = STATUS_COLORS.negative
-      cardBadge = 'Deficit'
-    }
-  } else if (id === 'total-giving') {
+  if (id === 'total-giving') {
     fontSize = 'text-4xl' // 36px for driver cards
     padding = 'p-5' // 20px padding
     cardBorderTopColor = DATA_COLORS[0] // steel blue for income
