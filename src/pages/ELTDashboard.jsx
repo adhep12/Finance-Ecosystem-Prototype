@@ -15,6 +15,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
+import CommentPinFAB from '../components/CommentPinFAB'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS } from '../constants/colors'
@@ -4174,6 +4175,13 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
     {selectedTeam && (
       <TeamDetailDrawer team={selectedTeam} globalDateRange={dateRange} onClose={() => setSelectedTeam(null)}/>
     )}
+
+    <CommentPinFAB
+      page="elt-teams"
+      sourceDashboard="Executive"
+      sourcePage="Teams"
+      rightClassName="right-6"
+    />
     </>
   )
 }
