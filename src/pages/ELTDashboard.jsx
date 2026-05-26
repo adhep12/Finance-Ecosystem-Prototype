@@ -1764,7 +1764,7 @@ function fmtDollars(n) {
 }
 
 /** Build aggregated AI context from actuals + budgetFlat for the given period */
-function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig }) {
+function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig, cashData = [] }) {
   if (!period) return null
 
   // ── Current month P&L ──────────────────────────────────────────────────────
@@ -1774,16 +1774,17 @@ function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig }
   )
 
   // Aggregate by record_type + category
+  // Income amounts are stored as positive in the DB; ensure they remain positive here.
   const monthlySummary = {}
   for (const t of monthActuals) {
     const key = `${t.record_type}|${t.category || 'Uncategorized'}`
     if (!monthlySummary[key]) monthlySummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0, budget: 0 }
-    monthlySummary[key].actual += t.record_type === 'income' ? -(t.amount || 0) : (t.amount || 0)
+    monthlySummary[key].actual += t.record_type === 'income' ? Math.abs(t.amount || 0) : Math.abs(t.amount || 0)
   }
   for (const b of monthBudgets) {
     const key = `${b.record_type}|${b.category || 'Uncategorized'}`
     if (!monthlySummary[key]) monthlySummary[key] = { record_type: b.record_type, category: b.category || 'Uncategorized', actual: 0, budget: 0 }
-    monthlySummary[key].budget += b.amount || 0
+    monthlySummary[key].budget += Math.abs(b.amount || 0)
   }
 
   // ── YTD P&L ────────────────────────────────────────────────────────────────
@@ -1805,12 +1806,12 @@ function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig }
   for (const t of ytdActuals) {
     const key = `${t.record_type}|${t.category || 'Uncategorized'}`
     if (!ytdSummary[key]) ytdSummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0, budget: 0 }
-    ytdSummary[key].actual += t.record_type === 'income' ? -(t.amount || 0) : (t.amount || 0)
+    ytdSummary[key].actual += Math.abs(t.amount || 0)
   }
   for (const b of ytdBudgets) {
     const key = `${b.record_type}|${b.category || 'Uncategorized'}`
     if (!ytdSummary[key]) ytdSummary[key] = { record_type: b.record_type, category: b.category || 'Uncategorized', actual: 0, budget: 0 }
-    ytdSummary[key].budget += b.amount || 0
+    ytdSummary[key].budget += Math.abs(b.amount || 0)
   }
 
   // ── Prior year same period ─────────────────────────────────────────────────
@@ -1820,7 +1821,7 @@ function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig }
   for (const t of priorActuals) {
     const key = `${t.record_type}|${t.category || 'Uncategorized'}`
     if (!priorSummary[key]) priorSummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0 }
-    priorSummary[key].actual += t.record_type === 'income' ? -(t.amount || 0) : (t.amount || 0)
+    priorSummary[key].actual += Math.abs(t.amount || 0)
   }
 
   // ── Totals ─────────────────────────────────────────────────────────────────
@@ -1887,6 +1888,31 @@ function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig }
     },
     // Raw numbers for watch area materiality checks
     _totals: { totalIncome, totalExpenses, materialityThreshold: orgConfig.materialityThreshold ?? 0.10 },
+    // Cash flow data for the Reserves section
+    cash: (() => {
+      if (!cashData?.length) return null
+      const cashRow = cashData.find(r => r.period === period)
+        || [...cashData].sort((a,b) => b.period.localeCompare(a.period))[0]
+      if (!cashRow) return null
+      const [pYr, pMo] = period.split('-').map(Number)
+      const priorPeriod = pMo === 1
+        ? `${pYr-1}-12`
+        : `${pYr}-${String(pMo-1).padStart(2,'0')}`
+      const priorRow = cashData.find(r => r.period === priorPeriod)
+      const balance        = cashRow.cash_balance       || 0
+      const priorBalance   = priorRow?.cash_balance ?? (cashRow.prior_month_balance || 0)
+      const annualExpenses = (ytdTotalExpenses / Math.max(1, fiscalMonthIndex)) * 12
+      const monthlyAvg     = annualExpenses / 12
+      return {
+        balance,
+        reserveFloor:    cashRow.reserve_floor      || 0,
+        aboveFloor:      cashRow.cash_above_floor   || 0,
+        priorBalance,
+        momChange:       balance - priorBalance,
+        monthlyAvg,
+        monthsCovered:   monthlyAvg > 0 ? +(balance / monthlyAvg).toFixed(1) : null,
+      }
+    })(),
   }
 }
 
@@ -2009,12 +2035,33 @@ Return only the JSON object, no other text.`
   }
 
   if (section === 'reserves') {
-    // Use cash data if available, else fall back to net position
-    const netPos = ctx.currentMonth.netActual
-    return `Write 2-3 sentences about an organization's financial reserves position based on this data. Be specific with numbers. Only describe what the data shows — do not add context about investment strategy or board policy.
+    if (ctx.cash) {
+      const c = ctx.cash
+      return `You are a financial writer for a nonprofit. Write 2-3 sentences about the organization's cash reserves position for ${monthStr}. Be specific with numbers. Plain language, no jargon.
+
+Write only about cash reserves — the cash balance, how many months of operating expenses it covers, and the change from prior month. Do not write about net operating income or YTD deficit. Only describe what the cash_flow data shows.
+
+CASH RESERVES DATA FOR ${monthStr}:
+Cash balance: ${fmtDollars(c.balance)}
+Reserve floor (minimum required): ${fmtDollars(c.reserveFloor)}
+Cash above floor: ${fmtDollars(c.aboveFloor)}
+Prior month cash balance: ${fmtDollars(c.priorBalance)}
+Month-over-month change: ${fmtDollars(c.momChange)} (${c.momChange >= 0 ? 'increase' : 'decrease'})
+Monthly operating expenses (avg): ${fmtDollars(c.monthlyAvg)}
+Months of expenses covered: ${c.monthsCovered !== null ? c.monthsCovered : 'N/A'}
+
+ORG NAME: ${orgName}
+
+Cover: current cash balance, months of expenses covered, and how the balance changed from the prior month.
+
+Return as JSON: {"reserves": "..."}
+Return only the JSON object, no other text.`
+    }
+    // Fallback to net position when no cash data exists
+    return `Write 2-3 sentences about an organization's financial reserves position based on this data. Be specific with numbers. Only describe what the data shows.
 
 FINANCIAL DATA FOR ${monthStr}:
-Net position (income minus expenses): ${netPos}
+Net position (income minus expenses): ${ctx.currentMonth.netActual}
 Net position vs budget: ${ctx.currentMonth.netBudget}
 YTD net position: ${ctx.ytd.netActual}
 YTD vs budget: ${ctx.ytd.netBudget}
@@ -2022,8 +2069,6 @@ YTD vs budget: ${ctx.ytd.netBudget}
 ORG NAME: ${orgName}
 MONTH: ${monthStr}
 FISCAL YEAR POSITION: Month ${monthNum} of 12
-
-Write only about: current net position, YTD position vs budget, and what this means for financial health.
 
 Return as JSON: {"reserves": "..."}
 Return only the JSON object, no other text.`
@@ -2119,6 +2164,14 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   const [showAddKPI, setShowAddKPI] = useState(false)
   const [newMonthSel, setNewMonthSel] = useState(ALL_MONTHS[0])
   const [manualCards, setManualCards] = useState({})
+
+  // Cash flow data for Reserves AI section
+  const [cashData, setCashData] = useState([])
+  useEffect(() => {
+    if (!ORG_ID) return
+    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
+      .then(({ data }) => setCashData(data || []))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // AI generation state
   const [generating, setGenerating] = useState(new Set()) // section names being generated
@@ -2225,7 +2278,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
     const period = monthLabelToPeriod(currentMonth)
     if (!period) { setGenError(section, 'Cannot determine period for this month'); return }
 
-    const ctx = buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig })
+    const ctx = buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig, cashData })
     if (!ctx) { setGenError(section, 'No data available for this month'); return }
 
     setGen(section, true)
@@ -2496,10 +2549,6 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                 <Plus size={18}/><span className="text-xs font-medium">Add card</span>
               </button>
             )}
-          </div>
-          <div className="mt-6">
-            <EditableArea value={summary.monthlyNarrative} onChange={v=>update('monthlyNarrative',v)} editMode={editMode}
-              className="text-sm text-gray-600 leading-relaxed" rows={6} placeholder="Describe what happened this month, why, and whether you're on track..."/>
           </div>
           <div className="my-8 border-t border-gray-200"/>
 
@@ -2938,7 +2987,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
         {/* Logo slot — swap orgConfig.logoUrl for a real image when ready */}
         <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm"
-             style={{backgroundColor: orgConfig?.accentColor || 'var(--color-accent)'}}>
+             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-accent)'}}>
           {orgConfig?.logoUrl
             ? <img src={orgConfig.logoUrl} alt={orgConfig?.name} className="w-8 h-8 object-contain rounded"/>
             : <BarChart2 size={22} className="text-white"/>}
@@ -3568,7 +3617,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
 // Teams Tab — full enterprise layout
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TeamsTab({ dateRange, activeBudget }) {
+function TeamsTab({ dateRange, activeBudget, orgConfig }) {
   const { actuals, budgetFlat } = useApp()
   const navigate = useNavigate()
 
@@ -3801,8 +3850,9 @@ function TeamsTab({ dateRange, activeBudget }) {
 
       {/* Page header */}
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{backgroundColor:'var(--color-accent-light)'}}>
-          <Users size={18} style={{color:'var(--neutral-60)'}}/>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-accent)'}}>
+          <Users size={18} className="text-white"/>
         </div>
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--neutral-60)'}}>
@@ -4284,7 +4334,7 @@ function generateReportHTML({ sections, dateRange, orgConfig, summaries, summary
     cash:        { current:0, priorMonth:0, priorYear:0 },
   }
   const d           = eltData || EMPTY_ELT
-  const accentColor = orgConfig?.accentColor || '#00B3E5'
+  const primaryColor = orgConfig?.primaryColor || '#00B3E5'
   const orgName     = orgConfig?.name || 'Organization'
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
@@ -4305,7 +4355,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1
 h1{font-size:26px;font-weight:800;color:#191A1B;margin-bottom:6px}
 h2{font-size:16px;font-weight:700;color:#191A1B;margin:28px 0 10px}
 h3{font-size:13px;font-weight:600;color:#4F5669;margin:16px 0 6px}
-.label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:${accentColor};margin-bottom:4px}
+.label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:${primaryColor};margin-bottom:4px}
 .divider{border:none;border-top:1px solid #E4E8ED;margin:24px 0}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin:12px 0 20px}
 .kpi{background:#FBF7EF;border:1px solid #E4E8ED;border-radius:10px;padding:14px}
@@ -4315,13 +4365,13 @@ table{width:100%;border-collapse:collapse;font-size:11px;margin:10px 0 20px}
 th{background:#FBF7EF;padding:7px 12px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#6B7384;border-bottom:2px solid #E4E8ED;text-align:left}
 .tr{text-align:right}
 td{padding:7px 12px;border-bottom:1px solid #ECEFF3}
-.sec-row td{background:#F6EFE1;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${accentColor};padding:6px 12px}
+.sec-row td{background:#F6EFE1;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${primaryColor};padding:6px 12px}
 .sub-row td{padding-left:28px}
 .sum-row td{background:#FBF7EF;font-weight:600}
 .tot-row td{background:#1A140E;color:#F8F8F8;font-weight:700}
 .narrative{line-height:1.8;color:#4F5669;margin:8px 0 14px}
 .takeaway{padding:10px 0;border-bottom:1px solid #ECEFF3}
-.tk-num{font-weight:800;color:${accentColor};margin-right:6px}
+.tk-num{font-weight:800;color:${primaryColor};margin-right:6px}
 .footer{margin-top:40px;padding-top:14px;border-top:1px solid #E4E8ED;font-size:10px;color:#89929E;display:flex;justify-content:space-between}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:32px}}`
 
@@ -5056,7 +5106,7 @@ export default function ELTDashboard() {
       <main className="flex-1 overflow-auto">
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} orgConfig={orgConfig} actuals={actuals} budgetFlat={budgetFlat} activeBudget={activeBudget} savedPeriods={savedPeriods} onSave={handleSaveSummary}/>}
-        {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
+        {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget} orgConfig={orgConfig}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
         {activeTab==='comments'  && <CommentsPage context="executive" />}
       </main>
