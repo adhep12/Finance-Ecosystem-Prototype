@@ -993,13 +993,13 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
       }
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Watch Area Panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
+const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
   const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
   const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
@@ -1032,7 +1032,7 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
       ))}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Patron Watch Areas Panel
