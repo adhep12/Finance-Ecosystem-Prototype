@@ -915,17 +915,16 @@ function CashPositionCard({ cashFlowData, dateRange }){
 function TeamSpendCard({ actuals, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
-  const { deptNames } = useApp()
 
   const { chartData, teams } = useMemo(()=>{
     const expRange = filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income')
-    // group by period + department
+    // group by period + team_name (not department — keeps 8 series not 24)
     const byPeriodTeam={}
     const teamSet=new Set()
     for(const t of expRange){
       const p=t.period||(t.date?t.date.slice(0,7):null); if(!p) continue
       if(p<startP||p>endP) continue
-      const team=deptNames[t.department]||t.department||'Other'
+      const team=t.team_name||'Unknown'
       teamSet.add(team)
       if(!byPeriodTeam[p]) byPeriodTeam[p]={}
       byPeriodTeam[p][team]=(byPeriodTeam[p][team]||0)+Math.abs(t.amount||0)
@@ -935,7 +934,7 @@ function TeamSpendCard({ actuals, dateRange }){
       label:periodLabel(p), ...tm
     }))
     return { chartData:data, teams }
-  },[actuals,startDate,endDate,startP,endP,deptNames])
+  },[actuals,startDate,endDate,startP,endP])
 
   const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
