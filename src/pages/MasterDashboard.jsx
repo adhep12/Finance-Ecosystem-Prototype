@@ -608,12 +608,13 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
     const isCount = cmp.format === 'count'
     const fmtDelta = isCount ? Math.round(cmp.delta).toLocaleString() : formatCurrency(cmp.delta)
     const fmtBase  = isCount ? Math.round(cmp.base).toLocaleString()  : formatCurrency(cmp.base)
+    const deltaColor = cmp.delta >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative
     return (
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp.label}</div>
+        <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color: '#9CA3AF'}}>{cmp.label}</div>
         <div className="flex items-center gap-2 flex-wrap">
           <TrendBadge delta={cmp.delta} inverse={isInverse} label={pct}/>
-          <span className={`text-sm font-semibold ${varColor(cmp.delta, isInverse)}`}>
+          <span className="text-sm font-semibold" style={{color: deltaColor}}>
             {cmp.delta >= 0 ? '+' : ''}{fmtDelta}
           </span>
           <span className="text-xs text-gray-400">vs {fmtBase}</span>
@@ -622,27 +623,123 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
     )
   }
 
+  // Status-driven styling for specific cards
   let valueColor = '#111827'
+  let cardBgColor = '#FFFFFF'
+  let cardBorderColor = 'rgba(0, 0, 0, 0.06)'
+  let cardBorderLeftColor = null
+  let cardBorderTopColor = null
+  let cardBadge = null
+  let fontSize = 'text-2xl' // Tier 3 default (28px)
+  let padding = 'p-5' // Default 20px padding
+
   if (id === 'net-position') {
     const netValue = totalGiving - totalExpenses
-    valueColor = netValue >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative
+    const isPositive = netValue >= 0
+    valueColor = isPositive ? STATUS_COLORS.positive : STATUS_COLORS.negative
+    fontSize = 'text-6xl' // 48px for Net Position
+    padding = 'p-6' // 24px padding
+
+    if (isPositive) {
+      cardBgColor = '#F0FDF4'
+      cardBorderColor = 'rgba(61, 153, 112, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.positive
+      cardBadge = 'Surplus'
+    } else {
+      cardBgColor = '#FEF2F2'
+      cardBorderColor = 'rgba(192, 57, 43, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.negative
+      cardBadge = 'Deficit'
+    }
+  } else if (id === 'total-giving') {
+    fontSize = 'text-4xl' // 36px for driver cards
+    padding = 'p-5' // 20px padding
+    cardBorderTopColor = DATA_COLORS[0] // steel blue for income
+  } else if (id === 'total-expenses') {
+    fontSize = 'text-4xl' // 36px for driver cards
+    padding = 'p-5' // 20px padding
+    cardBorderTopColor = DATA_COLORS[5] // muted red for expenses
+  }
+
+  // Teams Over Budget status-driven styling
+  if (id === 'teams-over-budget') {
+    const teamsOverCount = subNote ? parseInt(subNote.match(/\d+/)?.[0] || 0) : 0
+    if (teamsOverCount === 0) {
+      cardBgColor = '#F0FDF4'
+      cardBorderColor = 'rgba(61, 153, 112, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.positive
+      valueColor = STATUS_COLORS.positive
+    } else if (teamsOverCount <= 3) {
+      cardBgColor = '#FFFBEB'
+      cardBorderColor = 'rgba(232, 168, 56, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.warning
+      valueColor = STATUS_COLORS.warning
+    } else {
+      cardBgColor = '#FEF2F2'
+      cardBorderColor = 'rgba(192, 57, 43, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.negative
+      valueColor = STATUS_COLORS.negative
+    }
+  }
+
+  // Cash Above Floor status-driven styling
+  if (id === 'cash-above-floor') {
+    // Parse the value to see if near floor
+    const floorValue = 50000 // Example threshold
+    const currentValue = parseFloat(mainValue.replace(/[$,]/g, '')) || 0
+    if (currentValue > 0 && currentValue < floorValue * 0.2) {
+      cardBgColor = '#FFFBEB'
+      cardBorderColor = 'rgba(232, 168, 56, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.warning
+    }
+  }
+
+  // New Supporters status-driven styling (top border based on MoM growth)
+  if (id === 'new-supporters' && cmp1) {
+    const isGrowth = cmp1.delta >= 0
+    cardBorderTopColor = isGrowth ? STATUS_COLORS.positive : STATUS_COLORS.negative
+  }
+
+  // Avg Gift Size status-driven styling (amber for downward trend)
+  if (id === 'avg-gift' && cmp1) {
+    const isTrendingDown = cmp1.delta < 0
+    if (isTrendingDown) {
+      cardBgColor = '#FFFBEB'
+      cardBorderColor = 'rgba(232, 168, 56, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.warning
+    }
   }
 
   return (
-    <div className="relative rounded-2xl p-5 bg-white border border-gray-100"
+    <div className={`relative rounded-xl ${padding} border`}
       style={{
-        boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
+        backgroundColor: cardBgColor,
+        borderColor: cardBorderColor,
+        borderLeftWidth: cardBorderLeftColor ? '4px' : '1px',
+        borderLeftColor: cardBorderLeftColor || cardBorderColor,
+        borderTopWidth: cardBorderTopColor ? '3px' : '1px',
+        borderTopColor: cardBorderTopColor || cardBorderColor,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)',
       }}>
       {editMode && (
         <button onClick={onRemove}
-          className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+          className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
           style={{backgroundColor:'#F3F4F6',color:'#9CA3AF'}}>
           <X size={11}/>
         </button>
       )}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1"
-        style={{color: 'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
-      <div className="text-3xl font-bold mb-3" style={{color: valueColor}}>{mainValue}</div>
+      <div className="flex items-start justify-between mb-2">
+        <div className="text-[11px] font-bold uppercase tracking-wider"
+          style={{color: '#6B7384'}}>{catalogDef?.label || id}</div>
+        {cardBadge && (
+          <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+            cardBadge === 'Surplus' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          }`}>
+            {cardBadge}
+          </span>
+        )}
+      </div>
+      <div className={`font-bold mb-3 ${fontSize}`} style={{color: valueColor}}>{mainValue}</div>
       {(cmp1 || cmp2) && (
         <div className="space-y-2.5">
           <CmpRow cmp={cmp1}/>
@@ -1018,18 +1115,23 @@ const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat,
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Budget Watch Areas</div>
       {alerts.length===0 && <div className="text-xs text-gray-400 text-center py-4">All categories under 80% of budget</div>}
-      {alerts.map(({cat,bud,actual,pct})=>(
-        <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${pct>=100?'bg-red-500':pct>=90?'bg-orange-400':'bg-amber-400'}`}/>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
-            <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
-              <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor:pct>=100?STATUS_COLORS.negative:pct>=90?'#F97316':STATUS_COLORS.warning}}/>
+      {alerts.map(({cat,bud,actual,pct})=>{
+        const barColor = pct > 100 ? STATUS_COLORS.negative : pct >= 80 ? STATUS_COLORS.warning : STATUS_COLORS.positive
+        const dotColor = pct > 100 ? STATUS_COLORS.negative : pct >= 80 ? STATUS_COLORS.warning : STATUS_COLORS.positive
+        const isBold = pct > 100
+        return (
+          <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor: dotColor}}/>
+            <div className="flex-1 min-w-0">
+              <div className={`text-xs font-medium text-gray-700 truncate ${isBold ? 'font-semibold' : ''}`}>{cat}</div>
+              <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor: barColor}}/>
+              </div>
             </div>
+            <div className="text-xs font-semibold flex-shrink-0" style={{color: barColor}}>{Math.round(pct)}%</div>
           </div>
-          <div className="text-xs font-semibold flex-shrink-0" style={{color:pct>=100?STATUS_COLORS.negative:pct>=90?'#F97316':STATUS_COLORS.warning}}>{Math.round(pct)}%</div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 })
@@ -1072,7 +1174,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
     if (consecutiveDecline >= 2) {
       alerts.push({
         id: 'new-declining',
-        color: 'amber',
+        color: STATUS_COLORS.warning,
         msg: `New patron acquisition declining — ${mLabel(declineMonths[0])} and ${mLabel(declineMonths[1])} both below prior month pace.`,
       })
     }
@@ -1089,7 +1191,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
         if (avg - curr > 3) {
           alerts.push({
             id: 'retention-drop',
-            color: 'amber',
+            color: STATUS_COLORS.negative,
             msg: `Retention rate dropped to ${curr.toFixed(1)}% — below ${avg.toFixed(1)}% trailing average.`,
           })
         }
@@ -1116,7 +1218,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
       const pri = giftMonths[0]?.avg_gift_size || 0
       alerts.push({
         id: 'gift-declining',
-        color: 'amber',
+        color: STATUS_COLORS.warning,
         msg: `Avg gift size trending down — ${fmtCompact(cur)} vs ${fmtCompact(pri)} prior month.`,
       })
     }
@@ -1134,7 +1236,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
         </div>
       ) : signals.map(s => (
         <div key={s.id} className="flex items-start gap-2.5 py-2 border-b border-gray-50 last:border-0">
-          <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 mt-1"/>
+          <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1" style={{backgroundColor: s.color}}/>
           <p className="text-xs text-gray-700 leading-relaxed">{s.msg}</p>
         </div>
       ))}
@@ -1173,11 +1275,20 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
   const tier3Ids = ['cash-position', 'cash-above-floor', 'teams-over-budget']
   const supporterIds = ['total-supporters', 'new-supporters', 'avg-gift']
 
+  // Section header component with divider
+  const SectionHeader = ({ label }) => (
+    <div className="flex items-center gap-3 mt-8 mb-4">
+      <h2 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">{label}</h2>
+      <div className="flex-1 h-px" style={{backgroundColor: 'rgba(0,0,0,0.08)'}}/>
+    </div>
+  )
+
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
+    <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'#F4F5F7'}}>
 
       {/* ── TIER 1: NET POSITION HERO ── */}
-      <section>
+      <section className="space-y-4">
+        <SectionHeader label="Financial Health"/>
         <div className="grid gap-4">
           {tier1Ids.map((id) => (
             <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
@@ -1186,7 +1297,8 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       </section>
 
       {/* ── TIER 2: DRIVERS (2 COLS) ── */}
-      <section>
+      <section className="space-y-4">
+        <SectionHeader label="Drivers"/>
         <div className="grid grid-cols-2 gap-4">
           {tier2Ids.map((id) => (
             <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
@@ -1195,7 +1307,8 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       </section>
 
       {/* ── TIER 3: SUPPORTING CONTEXT (3 COLS) ── */}
-      <section>
+      <section className="space-y-4">
+        <SectionHeader label="Supporting Context"/>
         <div className="grid grid-cols-3 gap-4">
           {tier3Ids.map((id) => (
             <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
@@ -1204,10 +1317,8 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       </section>
 
       {/* ── SUPPORTER HEALTH (3 COLS) — SEPARATE SECTION ── */}
-      <section>
-        <div className="mb-4">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Supporter Health</span>
-        </div>
+      <section className="space-y-4">
+        <SectionHeader label="Supporter Health"/>
         <div className="grid grid-cols-3 gap-4">
           {supporterIds.map((id) => (
             <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
@@ -1216,25 +1327,27 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       </section>
 
       {/* ── Charts Section ── */}
-      <section>
-        <div className="mb-4">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Charts</span>
-        </div>
+      <section className="space-y-4">
+        <SectionHeader label="Charts"/>
         {/* Chart 1: full-width spend vs planned */}
-        <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+        <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow: '0 1px 3px rgba(0,0,0,0.06)'}}>
+          <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+        </div>
         {/* Charts 2 & 3: side-by-side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-          <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
-          <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow: '0 1px 3px rgba(0,0,0,0.06)'}}>
+            <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow: '0 1px 3px rgba(0,0,0,0.06)'}}>
+            <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
+          </div>
         </div>
         {/* Team Spend chart moved to Teams tab */}
       </section>
 
       {/* ── Watch Areas Section ── */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Watch Areas</span>
-        </div>
+      <section className="space-y-4">
+        <SectionHeader label="Watch Areas"/>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-2xl">
           <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={false} onRemove={()=>{}}/>
           <PatronWatchAreaPanel patronData={patronData} dateRange={dateRange}/>
