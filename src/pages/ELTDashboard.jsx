@@ -4947,12 +4947,15 @@ function PeriodRangeSelect({ startPeriod, endPeriod, onChange }) {
 
 function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
   const tpl = IMPORT_TEMPLATES[typeKey]
+  const { comments, updateComment } = useApp()
   const [mode, setMode]               = useState('append') // 'append' | 'replace'
   const [replaceScope, setReplaceScope] = useState('all')   // 'all' | 'period'
   const [startPeriod, setStartPeriod] = useState('2026-01')
   const [endPeriod,   setEndPeriod]   = useState('2026-04')
   const [fileName,    setFileName]    = useState('')
   const [status,      setStatus]      = useState(null) // 'success' | null
+  const [showCommentWarning, setShowCommentWarning] = useState(false)
+  const [commentCounts, setCommentCounts]           = useState({ tx: 0, general: 0 })
   const fileRef = useRef(null)
 
   function handleFileChange(e) {
@@ -4962,8 +4965,59 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
     setStatus(null)
   }
 
+  function getAffectedComments() {
+    // Find comments that would be affected by this replace operation
+    const txComments = comments.filter(c => {
+      if (!c.anchor?.txRef) return false
+      if (mode !== 'replace') return false
+      if (replaceScope === 'all') return true
+      const txDate = c.anchor.txRef?.date || ''
+      const txPeriod = txDate.slice(0, 7)
+      return txPeriod >= startPeriod && txPeriod <= endPeriod
+    })
+    const generalComments = comments.filter(c => {
+      if (c.anchor?.txRef) return false
+      if (mode !== 'replace') return false
+      if (replaceScope === 'period') {
+        const ts = (c.timestamp || '').slice(0, 7)
+        return ts >= startPeriod && ts <= endPeriod
+      }
+      return false // general comments never affected by replace all
+    })
+    return { txComments, generalComments }
+  }
+
   function handleImport() {
     if (!fileName) return
+    if (mode === 'replace') {
+      const { txComments, generalComments } = getAffectedComments()
+      if (txComments.length > 0) {
+        setCommentCounts({ tx: txComments.length, general: generalComments.length })
+        setShowCommentWarning(true)
+        return
+      }
+    }
+    runImport()
+  }
+
+  function runImport() {
+    // Mark orphaned: any transaction-level comment that was at risk
+    if (mode === 'replace') {
+      const { txComments } = getAffectedComments()
+      txComments.forEach(c => {
+        // Attempt ID match: not possible in simulated import, so all become orphaned
+        updateComment(c.id, {
+          orphaned: true,
+          original_transaction_context: {
+            name:   c.anchor.txRef.vendor || c.anchor.txRef.department || '—',
+            amount: c.anchor.txRef.amount,
+            date:   c.anchor.txRef.date,
+            vendor: c.anchor.txRef.vendor,
+          },
+        })
+      })
+    }
+    setShowCommentWarning(false)
     // Simulated import — real backend would process the file
     setTimeout(() => setStatus('success'), 600)
   }
@@ -5085,6 +5139,42 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
           {mode === 'append' ? 'Append Data' : 'Replace Data'}
         </button>
       </div>
+
+      {/* Comment protection warning dialog */}
+      {showCommentWarning && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={20} className="text-amber-600"/>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Comments exist for this period</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Replacing data may orphan attached comments</p>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2 text-xs text-gray-600">
+              <p>You have <strong>{commentCounts.tx}</strong> comment{commentCounts.tx !== 1 ? 's' : ''} attached to transactions{commentCounts.general > 0 ? ` and ${commentCounts.general} general comment${commentCounts.general !== 1 ? 's' : ''}` : ''} in this date range.</p>
+              <ul className="space-y-1 mt-2">
+                <li className="flex items-start gap-2"><span className="text-gray-400 mt-0.5">·</span>Transaction comments will attempt to reattach to matching transactions in the new import.</li>
+                <li className="flex items-start gap-2"><span className="text-gray-400 mt-0.5">·</span>Comments that cannot be reattached will be preserved as orphaned with original context.</li>
+                <li className="flex items-start gap-2"><span className="text-gray-400 mt-0.5">·</span>General comments will not be affected.</li>
+              </ul>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={()=>setShowCommentWarning(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={runImport}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
+                style={{backgroundColor:'var(--color-primary)'}}>
+                Continue with Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

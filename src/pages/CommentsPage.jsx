@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react'
 import {
   Search, Plus, X, ChevronRight, Diamond,
-  MessageSquare, List, LayoutGrid,
+  MessageSquare, List, LayoutGrid, AlertCircle,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeamOptional } from '../context/TeamContext'
@@ -494,8 +494,11 @@ export default function CommentsPage({ context = 'admin' }) {
     setStatusFilters(prev => ({ ...prev, [s]: !prev[s] }))
   }
 
+  const orphaned = useMemo(() => comments.filter(c => c.orphaned), [comments])
+
   const filtered = useMemo(() => {
     return comments.filter(c => {
+      if (c.orphaned) return false // shown separately
       const status = getStatus(c)
       if (!statusFilters[status]) return false
       if (search && !c.text.toLowerCase().includes(search.toLowerCase()) && !c.author.toLowerCase().includes(search.toLowerCase())) return false
@@ -597,6 +600,40 @@ export default function CommentsPage({ context = 'admin' }) {
           Add Comment
         </button>
       </div>
+
+      {/* Orphaned Comments */}
+      {orphaned.length > 0 && (
+        <div className="flex-shrink-0">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle size={13} className="text-amber-500"/>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Orphaned Comments</span>
+            <div className="flex-1 h-px bg-amber-100"/>
+          </div>
+          <div className="space-y-2">
+            {orphaned.map(c => {
+              const ctx = c.original_transaction_context || {}
+              const sourceLabel = [c.source_dashboard, c.source_page].filter(Boolean).join(' · ')
+              return (
+                <div key={c.id} className="bg-amber-50 rounded-xl border border-amber-200 p-3 text-xs">
+                  <div className="flex items-start gap-2 mb-1">
+                    <AlertCircle size={11} className="text-amber-500 mt-0.5 flex-shrink-0"/>
+                    <div className="flex-1 min-w-0">
+                      {sourceLabel && <span className="text-[10px] text-amber-400 mr-2">{sourceLabel}</span>}
+                      {ctx.name && (
+                        <span className="font-medium text-amber-700">
+                          {ctx.name}{ctx.amount ? ` — ${formatCurrency(ctx.amount, {compact:true})}` : ''}
+                        </span>
+                      )}
+                      {ctx.date && <span className="text-amber-500 ml-2">{ctx.date} — transaction no longer exists</span>}
+                    </div>
+                  </div>
+                  <p className="text-gray-700 italic pl-4">"{c.text}"</p>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden min-h-0">
