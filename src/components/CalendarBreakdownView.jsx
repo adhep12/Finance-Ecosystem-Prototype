@@ -320,7 +320,7 @@ export default function CalendarBreakdownView({
   onHide,
 }) {
   // ── View mode: chart (default) vs table ──
-  const [chartMode,      setChartMode]      = useState('chart')
+  const [chartMode,      setChartMode]      = useState('table')
 
   // ── Chart state ──
   const [hoveredCat,     setHoveredCat]     = useState(null)
