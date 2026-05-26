@@ -39,9 +39,16 @@ import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 const DEPT_COLORS  = { '101':'#0EA5A0','102':'#C05A2F','103':'#E8A838' }
 // Colour rotation for team spend stacked bar
 const TEAM_PALETTE = ['#0EA5A0','#C05A2F','#E8A838','#4A2E5A','#6366F1','#10B981','#EC4899','#9BA8B5']
-const FIELD_COLORS = { department:'#0EA5A0', category:'#C05A2F', account:'#E8A838', grant:'#4A2E5A', vendor:'#9BA8B5' }
-const FIELD_LABELS = { department:'Department', category:'Category', account:'Account', grant:'Grant', vendor:'Vendor' }
-const ALL_DRILL_FIELDS = ['department','category','account','grant','vendor']
+const FIELD_COLORS = {
+  category:'#C05A2F', account:'#E8A838', team:'#0EA5A0', dept:'#6366F1', vendor:'#9BA8B5',
+  // legacy keys kept for backward compat with OverviewTab drill
+  department:'#0EA5A0', grant:'#4A2E5A',
+}
+const FIELD_LABELS = {
+  category:'Category', account:'Account', team:'Team', dept:'Department', vendor:'Vendor',
+  department:'Department', grant:'Grant',
+}
+const ALL_DRILL_FIELDS = ['category','account','team','dept','vendor']
 
 // ── Full 15-card Finance KPI catalog ─────────────────────────────────────────
 const FINANCE_KPI_CATALOG = [
@@ -1571,19 +1578,16 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const { deptNames, incomeMonths, orgConfig, comments } = useApp()
   const navigate = useNavigate()
 
-  // Drill order: category is always first (P&L rows are categories)
-  const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','grant','vendor'])
+  // Drill order: any of category/account/team/dept/vendor in any order
+  const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','vendor'])
   const [viewMode,   setViewMode]   = useState('summary')
   const [searchQ,    setSearchQ]    = useState('')
   const [deptFilter, setDeptFilter] = useState(null)  // null = all
   const [selectedTx, setSelectedTx] = useState(null)
 
-  // Expand state: Set of category values expanded in each section
-  const [expandedIncome,   setExpandedIncome]   = useState(new Set())
-  const [expandedExpenses, setExpandedExpenses] = useState(new Set())
-  // Sub-path state: {catValue: openPath[]} for drill within each expanded category
-  const [incSubPaths, setIncSubPaths] = useState({})
-  const [expSubPaths, setExpSubPaths] = useState({})
+  // Single open-path per section — same approach as team breakdown
+  const [incOpenPath, setIncOpenPath] = useState([])
+  const [expOpenPath, setExpOpenPath] = useState([])
 
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
@@ -1618,18 +1622,23 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     return deptFiltered.filter(t => [t.vendor, t.description, t.category, t.account, t.grant].some(v => v?.toLowerCase().includes(q)))
   }, [deptFiltered, searchQ])
 
+  // Enrich searched rows with team/dept aliases for drill-order grouping
+  const enrichedSearched = useMemo(() => searched.map(t => ({
+    ...t,
+    team: t.team_name || 'Unknown Team',
+    dept: deptNames[t.department] || t.department || 'Unknown Dept',
+  })), [searched, deptNames])
+
   // Split income vs expense (income amounts made positive)
-  const incomeActuals  = useMemo(() => searched.filter(t => t.record_type === 'income').map(t => ({ ...t, amount: Math.abs(t.amount||0) })), [searched])
-  const expenseActuals = useMemo(() => searched.filter(t => t.record_type !== 'income'), [searched])
+  const incomeActuals  = useMemo(() => enrichedSearched.filter(t => t.record_type === 'income').map(t => ({ ...t, amount: Math.abs(t.amount||0) })), [enrichedSearched])
+  const expenseActuals = useMemo(() => enrichedSearched.filter(t => t.record_type !== 'income'), [enrichedSearched])
 
   // Budget split — expense budget filtered by dept is irrelevant here (null = all depts)
   const expBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'), scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
   // Income budget: NEVER filter by department — income budget is org-wide (stored under dept 801)
   const incBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type==='income'),  scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
 
-  // Total income budget sum — used as fallback when budget rows lack a category field
-  // (income budget entries often have category=null because budget is entered per-account,
-  //  not per-category; calcBudgetByCategory skips null-category rows, so we need this sum)
+  // Total income budget sum — fallback when budget rows have category=null
   const totalIncBudgetRaw = useMemo(() => {
     const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
     return budgetFlat
@@ -1637,50 +1646,49 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
       .reduce((s,b) => s+(b.amount||0), 0)
   }, [budgetFlat, scenario, startDate, endDate])
 
-  // Category groups (for P&L rows at depth 0)
-  const incomeGroups = useMemo(() => {
-    const map = {}
+  // Resolve income budget — if category-level budget exists use it; otherwise distribute
+  // proportionally (budget rows often have category=null)
+  const resolvedIncBudgetByCat = useMemo(() => {
+    const total = Object.values(incBudgetByCat).reduce((s,v)=>s+v,0)
+    if (total > 0 || totalIncBudgetRaw === 0) return incBudgetByCat
+    // Proportional fallback — key by first-level drill field value
+    const totalAct = incomeActuals.reduce((s,t)=>s+t.amount,0)
+    if (totalAct === 0) return {}
+    // Group income actuals by first drill field to distribute budget proportionally
+    const field = drillOrder[0] || 'category'
+    const byField = {}
     for (const t of incomeActuals) {
-      const cat = t.category || 'Uncategorized'
-      if (!map[cat]) map[cat] = { actual: 0, items: [] }
-      map[cat].actual += (t.amount || 0)
-      map[cat].items.push(t)
+      const key = t[field] || 'Other'
+      byField[key] = (byField[key]||0) + t.amount
     }
-    const groups = Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual)
-      .map(([cat, d]) => ({ cat, ...d, budget: incBudgetByCat[cat] || 0 }))
-
-    // Fallback: if NO category-level income budget matched (all zero) but the org has
-    // income budget data, distribute it proportionally across categories by actual spend.
-    // This handles the common case where budget rows have category=null.
-    const catBudgetTotal = groups.reduce((s,g) => s+g.budget, 0)
-    if (catBudgetTotal === 0 && totalIncBudgetRaw > 0) {
-      const totalAct = groups.reduce((s,g) => s+g.actual, 0)
-      return groups.map(g => ({
-        ...g,
-        budget: totalAct > 0 ? (g.actual / totalAct) * totalIncBudgetRaw : 0,
-      }))
+    const result = {}
+    for (const [key, amt] of Object.entries(byField)) {
+      result[key] = (amt / totalAct) * totalIncBudgetRaw
     }
-    return groups
-  }, [incomeActuals, incBudgetByCat, totalIncBudgetRaw])
+    return result
+  }, [incBudgetByCat, totalIncBudgetRaw, incomeActuals, drillOrder])
 
-  const expenseGroups = useMemo(() => {
-    const map = {}
-    for (const t of expenseActuals) {
-      const cat = t.category || 'Uncategorized'
-      if (!map[cat]) map[cat] = { actual: 0, items: [] }
-      map[cat].actual += (t.amount || 0)
-      map[cat].items.push(t)
-    }
-    return Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual).map(([cat, d]) => ({ cat, ...d, budget: expBudgetByCat[cat] || 0 }))
-  }, [expenseActuals, expBudgetByCat])
+  // Visible rows for each P&L section — full drill order applied from depth 0
+  const incVisibleRows = useMemo(() =>
+    buildVisibleRows(incomeActuals, drillOrder, incOpenPath, resolvedIncBudgetByCat, null)
+  , [incomeActuals, drillOrder, incOpenPath, resolvedIncBudgetByCat])
 
-  // Totals
-  const totalIncActual   = useMemo(() => incomeGroups.reduce((s,g)=>s+g.actual,0), [incomeGroups])
-  const totalIncBudget   = useMemo(() => incomeGroups.reduce((s,g)=>s+g.budget,0), [incomeGroups])
-  const totalExpActual   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.actual,0), [expenseGroups])
-  const totalExpBudget   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.budget,0), [expenseGroups])
-  const netActual        = totalIncActual - totalExpActual
-  const netBudget        = totalIncBudget - totalExpBudget
+  const expVisibleRows = useMemo(() =>
+    buildVisibleRows(expenseActuals, drillOrder, expOpenPath, expBudgetByCat, null)
+  , [expenseActuals, drillOrder, expOpenPath, expBudgetByCat])
+
+  // Totals (derived from flat actuals, always accurate regardless of drill order)
+  const totalIncActual = useMemo(() => incomeActuals.reduce((s,t)=>s+(t.amount||0),0), [incomeActuals])
+  const totalIncBudget = useMemo(() => {
+    // Sum budget from top-level visible rows (covers all items)
+    const topRows = incVisibleRows.filter(r => r.depth === 0 && r.type === 'group')
+    const budgetTotal = topRows.reduce((s,r) => s+r.budget, 0)
+    return budgetTotal > 0 ? budgetTotal : totalIncBudgetRaw
+  }, [incVisibleRows, totalIncBudgetRaw])
+  const totalExpActual = useMemo(() => expenseActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0), [expenseActuals])
+  const totalExpBudget = useMemo(() => Object.values(expBudgetByCat).reduce((s,v)=>s+v,0), [expBudgetByCat])
+  const netActual      = totalIncActual - totalExpActual
+  const netBudget      = totalIncBudget - totalExpBudget
 
   // Unresolved rows — actuals with _warnings in range
   const unresolvedMap = useMemo(() => {
@@ -1706,44 +1714,12 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     return map
   }, [searched, budgetFlat, scenario, startDate, endDate])
 
-  // Sub-drill order (everything below category)
-  const subDrillOrder = useMemo(() => drillOrder.filter(f => f !== 'category'), [drillOrder])
-
-  // Expand / collapse all
-  function expandAll() {
-    setExpandedIncome(new Set(incomeGroups.map(g=>g.cat)))
-    setExpandedExpenses(new Set(expenseGroups.map(g=>g.cat)))
+  // Toggle row in income section — single open-path (same pattern as team breakdown)
+  function toggleInc(depth, value) {
+    setIncOpenPath(prev => prev[depth] === value ? prev.slice(0, depth) : [...prev.slice(0, depth), value])
   }
-  function collapseAll() {
-    setExpandedIncome(new Set()); setExpandedExpenses(new Set())
-    setIncSubPaths({}); setExpSubPaths({})
-  }
-  const anyExpanded = expandedIncome.size > 0 || expandedExpenses.size > 0
-
-  // Toggle category expand
-  function toggleIncCat(cat) {
-    setExpandedIncome(prev => { const n=new Set(prev); n.has(cat)?n.delete(cat):n.add(cat); return n })
-    setIncSubPaths(p => ({ ...p, [cat]: [] }))
-  }
-  function toggleExpCat(cat) {
-    setExpandedExpenses(prev => { const n=new Set(prev); n.has(cat)?n.delete(cat):n.add(cat); return n })
-    setExpSubPaths(p => ({ ...p, [cat]: [] }))
-  }
-
-  // Toggle sub-row within an expanded category
-  function toggleIncSub(cat, depth, value) {
-    setIncSubPaths(p => {
-      const prev = p[cat] || []
-      const next = prev[depth]===value ? prev.slice(0,depth) : [...prev.slice(0,depth), value]
-      return { ...p, [cat]: next }
-    })
-  }
-  function toggleExpSub(cat, depth, value) {
-    setExpSubPaths(p => {
-      const prev = p[cat] || []
-      const next = prev[depth]===value ? prev.slice(0,depth) : [...prev.slice(0,depth), value]
-      return { ...p, [cat]: next }
-    })
+  function toggleExp(depth, value) {
+    setExpOpenPath(prev => prev[depth] === value ? prev.slice(0, depth) : [...prev.slice(0, depth), value])
   }
 
   // Top vendors (for summary panel)
@@ -1756,28 +1732,73 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     return Object.entries(map).sort(([,a],[,b])=>b-a).slice(0,5).map(([vendor,amount])=>({ vendor, amount }))
   }, [expenseActuals])
 
-  // ── Row render helpers ──────────────────────────────────────────────────────
+  // ── Unified P&L row renderer ────────────────────────────────────────────────
+  // Handles both depth-0 (top-level) and deeper rows with the same component.
+  // isExpense flips variance color semantics (over budget = red for expenses,
+  // but for income over budget = green).
 
-  function PLCategoryRow({ cat, actual, budget, isExpense, isExpanded, totalInc, onToggle }) {
-    const variance = actual - budget
-    const pos = isExpense ? variance <= 0 : variance >= 0
-    const varColor = pos ? 'text-emerald-600' : 'text-red-600'
-    const pctInc = totalInc > 0 ? actual / totalInc * 100 : 0
+  function PLRow({ row, onToggle, isExpense }) {
+    if (row.type === 'transaction') {
+      const t = row.item
+      return (
+        <tr className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
+          onClick={() => setSelectedTx(t)}>
+          <td className="py-2" style={{ paddingLeft: 12 + row.depth * 20 }}>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-200 flex-shrink-0 pl-1">•</span>
+              <span className="text-xs text-gray-600 truncate max-w-[200px]">{t.vendor || '—'}</span>
+              {t.date && <span className="text-[10px] text-gray-300 flex-shrink-0">{t.date}</span>}
+            </div>
+          </td>
+          <td className="px-4 py-2 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(Math.abs(t.amount),{compact:false})}</td>
+          <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
+          <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
+          <td className="px-6 py-2 text-right text-xs text-gray-300">—</td>
+        </tr>
+      )
+    }
+
+    // Group row
+    const actual   = Math.abs(row.actual)
+    const budget   = row.budgetIsReal ? row.budget : 0
+    const variance = budget > 0 ? actual - budget : null
+    // Expense: positive variance = over budget (bad = red)
+    // Income:  negative variance = below target (bad = red)
+    const isBad    = variance !== null && (isExpense ? variance > 0 : variance < 0)
+    const varCls   = isBad ? 'text-red-600' : 'text-emerald-600'
+    const pctInc   = totalIncActual > 0 ? actual / totalIncActual * 100 : 0
+    const isTop    = row.depth === 0
+    const color    = FIELD_COLORS[row.field] || '#9BA8B5'
+
     return (
       <tr className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-        onClick={onToggle}>
-        <td className="px-4 py-2.5">
-          <div className="flex items-center gap-2" style={{ paddingLeft: 8 }}>
-            <span className={`flex-shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded?'rotate-90':''}`}>
-              <ChevronRight size={13}/>
+        onClick={() => onToggle(row.depth, row.value)}
+        style={{ opacity: row.isDimmed ? 0.35 : 1 }}>
+        <td className="py-2.5" style={{ paddingLeft: 12 + row.depth * 20 }}>
+          <div className="flex items-center gap-1.5">
+            <span className={`flex-shrink-0 transition-transform duration-150 ${row.isExpanded ? 'rotate-90' : ''} ${isTop ? 'text-gray-400' : 'text-gray-300'}`}>
+              <ChevronRight size={isTop ? 13 : 11}/>
             </span>
-            <span className="text-sm font-medium text-gray-800">{cat}</span>
+            {/* Field tag badge for non-top rows */}
+            {!isTop && (
+              <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{ backgroundColor: color+'20', color }}>
+                {FIELD_LABELS[row.field] || row.field}
+              </span>
+            )}
+            <span className={`truncate ${isTop ? 'text-sm font-medium text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
+              {row.value}
+            </span>
           </div>
         </td>
-        <td className="px-4 py-2.5 text-right tabular-nums text-sm font-semibold text-gray-800">{formatCurrency(actual,{compact:false})}</td>
-        <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">{budget>0?formatCurrency(budget,{compact:false}):'—'}</td>
-        <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${varColor}`}>
-          {budget>0 ? `${variance>=0?'+':''}${formatCurrency(variance,{compact:false})}` : '—'}
+        <td className={`px-4 py-2.5 text-right tabular-nums ${isTop ? 'text-sm font-semibold text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
+          {formatCurrency(actual, {compact:false})}
+        </td>
+        <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">
+          {budget > 0 ? formatCurrency(budget, {compact:false}) : <span className="text-gray-300">—</span>}
+        </td>
+        <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${variance !== null ? varCls : 'text-gray-300'}`}>
+          {variance !== null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, {compact:false})}` : '—'}
         </td>
         <td className="px-6 py-2.5 text-right tabular-nums text-xs">
           <div className="flex items-center justify-end gap-2">
@@ -1789,64 +1810,6 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         </td>
       </tr>
     )
-  }
-
-  function PLSubRows({ items, subDrillOrder, openPath, onToggle, totalInc, catBudget }) {
-    const subRows = useMemo(() =>
-      buildVisibleRows(items, subDrillOrder, openPath, {}, null, catBudget || 0)
-    , [items, subDrillOrder, openPath, catBudget])
-
-    return subRows.map((row, i) => {
-      if (row.type === 'transaction') {
-        const t = row.item
-        return (
-          <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-            onClick={() => setSelectedTx(t)}>
-            <td className="py-2" style={{ paddingLeft: 16 + row.depth*20 + 24 }}>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-200 flex-shrink-0">•</span>
-                <span className="text-xs text-gray-600 truncate max-w-[160px]">{t.vendor||'—'}</span>
-                {t.date && <span className="text-[10px] text-gray-300 flex-shrink-0">{t.date}</span>}
-              </div>
-            </td>
-            <td className="px-4 py-2 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(t.amount,{compact:false})}</td>
-            <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
-            <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
-            <td className="px-6 py-2 text-right text-xs text-gray-300">—</td>
-          </tr>
-        )
-      }
-      // Group row
-      const delta = row.budgetIsReal && row.budget > 0 ? row.actual - row.budget : null
-      return (
-        <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-          onClick={() => onToggle(row.depth, row.value)}
-          style={{ opacity: row.isDimmed ? 0.35 : 1 }}>
-          <td className="py-2.5" style={{ paddingLeft: 16 + row.depth*20 + 16 }}>
-            <div className="flex items-center gap-1.5">
-              <span className={`text-gray-300 flex-shrink-0 transition-transform duration-150 ${row.isExpanded?'rotate-90':''}`}>
-                <ChevronRight size={11}/>
-              </span>
-              <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
-                style={{ backgroundColor: FIELD_COLORS[row.field]+'20', color: FIELD_COLORS[row.field] }}>
-                {FIELD_LABELS[row.field]}
-              </span>
-              <span className="text-xs font-medium text-gray-700 truncate">{row.value}</span>
-            </div>
-          </td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(row.actual,{compact:false})}</td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">
-            {row.budgetIsReal && row.budget > 0 ? formatCurrency(row.budget,{compact:false}) : <span className="text-gray-300" title="Budget tracked at category and account level.">—</span>}
-          </td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">
-            {delta!==null ? `${delta>=0?'+':''}${formatCurrency(delta,{compact:false})}` : <span className="text-gray-300" title="Budget tracked at category and account level.">—</span>}
-          </td>
-          <td className="px-6 py-2.5 text-right text-xs text-gray-300">
-            {totalInc>0 ? `${(row.actual/totalInc*100).toFixed(1)}%` : '—'}
-          </td>
-        </tr>
-      )
-    })
   }
 
   function PLSectionRow({ label }) {
@@ -1896,11 +1859,11 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         <div className="w-px h-5 bg-gray-200 flex-shrink-0"/>
 
         {/* Drill order label */}
-        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex-shrink-0">Sub-drill</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex-shrink-0">Drill Order</span>
 
-        {/* Draggable pills (sub-levels only — Category is always fixed as P&L rows) */}
+        {/* Draggable pills — reorder to change top-level P&L grouping */}
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {subDrillOrder.map((field) => (
+          {drillOrder.map((field) => (
             <div key={field}
               draggable
               onDragStart={e => { e.dataTransfer.setData('text/plain', field); e.dataTransfer.effectAllowed = 'move' }}
@@ -1913,13 +1876,13 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                 const fi = next.indexOf(from), ti = next.indexOf(field)
                 if (fi < 0 || ti < 0) return
                 next.splice(fi, 1); next.splice(ti, 0, from)
-                setDrillOrder(next); setIncSubPaths({}); setExpSubPaths({})
+                setDrillOrder(next); setIncOpenPath([]); setExpOpenPath([])
               }}>
               <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
                 style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
                 <GripVertical size={10} className="opacity-60"/>
                 {FIELD_LABELS[field]}
-                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncSubPaths({}); setExpSubPaths({}) }}
+                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
                   className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
               </div>
             </div>
@@ -1932,14 +1895,14 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               </button>
               <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
                 {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
-                  <button key={f} onClick={()=>setDrillOrder([...drillOrder,f])} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                  <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
                     {FIELD_LABELS[f]}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <button onClick={()=>{ setDrillOrder(['category','account','grant','vendor']); setIncSubPaths({}); setExpSubPaths({}) }}
+          <button onClick={()=>{ setDrillOrder(['category','account','vendor']); setIncOpenPath([]); setExpOpenPath([]) }}
             className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><RotateCcw size={10}/>Reset</button>
         </div>
 
@@ -1976,57 +1939,29 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                   <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
                   <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Variance</th>
                   <th className="text-right px-6 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-32">
-                    <div className="flex items-center justify-end gap-2">
-                      <span>% of Income</span>
-                      <button onClick={anyExpanded?collapseAll:expandAll}
-                        className="text-teal-600 hover:text-teal-700 transition-colors flex items-center gap-0.5 font-medium normal-case tracking-normal text-xs">
-                        {anyExpanded?<><ChevronUp size={10}/> Collapse</>:<><ChevronDown size={10}/> Expand</>}
-                      </button>
-                    </div>
+                    <span>% of Income</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {/* ── INCOME ── */}
                 <PLSectionRow label="Income"/>
-                {incomeGroups.length===0 && (
+                {incVisibleRows.length === 0 && (
                   <tr><td colSpan={5} className="px-4 py-3 text-xs text-gray-300 italic">No income in range</td></tr>
                 )}
-                {incomeGroups.map(g => (
-                  <React.Fragment key={g.cat}>
-                    <PLCategoryRow cat={g.cat} actual={g.actual} budget={g.budget} isExpense={false}
-                      isExpanded={expandedIncome.has(g.cat)} totalInc={totalIncActual}
-                      onToggle={() => toggleIncCat(g.cat)}/>
-                    {expandedIncome.has(g.cat) && g.items.length > 0 && subDrillOrder.length > 0 && (
-                      <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
-                        openPath={incSubPaths[g.cat]||[]}
-                        onToggle={(d,v) => toggleIncSub(g.cat,d,v)}
-                        totalInc={totalIncActual}
-                        catBudget={g.budget}/>
-                    )}
-                  </React.Fragment>
+                {incVisibleRows.map((row, i) => (
+                  <PLRow key={i} row={row} onToggle={toggleInc} isExpense={false}/>
                 ))}
                 <PLTotalRow label="Total Income" actual={totalIncActual} budget={totalIncBudget}/>
                 <tr><td colSpan={5} className="py-1.5"/></tr>
 
                 {/* ── EXPENSES ── */}
                 <PLSectionRow label="Expenses"/>
-                {expenseGroups.length===0 && (
+                {expVisibleRows.length === 0 && (
                   <tr><td colSpan={5} className="px-4 py-3 text-xs text-gray-300 italic">No expenses in range</td></tr>
                 )}
-                {expenseGroups.map(g => (
-                  <React.Fragment key={g.cat}>
-                    <PLCategoryRow cat={g.cat} actual={g.actual} budget={g.budget} isExpense={true}
-                      isExpanded={expandedExpenses.has(g.cat)} totalInc={totalIncActual}
-                      onToggle={() => toggleExpCat(g.cat)}/>
-                    {expandedExpenses.has(g.cat) && g.items.length > 0 && subDrillOrder.length > 0 && (
-                      <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
-                        openPath={expSubPaths[g.cat]||[]}
-                        onToggle={(d,v) => toggleExpSub(g.cat,d,v)}
-                        totalInc={totalIncActual}
-                        catBudget={g.budget}/>
-                    )}
-                  </React.Fragment>
+                {expVisibleRows.map((row, i) => (
+                  <PLRow key={i} row={row} onToggle={toggleExp} isExpense={true}/>
                 ))}
                 <PLTotalRow label="Total Expenses" actual={totalExpActual} budget={totalExpBudget}/>
                 <tr><td colSpan={5} className="py-1.5"/></tr>
@@ -2124,16 +2059,16 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                 </div>
               )}
 
-              {/* Income categories */}
-              {incomeGroups.length > 0 && (
+              {/* Income breakdown (top-level groups only) */}
+              {incVisibleRows.filter(r => r.type === 'group' && r.depth === 0).length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Income Breakdown</p>
                   <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-1.5"
                     style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-                    {incomeGroups.slice(0,5).map(g=>(
-                      <div key={g.cat} className="flex justify-between text-xs">
-                        <span className="text-gray-500 truncate max-w-[100px]">{g.cat}</span>
-                        <span className="font-medium text-gray-700 tabular-nums">{formatCurrency(g.actual)}</span>
+                    {incVisibleRows.filter(r => r.type === 'group' && r.depth === 0).slice(0,5).map(g=>(
+                      <div key={g.value} className="flex justify-between text-xs">
+                        <span className="text-gray-500 truncate max-w-[100px]">{g.value}</span>
+                        <span className="font-medium text-gray-700 tabular-nums">{formatCurrency(Math.abs(g.actual))}</span>
                       </div>
                     ))}
                   </div>
