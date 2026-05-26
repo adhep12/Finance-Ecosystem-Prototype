@@ -2398,7 +2398,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
         update('monthlyActivity', parsed.monthly_activity || '')
       }
     } catch (err) {
-      setGenError(section, 'Generation failed — check your connection and try again')
+      setGenError(section, 'Summary generation failed — please try again')
       console.error('AI generation error:', err)
     } finally {
       setGen(section, false)
@@ -5395,6 +5395,23 @@ export default function ELTDashboard() {
   async function handleSaveSummary(month, summary) {
     const period = monthLabelToPeriod(month)
     if (!period || !ORG_ID) return { error: 'Missing org or period' }
+
+    // Fix 8: Only save if the summary has meaningful content.
+    // An empty row (both headline and narrative null/empty) is never written to DB.
+    const headline  = summary?.title         || ''
+    const narrative = summary?.overallSummary || ''
+    if (!headline.trim() && !narrative.trim()) {
+      return { error: 'Summary has no content — generate or write content before saving' }
+    }
+
+    // Fix 8: Clean up any existing empty ghost row for this period before upserting.
+    await supabase
+      .from('monthly_summaries')
+      .delete()
+      .eq('org_id', ORG_ID)
+      .eq('period', period)
+      .is('overall_headline', null)
+
     const payload = summaryToDBRow(ORG_ID, period, summary)
     const { data, error } = await supabase
       .from('monthly_summaries')
