@@ -10,7 +10,7 @@ import {
   FileText, Users, BarChart2, LayoutDashboard, Settings,
   GripVertical, AlertCircle, AlertTriangle, Eye, CheckCircle, Quote,
   ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen,
-  Download, Calendar, Trash2
+  Download, Calendar, Trash2, Save
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { supabase, ORG_ID } from '../lib/supabase'
@@ -656,7 +656,7 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="flex items-center h-12 px-6 gap-4">
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{backgroundColor:'var(--color-accent)'}}>
+          <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
             {orgConfig.logoInitial}
           </div>
           <span className="text-sm font-semibold text-gray-800">{orgConfig.name}</span>
@@ -2029,6 +2029,26 @@ Return as JSON: {"reserves": "..."}
 Return only the JSON object, no other text.`
   }
 
+  if (section === 'monthlyActivity') {
+    return `You are a financial writer for a nonprofit. Write 2-3 sentences describing what happened financially in ${monthStr} specifically — not year-to-date. Be specific with numbers. Plain language, no jargon.
+
+CURRENT MONTH DATA (${monthStr}):
+${currentMonthData}
+Total income this month: ${ctx.currentMonth.totalIncome}
+Total expenses this month: ${ctx.currentMonth.totalExpenses}
+Net this month: ${ctx.currentMonth.netActual}
+Income vs budget this month: actual ${ctx.currentMonth.totalIncome} vs budgeted ${ctx.currentMonth.totalIncBudget}
+Expenses vs budget this month: actual ${ctx.currentMonth.totalExpenses} vs budgeted ${ctx.currentMonth.totalExpBudget}
+
+ORG NAME: ${orgName}
+FISCAL YEAR POSITION: Month ${monthNum} of 12
+
+Cover: how giving/income came in vs budget, how expenses tracked, and what the net result was for the month.
+
+Return as JSON: {"monthly_activity": "..."}
+Return only the JSON object, no other text.`
+  }
+
   return ''
 }
 
@@ -2090,7 +2110,7 @@ function GenerateSkeleton() {
   )
 }
 
-function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig, actuals, budgetFlat, activeBudget }) {
+function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig, actuals, budgetFlat, activeBudget, savedPeriods = new Set(), onSave }) {
   // Months that have data
   const existingMonths = Object.keys(summaries).sort((a,b) => new Date('1 '+b)-new Date('1 '+a))
   const [currentMonth, setCurrentMonth] = useState(existingMonths[0] || ALL_MONTHS[0])
@@ -2105,10 +2125,40 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   const [genErrors, setGenErrors]   = useState({})        // { section: errorMessage }
   const [showGenAllConfirm, setShowGenAllConfirm] = useState(false)
 
+  // Save state
+  const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
+  const [saveBanner, setSaveBanner] = useState(null)   // { type: 'success'|'error', message: string }
+  const saveTimerRef  = useRef(null)
+  const bannerTimerRef = useRef(null)
+
   const summary = summaries[currentMonth]
   const noData  = !summary
 
-  function update(key, value) { onUpdateSummary(currentMonth, key, value) }
+  // ── Save helpers ────────────────────────────────────────────────────────────
+  async function doSave(monthKey, summaryData) {
+    if (!onSave || !summaryData) return
+    setSaveStatus('saving')
+    const { error } = await onSave(monthKey, summaryData)
+    if (error) {
+      setSaveStatus('error')
+      setSaveBanner({ type: 'error', message: 'Save failed — please try again' })
+    } else {
+      setSaveStatus('saved')
+      const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      setSaveBanner({ type: 'success', message: `Summary saved ✓  ${ts}` })
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current)
+      bannerTimerRef.current = setTimeout(() => { setSaveBanner(null); setSaveStatus('idle') }, 3000)
+    }
+  }
+
+  function update(key, value) {
+    onUpdateSummary(currentMonth, key, value)
+    // Auto-save: debounce 2.5s after last edit
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setSaveStatus('idle') // reset to show 'unsaved' would be possible, kept simple
+    const updated = { ...summary, [key]: value }
+    saveTimerRef.current = setTimeout(() => doSave(currentMonth, updated), 2500)
+  }
 
   function updateFinancials(cat, field, val) {
     const fin = { ...(summary?.financials || {}) }
@@ -2206,6 +2256,8 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
         update('watchAreas', was)
       } else if (section === 'reserves') {
         update('reserves', parsed.reserves || '')
+      } else if (section === 'monthlyActivity') {
+        update('monthlyActivity', parsed.monthly_activity || '')
       }
     } catch (err) {
       setGenError(section, 'Generation failed — check your connection and try again')
@@ -2217,43 +2269,69 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
   async function generateAll() {
     setShowGenAllConfirm(false)
-    const sections = ['overall', 'takeaways', 'watchAreas', 'reserves']
+    const sections = ['overall', 'monthlyActivity', 'takeaways', 'watchAreas', 'reserves']
     // Run all in parallel
     await Promise.all(sections.map(s => generateSection(s)))
   }
 
-  const fin = summary?.financials || {}
-  const netActual  = (fin.giving?.actual||0) - (fin.expenses?.actual||0)
-  const netBudget  = (fin.giving?.budget||0) - (fin.expenses?.budget||0)
-  const netPriorYr = (fin.giving?.priorYear||0) - (fin.expenses?.priorYear||0)
+  // ── FIX 1: Compute Fiscal YTD KPI data from live actuals/budget ──────────
+  const ytdKPI = useMemo(() => {
+    const period = monthLabelToPeriod(currentMonth)
+    if (!period || !actuals?.length) return { giving: {actual:0,budget:0,priorYear:0}, expenses: {actual:0,budget:0,priorYear:0} }
 
-  // Extract just the month name (e.g. "April 2026" → "April")
-  const monthLabel = currentMonth.split(' ')[0]
+    const [yr, mo] = period.split('-').map(Number)
+    const fyM   = orgConfig?.fiscalYearStartMonth || 10
+    const fyYr  = orgConfig?.fiscalYearStartYear  || yr
+    const fyStart = `${fyYr}-${String(fyM).padStart(2,'0')}`
+
+    // Fiscal YTD actuals
+    const ytdIncome   = (actuals||[]).filter(t => t.record_type === 'income'  && t.period >= fyStart && t.period <= period).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+    const ytdExpenses = (actuals||[]).filter(t => t.record_type === 'expense' && t.period >= fyStart && t.period <= period).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+
+    // Fiscal YTD budget
+    const ytdBudRows      = (budgetFlat||[]).filter(b => b.period >= fyStart && b.period <= period && (!activeBudget || b.scenario === activeBudget))
+    const ytdBudIncome    = ytdBudRows.filter(b => b.record_type === 'income' ).reduce((s,b) => s + Math.abs(b.amount||0), 0)
+    const ytdBudExpenses  = ytdBudRows.filter(b => b.record_type === 'expense').reduce((s,b) => s + Math.abs(b.amount||0), 0)
+
+    // Prior year same Fiscal YTD
+    const pyFyStart  = `${fyYr-1}-${String(fyM).padStart(2,'0')}`
+    const pyEnd      = `${yr-1}-${String(mo).padStart(2,'0')}`
+    const pyIncome   = (actuals||[]).filter(t => t.record_type === 'income'  && t.period >= pyFyStart && t.period <= pyEnd).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+    const pyExpenses = (actuals||[]).filter(t => t.record_type === 'expense' && t.period >= pyFyStart && t.period <= pyEnd).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+
+    return {
+      giving:   { actual: ytdIncome,   budget: ytdBudIncome,   priorYear: pyIncome   },
+      expenses: { actual: ytdExpenses, budget: ytdBudExpenses, priorYear: pyExpenses },
+    }
+  }, [currentMonth, actuals, budgetFlat, activeBudget, orgConfig])
 
   function renderMonthlyKPICard(cardId) {
     const remove = () => update('kpiCards', (summary.kpiCards||[]).filter(c=>c!==cardId))
     if (cardId === 'monthly-giving') {
-      return <MonthlyKPICard key={cardId} title={`Total Giving — ${monthLabel}`}
-        actual={fin.giving?.actual||0} budget={fin.giving?.budget||0} priorYear={fin.giving?.priorYear||0}
-        editMode={editMode} onEdit={(f,v)=>updateFinancials('giving',f,v)} onRemove={remove}/>
+      return <MonthlyKPICard key={cardId} title="Total Giving — Fiscal YTD"
+        actual={ytdKPI.giving.actual} budget={ytdKPI.giving.budget} priorYear={ytdKPI.giving.priorYear}
+        editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-expenses') {
-      return <MonthlyKPICard key={cardId} title={`Expenses — ${monthLabel}`} inverse
-        actual={fin.expenses?.actual||0} budget={fin.expenses?.budget||0} priorYear={fin.expenses?.priorYear||0}
-        editMode={editMode} onEdit={(f,v)=>updateFinancials('expenses',f,v)} onRemove={remove}/>
+      return <MonthlyKPICard key={cardId} title="Expenses — Fiscal YTD" inverse
+        actual={ytdKPI.expenses.actual} budget={ytdKPI.expenses.budget} priorYear={ytdKPI.expenses.priorYear}
+        editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-net') {
-      return <MonthlyKPICard key={cardId} title={`Net Position — ${monthLabel}`}
-        actual={netActual} budget={netBudget} priorYear={netPriorYr}
-        editMode={editMode} onEdit={()=>{}} onRemove={remove}/>
+      const netA = ytdKPI.giving.actual   - ytdKPI.expenses.actual
+      const netB = ytdKPI.giving.budget   - ytdKPI.expenses.budget
+      const netP = ytdKPI.giving.priorYear - ytdKPI.expenses.priorYear
+      return <MonthlyKPICard key={cardId} title="Net Position — Fiscal YTD"
+        actual={netA} budget={netB} priorYear={netP}
+        editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-cash') {
-      return <MonthlyKPICard key={cardId} title={`Month-End Cash — ${monthLabel}`}
+      return <MonthlyKPICard key={cardId} title="Month-End Cash"
         actual={summary.cash?.actual||0} budget={summary.cash?.budget||0} priorYear={summary.cash?.priorYear||0}
         editMode={editMode} onEdit={(f,v)=>{const c={...(summary.cash||{}),[f]:v};update('cash',c)}} onRemove={remove}/>
     }
     if (cardId === 'monthly-supporters') {
-      return <MonthlyKPICard key={cardId} title={`Active Supporters — ${monthLabel}`}
+      return <MonthlyKPICard key={cardId} title="Active Supporters"
         actual={summary.supporters?.actual||0} budget={summary.supporters?.budget||0} priorYear={summary.supporters?.priorYear||0}
         editMode={editMode} onEdit={(f,v)=>{const s={...(summary.supporters||{}),[f]:v};update('supporters',s)}} onRemove={remove}/>
     }
@@ -2271,13 +2349,24 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
     <div className="min-h-screen" style={{backgroundColor:'var(--color-primary-bg)'}}>
       <div className="max-w-3xl mx-auto px-6 py-8 pb-16">
 
+        {/* ── Save banner ── */}
+        {saveBanner && (
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 ${
+            saveBanner.type === 'success'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-red-600 text-white'
+          }`}>
+            {saveBanner.message}
+          </div>
+        )}
+
         {/* ── Document header: icon + title + inline month selector + action buttons ── */}
         <div className="flex items-start justify-between gap-4 mb-8">
           {/* Left: icon + label + month dropdown + prepared date */}
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
-                 style={{backgroundColor:'var(--color-accent-light)'}}>
-              <FileText size={18} style={{color:'var(--neutral-60)'}}/>
+                 style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
+              <FileText size={18} className="text-white"/>
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5"
@@ -2291,7 +2380,11 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                     onChange={e => setCurrentMonth(e.target.value)}
                     className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer py-0 pl-0 pr-6"
                     style={{backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`, backgroundRepeat:'no-repeat', backgroundPosition:'right 2px center', appearance:'none', WebkitAppearance:'none'}}>
-                    {existingMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                    {existingMonths.map(m => {
+                      const p = monthLabelToPeriod(m)
+                      const isSaved = p && savedPeriods.has(p)
+                      return <option key={m} value={m}>{isSaved ? `✓ ${m}` : m}</option>
+                    })}
                   </select>
                 ) : (
                   <span className="text-xl font-bold text-gray-900">{currentMonth}</span>
@@ -2325,6 +2418,19 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                   ✦ Generate All
                 </button>
               )
+            )}
+            {summary && (
+              <button
+                onClick={() => doSave(currentMonth, summary)}
+                disabled={saveStatus === 'saving'}
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap transition-all disabled:opacity-60"
+                style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
+                {saveStatus === 'saving' ? (
+                  <><div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin"/> Saving…</>
+                ) : (
+                  <><Save size={11}/> Save Summary</>
+                )}
+              </button>
             )}
             <button onClick={() => setShowAddMonth(true)}
               className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap"
@@ -2395,6 +2501,27 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
             <EditableArea value={summary.monthlyNarrative} onChange={v=>update('monthlyNarrative',v)} editMode={editMode}
               className="text-sm text-gray-600 leading-relaxed" rows={6} placeholder="Describe what happened this month, why, and whether you're on track..."/>
           </div>
+          <div className="my-8 border-t border-gray-200"/>
+
+          {/* ── MONTHLY ACTIVITY ── */}
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>
+              Monthly Activity — {currentMonth}
+            </span>
+            <div className="flex-1 mx-4 border-t border-gray-200"/>
+            <GenerateButton
+              hasContent={!!summary.monthlyActivity}
+              loading={generating.has('monthlyActivity')}
+              error={genErrors.monthlyActivity}
+              onGenerate={() => generateSection('monthlyActivity')}/>
+          </div>
+          {generating.has('monthlyActivity') ? (
+            <GenerateSkeleton/>
+          ) : (
+            <EditableArea value={summary.monthlyActivity} onChange={v=>update('monthlyActivity',v)} editMode={editMode}
+              className="text-sm text-gray-600 leading-relaxed" rows={3}
+              placeholder="What happened financially this month — income vs budget, expense trends, and net result..."/>
+          )}
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── KEY TAKEAWAYS ── */}
@@ -2819,7 +2946,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1"
              style={{color:'var(--neutral-60)'}}>
-            Financial Summary
+            Dashboard
           </p>
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-2xl font-bold tracking-tight text-gray-900">{currentMonthDisplay}</span>
@@ -4781,11 +4908,59 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
 // Shared empty summary template
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DB helpers for monthly_summaries table
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** "April 2026" → "2026-04" (reuse monthLabelToPeriod defined above) */
+
+/** "2026-04" → "April 2026" */
+function periodToMonthLabel(period) {
+  if (!period) return null
+  const [y, m] = period.split('-')
+  const d = new Date(parseInt(y), parseInt(m) - 1, 1)
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+}
+
+/** Map a summary object → DB row payload */
+function summaryToDBRow(orgId, period, summary) {
+  return {
+    org_id:            orgId,
+    period,
+    overall_headline:  summary.title            || '',
+    overall_narrative: summary.overallSummary   || '',
+    monthly_activity:  summary.monthlyActivity  || '',
+    takeaways:         summary.keyTakeaways     || [],
+    watch_areas:       summary.watchAreas       || [],
+    reserves:          summary.reserves         || '',
+    reserves_note:     summary.reservesNote     || '',
+    saved_at:          new Date().toISOString(),
+    saved_by:          'system',
+  }
+}
+
+/** Map a DB row → summary object shape */
+function dbRowToSummary(row) {
+  return {
+    title:           row.overall_headline  || '',
+    overallSummary:  row.overall_narrative || '',
+    monthlyActivity: row.monthly_activity  || '',
+    keyTakeaways:    row.takeaways         || [],
+    watchAreas:      row.watch_areas       || [],
+    reserves:        row.reserves          || '',
+    reservesNote:    row.reserves_note     || '',
+    prepared:        row.saved_at
+      ? new Date(row.saved_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+      : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
+  }
+}
+
 const EMPTY_SUMMARY_TEMPLATE = () => ({
   prepared: new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
   title: '',
   overallSummary: '',
   monthlyNarrative: '',
+  monthlyActivity: '',
   financials: {
     giving:   {actual:0,budget:0,priorYear:0},
     expenses: {actual:0,budget:0,priorYear:0},
@@ -4821,6 +4996,32 @@ export default function ELTDashboard() {
 
   // Monthly summaries — lifted to root so Import and Summary tabs share data
   const [summaries, setSummaries] = useState(INITIAL_SUMMARIES)
+  // Set of YYYY-MM strings for months that have a saved DB record
+  const [savedPeriods, setSavedPeriods] = useState(new Set())
+
+  // Load all saved summaries from DB when org data is available
+  useEffect(() => {
+    if (!ORG_ID) return
+    async function loadSavedSummaries() {
+      const { data } = await supabase
+        .from('monthly_summaries')
+        .select('*')
+        .eq('org_id', ORG_ID)
+        .eq('deleted', false)
+      if (!data || data.length === 0) return
+      setSavedPeriods(new Set(data.map(r => r.period)))
+      setSummaries(prev => {
+        const next = { ...prev }
+        for (const row of data) {
+          const label = periodToMonthLabel(row.period)
+          if (!label) continue
+          next[label] = { ...EMPTY_SUMMARY_TEMPLATE(), ...next[label], ...dbRowToSummary(row) }
+        }
+        return next
+      })
+    }
+    loadSavedSummaries()
+  }, [orgConfig.name]) // re-run when org loads (name changes from default)
 
   function applyPreset(preset) { setDateRange({preset,...getELTPresetRange(preset,orgConfig)}) }
   function applyCustom(s,e)    { setDateRange({preset:'custom',startDate:s,endDate:e}) }
@@ -4832,6 +5033,21 @@ export default function ELTDashboard() {
     setSummaries(prev => ({ ...prev, [month]: { ...EMPTY_SUMMARY_TEMPLATE(), ...prev[month] } }))
   }
 
+  async function handleSaveSummary(month, summary) {
+    const period = monthLabelToPeriod(month)
+    if (!period || !ORG_ID) return { error: 'Missing org or period' }
+    const payload = summaryToDBRow(ORG_ID, period, summary)
+    const { data, error } = await supabase
+      .from('monthly_summaries')
+      .upsert(payload, { onConflict: 'org_id,period' })
+      .select()
+      .single()
+    if (!error) {
+      setSavedPeriods(prev => new Set([...prev, period]))
+    }
+    return { data, error }
+  }
+
   return (
     <div className="min-h-screen flex flex-col" style={{backgroundColor:'var(--color-primary-bg)'}}>
       <ELTNav orgConfig={orgConfig} activeTab={activeTab} setActiveTab={setActiveTab}
@@ -4839,7 +5055,7 @@ export default function ELTDashboard() {
         activeBudget={activeBudget} onSetBudget={setActiveBudget}/>
       <main className="flex-1 overflow-auto">
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
-        {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} orgConfig={orgConfig} actuals={actuals} budgetFlat={budgetFlat} activeBudget={activeBudget}/>}
+        {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} orgConfig={orgConfig} actuals={actuals} budgetFlat={budgetFlat} activeBudget={activeBudget} savedPeriods={savedPeriods} onSave={handleSaveSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
         {activeTab==='comments'  && <CommentsPage context="executive" />}
