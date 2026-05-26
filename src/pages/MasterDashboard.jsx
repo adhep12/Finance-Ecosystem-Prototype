@@ -6,13 +6,13 @@ import {
   ReferenceLine, Cell,
 } from 'recharts'
 import {
-  TrendingUp, TrendingDown, DollarSign, AlertTriangle, Minus,
+  AlertTriangle,
   ChevronDown, ChevronRight, ChevronLeft,
-  Plus, X, Edit2, Trash2,
-  BarChart2, Activity, Filter, Search, Check, Settings,
-  Building2, Calendar, Download, GripVertical, RotateCcw,
-  Ban, Eye, EyeOff, ArrowUp, ArrowDown, CheckSquare, Square,
-  Layers, FileText, Clock, ChevronUp, ArrowUpDown, ExternalLink,
+  Plus, X, Edit2,
+  Filter, Search, Check, Settings,
+  Building2, Calendar, GripVertical, RotateCcw,
+  Ban, ArrowUp, ArrowDown, CheckSquare, Square,
+  ArrowUpDown,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'

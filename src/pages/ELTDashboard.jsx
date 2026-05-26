@@ -5,11 +5,11 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
 } from 'recharts'
 import {
-  ChevronDown, Pencil, Plus, X, Check, ChevronRight, ChevronLeft,
+  ChevronDown, Pencil, Plus, X, Check, ChevronRight,
   ChevronUp, TrendingUp, TrendingDown, Minus, Info, Upload,
-  FileText, Users, BarChart2, LayoutDashboard, Settings,
-  GripVertical, AlertCircle, AlertTriangle, Eye, CheckCircle, Quote,
-  ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen,
+  FileText, Users, BarChart2, LayoutDashboard,
+  AlertCircle, CheckCircle,
+  ArrowUpDown, ExternalLink, SlidersHorizontal, BookOpen,
   Download, Calendar, Trash2, Save
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -2099,9 +2099,13 @@ Return only the JSON object, no other text.`
 
 /** Call the generate-summary edge function */
 async function callGenerateAPI(prompt) {
-  const { data, error } = await supabase.functions.invoke('generate-summary', {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Generation timed out — please try again')), 30000)
+  )
+  const invoke = supabase.functions.invoke('generate-summary', {
     body: { prompt, max_tokens: 1000 },
   })
+  const { data, error } = await Promise.race([invoke, timeout])
   if (error) throw new Error(error.message || 'Edge function error')
   if (!data?.content) throw new Error('Empty response from AI')
   return data.content
@@ -2829,10 +2833,13 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   const [cashData,   setCashData]   = useState([])
   const [patronData, setPatronData] = useState([])
   useEffect(() => {
-    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
-      .then(({ data }) => setCashData(data || []))
-    supabase.from('v_patron_trends').select('*').eq('org_id', ORG_ID)
-      .then(({ data }) => setPatronData(data || []))
+    Promise.all([
+      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
+      supabase.from('v_patron_trends').select('*').eq('org_id', ORG_ID),
+    ]).then(([{ data: cash }, { data: patron }]) => {
+      setCashData(cash || [])
+      setPatronData(patron || [])
+    })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const d = filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData)

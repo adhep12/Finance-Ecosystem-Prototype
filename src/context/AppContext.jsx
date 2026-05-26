@@ -99,6 +99,7 @@ export function AppProvider({ children }) {
   const [actuals,    setActuals]    = useState([])
   const [budgetFlat, setBudgetFlat] = useState([])
   const [orgSummary, setOrgSummary] = useState([])   // v_org_summary: actual+budget by category+period+scenario
+  const [teams,      setTeams]      = useState([])   // raw teams array for sidebar + import flows
   const [comments,   setComments]   = useState([])
 
   // Undo history
@@ -229,6 +230,9 @@ export function AppProvider({ children }) {
       for (const a of (acctLookup || [])) acctMap[a.id] = a
       const teamMap = {}  // team uuid → team_name
       for (const t of (teamLookup || [])) teamMap[t.id] = t.team_name
+
+      // Expose raw teams array so components (Sidebar, import flows) don't re-fetch
+      setTeams(teamLookup || [])
 
       // Now paginate transactions — lookup maps already built, pass them to mapActuals
       // so _warnings flags are set on the first render (no second pass needed).
@@ -604,6 +608,7 @@ export function AppProvider({ children }) {
     actuals, importActuals,
     budgetFlat, importBudget,
     orgSummary,   // v_org_summary: pre-aggregated actual+budget by category+period+scenario
+    teams,        // raw teams array — fetched once on boot, avoids duplicate fetches
     // Scenario + date range
     availableScenarios,
     selectedScenario, setSelectedScenario,
