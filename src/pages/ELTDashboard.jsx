@@ -2179,31 +2179,38 @@ function GenerateSkeleton() {
 }
 
 function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig, actuals, budgetFlat, activeBudget, savedPeriods = new Set(), onSave }) {
-  // Derive available months from actuals data (union with any saved summaries), newest first
-  const availableMonths = useMemo(() => {
+
+  // BEHAVIOR 1: Exec dropdown — only months with a saved DB record, newest first
+  const savedMonths = useMemo(() => {
+    return [...savedPeriods]
+      .map(p => periodToMonthLabel(p))
+      .filter(Boolean)
+      .sort((a, b) => new Date('1 ' + b) - new Date('1 ' + a))
+  }, [savedPeriods])
+
+  // BEHAVIOR 2: New Month picker — all months that have actuals data, newest first
+  const allDataMonths = useMemo(() => {
     const monthSet = new Set()
-    // Add months that have actual transaction data
     ;(actuals || []).forEach(t => {
       if (t.period) {
         const label = periodToMonthLabel(t.period)
         if (label) monthSet.add(label)
       }
     })
-    // Also include months that have saved summaries (even if no raw actuals)
-    Object.keys(summaries).forEach(m => monthSet.add(m))
-    // Sort newest first
+    // Also include already-saved months (in case actuals were removed)
+    savedMonths.forEach(m => monthSet.add(m))
     return [...monthSet].sort((a, b) => new Date('1 ' + b) - new Date('1 ' + a))
-  }, [actuals, summaries])
+  }, [actuals, savedMonths])
 
-  const [currentMonth, setCurrentMonth] = useState(() => availableMonths[0] || ALL_MONTHS[0])
+  const [currentMonth, setCurrentMonth] = useState(() => savedMonths[0] || ALL_MONTHS[0])
 
-  // When actuals finish loading, jump to the most recent month with data
-  // (only if the current selection isn't already in the available list)
+  // When DB loads and savedMonths populates, jump to the most recent saved month
+  // (only if current selection has no actuals data — i.e., it's still the init default)
   useEffect(() => {
-    if (availableMonths.length > 0 && !availableMonths.includes(currentMonth)) {
-      setCurrentMonth(availableMonths[0])
+    if (savedMonths.length > 0 && !allDataMonths.includes(currentMonth)) {
+      setCurrentMonth(savedMonths[0])
     }
-  }, [availableMonths]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [savedMonths]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-initialize an empty summary entry when the user switches to a month
   // that has no saved narrative yet — so KPI cards and Generate buttons work immediately
@@ -2216,7 +2223,6 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   const [editMode, setEditMode] = useState(false)
   const [showAddMonth, setShowAddMonth] = useState(false)
   const [showAddKPI, setShowAddKPI] = useState(false)
-  const [newMonthSel, setNewMonthSel] = useState(ALL_MONTHS[0])
   const [manualCards, setManualCards] = useState({})
 
   // Cash flow data for Reserves AI section
@@ -2305,13 +2311,6 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
   function removeWatchArea(idx) {
     update('watchAreas', summary.watchAreas.filter((_,i)=>i!==idx))
-  }
-
-  function handleCreateMonth() {
-    onAddSummary(newMonthSel)
-    setCurrentMonth(newMonthSel)
-    setShowAddMonth(false)
-    setEditMode(true)
   }
 
   // ── AI generation ──────────────────────────────────────────────────────────
@@ -2481,22 +2480,29 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                 Financial Summary
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                {availableMonths.length > 0 ? (
+                {savedMonths.length === 0 ? (
+                  /* No saved summaries yet */
+                  <span className="text-sm text-gray-400 italic">No summaries yet — click "+ New Month" to create one</span>
+                ) : savedMonths.includes(currentMonth) ? (
+                  /* Exec read-only dropdown: only shows saved/completed months */
                   <select
                     value={currentMonth}
                     onChange={e => setCurrentMonth(e.target.value)}
                     className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer py-0 pl-0 pr-6"
                     style={{backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`, backgroundRepeat:'no-repeat', backgroundPosition:'right 2px center', appearance:'none', WebkitAppearance:'none'}}>
-                    {availableMonths.map(m => {
-                      const p = monthLabelToPeriod(m)
-                      const isSaved = p && savedPeriods.has(p)
-                      return <option key={m} value={m}>{isSaved ? `✓ ${m}` : m}</option>
-                    })}
+                    {savedMonths.map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
                 ) : (
-                  <span className="text-xl font-bold text-gray-900">{currentMonth}</span>
+                  /* Creator is editing an unsaved/new month */
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-bold text-gray-900">{currentMonth}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border"
+                      style={{color:'var(--color-primary)', borderColor:'var(--color-primary)', opacity:0.7}}>
+                      Draft
+                    </span>
+                  </div>
                 )}
-                {summary && (
+                {summary?.prepared && savedMonths.includes(currentMonth) && (
                   <>
                     <span className="text-gray-300 text-sm">·</span>
                     <span className="text-xs text-gray-400">Prepared {summary.prepared}</span>
@@ -2765,7 +2771,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           {/* ── FOOTER ── */}
           <div className="mt-12 pt-6 border-t border-gray-200 flex items-center justify-between text-xs text-gray-400">
             <span>Prepared by the Finance Team · {summary?.prepared}</span>
-            {availableMonths[1] && <span>Next summary · {availableMonths[0]}</span>}
+            {savedMonths[1] && <span>Prev summary · {savedMonths[savedMonths.indexOf(currentMonth) + 1] || savedMonths[savedMonths.length - 1]}</span>}
           </div>
         </>
 
@@ -2792,18 +2798,63 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
         </div>
       )}
 
-      {/* Add Month Modal */}
+      {/* New Month Picker — shows all months with transaction data */}
       {showAddMonth && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-80 p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Create Summary for Month</h3>
-            <select value={newMonthSel} onChange={e=>setNewMonthSel(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 mb-4">
-              {ALL_MONTHS.filter(m=>!summaries[m]).map(m=><option key={m} value={m}>{m}</option>)}
-            </select>
-            <div className="flex gap-2">
-              <button onClick={()=>setShowAddMonth(false)} className="flex-1 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
-              <button onClick={handleCreateMonth} className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors" style={{backgroundColor:'var(--color-primary)'}}>Create</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+          onClick={() => setShowAddMonth(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-88 flex flex-col"
+            style={{maxHeight:'70vh', width:360}}
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Select Month</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">All months with transaction data · ✓ = summary saved</p>
+              </div>
+              <button onClick={() => setShowAddMonth(false)}
+                className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <X size={14}/>
+              </button>
+            </div>
+            {/* Month list */}
+            <div className="flex-1 overflow-y-auto p-2">
+              {allDataMonths.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-10">
+                  No transaction data found.<br/>Import transactions to get started.
+                </p>
+              ) : (
+                allDataMonths.map(m => {
+                  const p  = monthLabelToPeriod(m)
+                  const isSaved   = p && savedPeriods.has(p)
+                  const isCurrent = m === currentMonth
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => {
+                        setCurrentMonth(m)
+                        setShowAddMonth(false)
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-colors text-left ${
+                        isCurrent
+                          ? 'text-white'
+                          : 'hover:bg-gray-50 text-gray-900'
+                      }`}
+                      style={isCurrent ? {backgroundColor:'var(--color-primary)'} : {}}>
+                      <span className="text-sm font-medium">{m}</span>
+                      {isSaved && !isCurrent && (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
+                          <Check size={11}/> Saved
+                        </span>
+                      )}
+                      {isSaved && isCurrent && (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-white opacity-80">
+                          <Check size={11}/> Saved
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
