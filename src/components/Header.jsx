@@ -115,7 +115,7 @@ function DateRangePicker({ onClose }) {
         <button
           onClick={handleApply}
           className="px-4 py-1.5 rounded-lg text-sm font-medium text-white transition-colors"
-          style={{ backgroundColor: 'var(--color-accent)' }}
+          style={{ backgroundColor: 'var(--color-primary)' }}
         >
           Apply
         </button>
@@ -190,7 +190,7 @@ export default function Header() {
         <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
           <div
             className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{ backgroundColor: orgConfig.accentColor || 'var(--color-accent)' }}
+            style={{ backgroundColor: orgConfig.primaryColor || 'var(--color-primary)' }}
           >
             {orgConfig.logoInitial}
           </div>

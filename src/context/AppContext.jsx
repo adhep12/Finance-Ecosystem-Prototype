@@ -99,6 +99,7 @@ export function AppProvider({ children }) {
   const [actuals,    setActuals]    = useState([])
   const [budgetFlat, setBudgetFlat] = useState([])
   const [orgSummary, setOrgSummary] = useState([])   // v_org_summary: actual+budget by category+period+scenario
+  const [teams,      setTeams]      = useState([])   // raw teams array for sidebar + import flows
   const [comments,   setComments]   = useState([])
 
   // Undo history
@@ -182,42 +183,22 @@ export function AppProvider({ children }) {
         operatingYearStartMonth: oyM,
         operatingYearStartYear:  oyYear,
         reserveFloor:            settingsRow.reserve_floor ?? 0,
+        materialityThreshold:    settingsRow.materiality_threshold ?? 0.10,
       })
 
-      // ── Phase 2: fetch actuals + org summary with the real org_id ─────────
-      // v_transactions_enriched can have 10k+ rows. Supabase PostgREST's
-      // default max_rows setting (~1000) silently truncates the result set,
-      // returning only the oldest rows — all outside the fiscal YTD window.
-      // Paginate with .range() until we have every row.
+      // ── Phase 2: fetch actuals + lookup tables in parallel ───────────────────
+      // Lookup tables (departments, chart_of_accounts, teams) are small and fast.
+      // We fetch them alongside the transaction count query so they're ready when
+      // we start paginating transactions. This lets us enrich actuals with
+      // _warnings flags (unresolved accounts / depts / teams) on the first pass,
+      // without a second render cycle.
       const PAGE_SIZE = 1000
-      let txRows = []
-      let page = 0
-      while (true) {
-        const { data: pageData, error: pageErr } = await supabase
-          .from('v_transactions_enriched')
-          .select('*')
-          .eq('org_id', resolvedOrgId)
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-        if (pageErr) throw pageErr
-        txRows = [...txRows, ...(pageData || [])]
-        if (!pageData || pageData.length < PAGE_SIZE) break
-        page++
-      }
-
-      // Set actuals FIRST — dashboards can render even if budget queries are slow
-      setActuals(mapActuals(txRows))
-
-      // ── Budget: bypass the slow v_actuals_vs_budget view ────────────────────
-      // That view JOINs multiple tables on every row and times out after ~5 sec
-      // (returns only 5000/16000 rows).  Instead:
-      //   1. Load departments + chart_of_accounts as small lookup tables (fast)
-      //   2. Query the budgets base table directly with pagination
-      //   3. Resolve dept_code / record_type in JS using the lookup maps
 
       const [
         { data: deptLookup,  error: deptLookupErr  },
         { data: acctLookup,  error: acctLookupErr  },
         { data: teamLookup,  error: teamLookupErr  },
+        { count: txCount },
       ] = await Promise.all([
         // departments: no org_id filter — some rows may lack org_id (created
         // via setup before org_id was enforced). TeamContext uses the same
@@ -233,6 +214,10 @@ export function AppProvider({ children }) {
         // (TeamsTab groups budgetFlat by b.team_name — must match actuals)
         supabase.from('teams')
           .select('id, team_name'),
+        // Transaction count — head-only query (no rows) for pagination math
+        supabase.from('v_transactions_enriched')
+          .select('id', { count: 'exact', head: true })
+          .eq('org_id', resolvedOrgId),
       ])
 
       if (deptLookupErr) console.warn('[AppContext] departments lookup error:', deptLookupErr.message)
@@ -245,6 +230,38 @@ export function AppProvider({ children }) {
       for (const a of (acctLookup || [])) acctMap[a.id] = a
       const teamMap = {}  // team uuid → team_name
       for (const t of (teamLookup || [])) teamMap[t.id] = t.team_name
+
+      // Expose raw teams array so components (Sidebar, import flows) don't re-fetch
+      setTeams(teamLookup || [])
+
+      // Now paginate transactions — lookup maps already built, pass them to mapActuals
+      // so _warnings flags are set on the first render (no second pass needed).
+      const txTotalPages = Math.ceil((txCount || 0) / PAGE_SIZE)
+      const TX_BATCH = 10   // fire 10 requests at a time
+
+      let txRows = []
+      for (let start = 0; start < txTotalPages; start += TX_BATCH) {
+        const batchPages = Array.from(
+          { length: Math.min(TX_BATCH, txTotalPages - start) },
+          (_, i) => start + i
+        )
+        const results = await Promise.all(
+          batchPages.map(p =>
+            supabase.from('v_transactions_enriched')
+              .select('*')
+              .eq('org_id', resolvedOrgId)
+              .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+          )
+        )
+        for (const { data: pData, error: pErr } of results) {
+          if (pErr) console.warn('[AppContext] transaction page error:', pErr.message)
+          else txRows = [...txRows, ...(pData || [])]
+        }
+      }
+
+      // Set actuals FIRST — dashboards can render even if budget queries are slow.
+      // Pass lookup maps so mapActuals can set _warnings on unresolved rows.
+      setActuals(mapActuals(txRows, deptMap, acctMap))
 
       // ── Budget pagination — parallel fetch for speed ──────────────────────
       // Sequential while-loop took ~11 s for 108 pages. Instead:
@@ -328,14 +345,33 @@ export function AppProvider({ children }) {
   // JavaScript object keys are always strings (Object.keys coerces), and
   // DEPT_COLORS / deptNames lookups all use string keys.  Stringify here
   // so every downstream === comparison, Set.has(), and object lookup works.
-  function mapActuals(rows) {
-    return rows.map(row => ({
-      ...row,
-      dept_code:  row.dept_code  != null ? String(row.dept_code)  : null,
-      department: row.dept_code  != null ? String(row.dept_code)  : null,
-      account:    row.account_name,  // groupByField
-      grant:      row.grant_code,    // groupByField
-    }))
+  // Map v_transactions_enriched rows → actuals array.
+  // Accepts optional lookup maps (built during loadFromDB Phase 2) so that
+  // _warnings flags can be attached in the same pass — no second render needed.
+  // deptMap / acctMap are keyed by UUID.  The enriched view typically includes
+  // account_id and department_id as raw FK columns from the transactions table;
+  // if they're absent the _warnings check safely skips (empty object lookup).
+  function mapActuals(rows, deptMap = {}, acctMap = {}) {
+    return rows.map(row => {
+      const warnReasons = []
+      // account_id present but not found in CoA → no Chart of Accounts entry
+      if (row.account_id && !acctMap[row.account_id]) warnReasons.push('no_account')
+      // department_id present but not found in departments → not in registry
+      if (row.department_id && !deptMap[row.department_id]) {
+        warnReasons.push('no_dept')
+      } else if (row.department_id && deptMap[row.department_id] && !deptMap[row.department_id].team_id) {
+        // Dept found but has no team assigned → unassigned
+        warnReasons.push('no_team')
+      }
+      return {
+        ...row,
+        dept_code:  row.dept_code  != null ? String(row.dept_code)  : null,
+        department: row.dept_code  != null ? String(row.dept_code)  : null,
+        account:    row.account_name,  // groupByField
+        grant:      row.grant_code,    // groupByField
+        _warnings:  warnReasons,       // [] = clean, non-empty = actionable issue
+      }
+    })
   }
 
   // Map budgets table rows → budgetFlat, resolving dept_code / record_type
@@ -343,21 +379,34 @@ export function AppProvider({ children }) {
   // Replaces the slow mapBudgetFlat(view) path which timed out at ~5000/16000 rows.
   function mapBudgetFlatDirect(rows, deptMap, acctMap, teamMap = {}) {
     return rows.map(row => {
-      const dept     = deptMap[row.department_id] || {}
-      const acct     = acctMap[row.account_id]    || {}
-      const deptCode = dept.dept_code != null ? String(dept.dept_code) : null
-      const teamName = dept.team_id ? (teamMap[dept.team_id] || null) : null
+      const dept       = deptMap[row.department_id] || {}
+      const acct       = acctMap[row.account_id]    || {}
+      const deptCode   = dept.dept_code != null ? String(dept.dept_code) : null
+      const teamName   = dept.team_id ? (teamMap[dept.team_id] || null) : null
+      const hasAccount = !!acctMap[row.account_id]   // false → orphaned account_id (not in chart_of_accounts)
+
+      // Build _warnings array — same three checks as mapActuals
+      const warnReasons = []
+      if (row.account_id && !acctMap[row.account_id]) warnReasons.push('no_account')
+      if (row.department_id && !deptMap[row.department_id]) {
+        warnReasons.push('no_dept')
+      } else if (row.department_id && deptMap[row.department_id] && !deptMap[row.department_id].team_id) {
+        warnReasons.push('no_team')
+      }
+
       return {
         ...row,
-        dept_code:   deptCode,
-        department:  deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
-        dept_name:   dept.dept_name || null,
-        team_id:     dept.team_id   || null,
-        team_name:   teamName,           // TeamsTab groups budgetFlat by b.team_name
-        record_type: acct.record_type || 'expense',  // income budget rows link to income accounts
-        category:    row.category || acct.category || null,
+        dept_code:    deptCode,
+        department:   deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
+        dept_name:    dept.dept_name || null,
+        team_id:      dept.team_id   || null,
+        team_name:    teamName,           // TeamsTab groups budgetFlat by b.team_name
+        record_type:  acct.record_type || 'expense',  // income budget rows link to income accounts
+        category:     row.category || acct.category || null,
         // 'amount' is the correct column name in the budgets table (no rename needed)
-        period:      row.period ? String(row.period).substring(0, 7) : null,
+        period:       row.period ? String(row.period).substring(0, 7) : null,
+        _hasAccount:  hasAccount,         // used to exclude orphaned rows from team detail modal
+        _warnings:    warnReasons,        // actionable warning types for this row
       }
     })
   }
@@ -559,6 +608,7 @@ export function AppProvider({ children }) {
     actuals, importActuals,
     budgetFlat, importBudget,
     orgSummary,   // v_org_summary: pre-aggregated actual+budget by category+period+scenario
+    teams,        // raw teams array — fetched once on boot, avoids duplicate fetches
     // Scenario + date range
     availableScenarios,
     selectedScenario, setSelectedScenario,

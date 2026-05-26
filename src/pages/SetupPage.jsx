@@ -320,6 +320,27 @@ function EditableCell({ value, onChange, type = 'text', options, placeholder, cl
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Active Toggle — clickable pill for boolean active/inactive state
+// ─────────────────────────────────────────────────────────────────────────────
+function ActiveToggle({ value, onChange }) {
+  const isActive = value === true || value === 'true'
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!isActive)}
+      title={isActive ? 'Click to deactivate' : 'Click to activate'}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold transition-colors cursor-pointer select-none
+        ${isActive
+          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+          : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+        }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-gray-400'}`}/>
+      {isActive ? 'Active' : 'Inactive'}
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Add-row form (generic)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -508,7 +529,9 @@ function RegistryTable({
               <tr key={row.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                 {columns.map(c => (
                   <td key={c.key} className="px-3 py-2">
-                    {c.editable !== false ? (
+                    {c.type === 'toggle' ? (
+                      <ActiveToggle value={row[c.key]} onChange={val => handleUpdate(row.id, c.key, val, row)}/>
+                    ) : c.editable !== false ? (
                       <EditableCell
                         value={row[c.key] ?? ''}
                         type={c.type}
@@ -558,9 +581,7 @@ function TeamsRegistry() {
     { key: 'team_name',    label: 'Team Name',    width: 'w-1/3' },
     { key: 'team_code',    label: 'Code',         width: 'w-24'  },
     { key: 'manager_name', label: 'Manager',      width: 'w-1/4' },
-    { key: 'active',       label: 'Active', type: 'select',
-      options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }],
-      width: 'w-24' },
+    { key: 'active', label: 'Active', type: 'toggle', width: 'w-28' },
   ]
 
   const addFields = [
@@ -623,9 +644,7 @@ function DepartmentsRegistry() {
       width: 'w-40',
       // Display: resolve team_id → team_name
     },
-    { key: 'active', label: 'Active', type: 'select',
-      options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }],
-      width: 'w-24' },
+    { key: 'active', label: 'Active', type: 'toggle', width: 'w-28' },
   ]
 
   // We need a custom cell renderer for team_id → name display
@@ -796,9 +815,7 @@ function DepartmentsTable({ teamOptions, teams, addFields, exportColumns, csvImp
                   </select>
                 </td>
                 <td className="px-3 py-2">
-                  <EditableCell value={String(row.active ?? true)} type="select"
-                    options={[{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]}
-                    onChange={v => handleUpdate(row.id, 'active', v === 'true', row)}/>
+                  <ActiveToggle value={row.active ?? true} onChange={v => handleUpdate(row.id, 'active', v, row)}/>
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-1">
@@ -831,20 +848,22 @@ function AccountsRegistry() {
   const [txCounts, setTxCounts] = useState({}) // account_code → count
 
   useEffect(() => {
-    // Gather category suggestions from existing accounts
-    supabase.from('chart_of_accounts').select('category').eq('org_id', ORG_ID).eq('deleted', false)
-      .then(({ data }) => {
-        const cats = [...new Set((data || []).map(r => r.category).filter(Boolean))]
-        setCategoryHints(cats.sort())
-      })
+    // Fetch category hints + transaction counts in parallel
+    Promise.all([
+      supabase.from('chart_of_accounts').select('category').eq('org_id', ORG_ID).eq('deleted', false),
+      supabase.from('transactions').select('account_id').eq('org_id', ORG_ID).eq('deleted', false),
+    ]).then(([{ data: acctData }, { data: txData }]) => {
+      // Gather category suggestions from existing accounts
+      const cats = [...new Set((acctData || []).map(r => r.category).filter(Boolean))]
+      setCategoryHints(cats.sort())
 
-    // Transaction counts per account_code
-    supabase.from('transactions').select('account_code').eq('org_id', ORG_ID).eq('deleted', false)
-      .then(({ data }) => {
-        const counts = {}
-        for (const r of (data || [])) counts[r.account_code] = (counts[r.account_code] || 0) + 1
-        setTxCounts(counts)
-      })
+      // Transaction counts per account_id (the FK stored on the transaction row)
+      const counts = {}
+      for (const r of (txData || [])) {
+        if (r.account_id) counts[r.account_id] = (counts[r.account_id] || 0) + 1
+      }
+      setTxCounts(counts)
+    })
   }, [])
 
   const {
@@ -985,7 +1004,7 @@ function AccountsRegistry() {
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-32">Account Code</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">Account Name</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-40">Category</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-52">Category</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Record Type</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-20 text-center">Tx Count</th>
               <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide w-24">Actions</th>
@@ -1010,6 +1029,7 @@ function AccountsRegistry() {
                       onBlur={e => handleUpdate(row.id, 'category', e.target.value, row)}
                       onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
                       list="category-hints-list"
+                      title={row.category ?? ''}
                       className="text-sm border border-transparent hover:border-gray-200 focus:border-teal-400 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-teal-500 w-full bg-transparent focus:bg-white transition-colors"
                     />
                     <datalist id="category-hints-list">
@@ -1026,9 +1046,13 @@ function AccountsRegistry() {
                   </select>
                 </td>
                 <td className="px-3 py-2 text-center">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${txCounts[row.account_code] ? 'bg-teal-50 text-teal-700' : 'text-gray-300'}`}>
-                    {txCounts[row.account_code] || 0}
-                  </span>
+                  {txCounts[row.id]
+                    ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 cursor-default"
+                        title={`${txCounts[row.id]} transaction${txCounts[row.id]!==1?'s':''} linked to this account`}>
+                        {txCounts[row.id]}
+                      </span>
+                    : <span className="text-gray-300 text-xs">0</span>
+                  }
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-end gap-1">
@@ -1152,7 +1176,7 @@ function OrgSettingsForm() {
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Preview</label>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                style={{ backgroundColor: draft.primary_color || '#D4896A' }}>
+                style={{ backgroundColor: draft.primary_color || '#00B3E5' }}>
                 {draft.logo_initial || '?'}
               </div>
               <span className="text-sm text-gray-600">{draft.org_name}</span>
@@ -1226,6 +1250,18 @@ function OrgSettingsForm() {
               className="flex-1 px-3 py-2 text-sm focus:outline-none"/>
           </div>
           <p className="text-xs text-gray-400 mt-1">Minimum cash balance for Cash Position KPI</p>
+        </div>
+
+        <div className="w-64 mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Watch Area Materiality Threshold</label>
+          <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-400">
+            <input type="number" min={0} max={100} step={1}
+              value={Math.round((draft.materiality_threshold ?? 0.10) * 100)}
+              onChange={e => set('materiality_threshold', (parseFloat(e.target.value) || 0) / 100)}
+              className="flex-1 px-3 py-2 text-sm focus:outline-none"/>
+            <span className="px-3 text-sm text-gray-400 bg-gray-50 border-l border-gray-200 py-2">%</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Minimum % of total org expenses or income for an item to be flagged as a watch area. Default is 10%.</p>
         </div>
       </div>
 
@@ -1775,8 +1811,12 @@ function FieldMappingsRegistry() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 text-xs text-gray-400">
-                  {m.source_label && <span>Source: <span className="text-gray-600">{m.source_label}</span></span>}
+                <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+                  {m.source_label && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium bg-gray-100 text-gray-600 border-gray-200">
+                      {m.source_label}
+                    </span>
+                  )}
                   <span>{fieldCount} field{fieldCount !== 1 ? 's' : ''} mapped</span>
                   <span>Updated {formatDate(m.updated_at)}</span>
                 </div>
@@ -1833,8 +1873,13 @@ function FieldMappingsRegistry() {
 // SetupPage — top-level component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function SetupPage() {
-  const [activeTab, setActiveTab] = useState('org')
+export default function SetupPage({ initialTab = null }) {
+  const [activeTab, setActiveTab] = useState(initialTab || 'org')
+
+  // Sync when deep-link changes (e.g. navigating from warning → setup tab)
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab)
+  }, [initialTab])
 
   return (
     <div className="flex flex-col min-h-screen bg-white">

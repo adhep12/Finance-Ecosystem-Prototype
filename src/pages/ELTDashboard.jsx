@@ -5,17 +5,18 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
 } from 'recharts'
 import {
-  ChevronDown, Pencil, Plus, X, Check, ChevronRight, ChevronLeft,
+  ChevronDown, Pencil, Plus, X, Check, ChevronRight,
   ChevronUp, TrendingUp, TrendingDown, Minus, Info, Upload,
-  FileText, Users, BarChart2, LayoutDashboard, Settings,
-  GripVertical, AlertCircle, Eye, CheckCircle, Quote,
-  ArrowUpDown, ExternalLink, Activity, SlidersHorizontal, BookOpen,
-  Download, Calendar, Trash2
+  FileText, Users, BarChart2, LayoutDashboard,
+  AlertCircle, CheckCircle,
+  ArrowUpDown, ExternalLink, SlidersHorizontal, BookOpen,
+  Download, Calendar, Trash2, Save
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
+import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -56,6 +57,17 @@ function getAvailableMonths() {
 
 const ALL_MONTHS = getAvailableMonths()
 
+// Fallback ELT data object — used when filterELTByRange returns null/undefined
+// (e.g. during initial load before actuals/budgetFlat have been fetched)
+const EMPTY_ELT = {
+  giving:      { contributions:0, merchandiseRevenue:0, otherIncome:0 },
+  budget:      { contributions:0, merchandiseRevenue:0, otherIncome:0, staff:0, contract:0, technology:0, travel:0, otherGenAdmin:0 },
+  priorYear:   { contributions:0, merchandiseRevenue:0, otherIncome:0, expenses:0 },
+  expenseLines:{ staff:0, contract:0, technology:0, travel:0, otherGenAdmin:0 },
+  forecast:    { contributions:0, merchandiseRevenue:0, otherIncome:0 },
+  cash:        { current:0, priorMonth:0, priorYear:0 },
+}
+
 // ELT_MOCK removed — all data now sourced from Supabase / AppContext
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +85,7 @@ const FISCAL_MONTHS = [
 
 // Year-to-color palette (index 0 = current FY, 1 = 1yr back, etc.)
 const CURRENT_FY     = 2026
-const YEAR_PALETTE   = ['var(--color-accent)','#C05A2F','#E8A838','#9BA8B5','#C8D0D8']
+const YEAR_PALETTE   = ['var(--color-primary)','#C05A2F','#E8A838','#9BA8B5','#C8D0D8']
 function yearColor(year) {
   const dist = CURRENT_FY - parseInt(year)
   return YEAR_PALETTE[Math.max(0, Math.min(dist, YEAR_PALETTE.length - 1))]
@@ -81,9 +93,9 @@ function yearColor(year) {
 
 // Per-row colors for P&L % bars
 const PL_ROW_COLORS = {
-  'contributions':'var(--color-accent)',
-  'merch':'var(--color-accent)',
-  'other-inc':'var(--color-accent)',
+  'contributions':'var(--color-primary)',
+  'merch':'var(--color-primary)',
+  'other-inc':'var(--color-primary)',
   'staff':'#C05A2F',
   'contract':'#E8A838',
   'technology':'#2A7B8C',
@@ -148,6 +160,25 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
                .some(c => (t.category||'').toLowerCase().includes(c.toLowerCase())))
     .reduce((t,r) => t + (r.amount||0), 0)
 
+  // ── Prior Year — same period shifted back 12 months ───────────────────────
+  // Computed from the same actuals/incomeMonths arrays so it stays in sync.
+  const pyStartP = `${parseInt(startP.substring(0,4))-1}-${startP.substring(5,7)}`
+  const pyEndP   = `${parseInt(endP.substring(0,4))-1}-${endP.substring(5,7)}`
+
+  const pyIncInRange = (incomeMonths||[]).filter(m => {
+    const p = m.period || (m.date ? m.date.substring(0,7) : null)
+    return p && p >= pyStartP && p <= pyEndP
+  })
+  const pyContributions      = pyIncInRange.reduce((t,m) => t + (m.contributions||0), 0)
+  const pyMerchandiseRevenue = pyIncInRange.reduce((t,m) => t + (m.merch||0), 0)
+  const pyOtherIncome        = pyIncInRange.reduce((t,m) => t + (m.other||0), 0)
+
+  const pyActInRange = (actuals||[]).filter(t => {
+    const p = t.period || (t.date ? t.date.substring(0,7) : null)
+    return p && p >= pyStartP && p <= pyEndP && t.record_type !== 'income'
+  })
+  const pyExpenses = pyActInRange.reduce((t,r) => t + (r.amount||0), 0)
+
   // ── Budget — from AppContext.budgetFlat ───────────────────────────────────
   const budInRange = (budgetFlat||[]).filter(b => b.scenario === scenario && b.period && monthSet.has(b.period))
   const budSumCat = (rt, ...cats) => budInRange
@@ -174,17 +205,52 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
     : { current: 0, priorMonth: 0, priorYear: 0 }
 
   // ── Patron data — from v_patron_trends ───────────────────────────────────
-  const patronRows  = (patronData||[]).filter(p => p.period >= s.substring(0,7) && p.period <= e.substring(0,7))
+  const patronRows  = (patronData||[]).filter(p => p.period >= startP && p.period <= endP)
   const latestPat   = patronRows.length > 0
     ? patronRows.reduce((l,p) => !l || p.period > l.period ? p : l, null)
     : null
+
+  // Derive prior-month, prior-year, and prior-period new counts from the full
+  // patronData array (which covers all loaded periods, not just the range).
+  let patronPriorMonth = 0
+  let patronPriorYear  = 0
+  let newPriorPeriod   = 0
+  if (latestPat) {
+    const [ly, lm] = latestPat.period.split('-')
+    const lyNum = parseInt(ly), lmNum = parseInt(lm)
+
+    // Prior month: 1 month before the latest period in range
+    const pmDate = new Date(lyNum, lmNum - 2, 1)
+    const priorMonthP = `${pmDate.getFullYear()}-${String(pmDate.getMonth()+1).padStart(2,'0')}`
+    const priorMonthRow = (patronData||[]).find(p => p.period === priorMonthP)
+    patronPriorMonth = priorMonthRow ? (priorMonthRow.total_active_patrons || 0) : 0
+
+    // Prior year: same month, 1 year back
+    const priorYearP = `${lyNum - 1}-${String(lmNum).padStart(2,'0')}`
+    const priorYearRow = (patronData||[]).find(p => p.period === priorYearP)
+    patronPriorYear = priorYearRow ? (priorYearRow.total_active_patrons || 0) : 0
+
+    // Prior period new patrons: same duration immediately before current range
+    const numMonths = months.length || 1
+    const rangeStartDate = new Date(parseInt(s.substring(0,4)), parseInt(s.substring(5,7)) - 1, 1)
+    const priorPEnd = new Date(rangeStartDate)
+    priorPEnd.setMonth(priorPEnd.getMonth() - 1)
+    const priorPStart = new Date(priorPEnd)
+    priorPStart.setMonth(priorPStart.getMonth() - (numMonths - 1))
+    const priorPStartP = `${priorPStart.getFullYear()}-${String(priorPStart.getMonth()+1).padStart(2,'0')}`
+    const priorPEndP   = `${priorPEnd.getFullYear()}-${String(priorPEnd.getMonth()+1).padStart(2,'0')}`
+    newPriorPeriod = (patronData||[])
+      .filter(p => p.period >= priorPStartP && p.period <= priorPEndP)
+      .reduce((sum, p) => sum + (p.new_patrons_total||0), 0)
+  }
+
   const patrons = latestPat
     ? {
         total:            latestPat.total_active_patrons    || 0,
-        priorMonth:       0,
-        priorYear:        0,
-        newThisPeriod:    patronRows.reduce((s,p) => s + (p.new_patrons_total||0), 0),
-        newPriorPeriod:   0,
+        priorMonth:       patronPriorMonth,
+        priorYear:        patronPriorYear,
+        newThisPeriod:    patronRows.reduce((sum,p) => sum + (p.new_patrons_total||0), 0),
+        newPriorPeriod,
         avgGift:          latestPat.avg_gift_size           || 0,
         avgGiftPriorYear: 0,
         monthly: patronRows.map(p => {
@@ -210,7 +276,7 @@ function filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario
   return {
     giving:      { contributions, merchandiseRevenue, otherIncome },
     budget:      { contributions: budContrib, merchandiseRevenue: budMerch, otherIncome: budOther, staff: budStaff, contract: budContract, technology: budTech, travel: budTravel, otherGenAdmin: Math.max(0,budOtherExp) },
-    priorYear:   { contributions: 0, merchandiseRevenue: 0, otherIncome: 0, expenses: 0 },
+    priorYear:   { contributions: pyContributions, merchandiseRevenue: pyMerchandiseRevenue, otherIncome: pyOtherIncome, expenses: pyExpenses },
     expenseLines:{ staff, contract, technology, travel, otherGenAdmin },
     cash,
     forecast:    { contributions: budContrib, merchandiseRevenue: budMerch, otherIncome: budOther },
@@ -323,14 +389,15 @@ function computePLAccounts(actuals, catBudgets, dateRange) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TEAM_CATEGORIES = [
-  { key: 'staff',      label: 'Staff & Benefits',     color: '#00B3E5' },
-  { key: 'contract',   label: 'Contract Services',    color: '#E8A838' },
-  { key: 'technology', label: 'Technology',            color: '#C05A2F' },
-  { key: 'travel',     label: 'Travel & Expense',      color: '#D98F1C' },
-  { key: 'marketing',  label: 'Marketing',             color: '#2A7B8C' },
-  { key: 'facilities', label: 'Facilities',            color: '#4E6B3A' },
-  { key: 'supplies',   label: 'Supplies & Materials',  color: '#7A8A3E' },
-  { key: 'training',   label: 'Training & Dev',        color: '#4A2E5A' },
+  { key: 'staff',        label: 'Staff & Benefits',     color: '#00B3E5' },
+  { key: 'contract',     label: 'Contract Services',    color: '#E8A838' },
+  { key: 'technology',   label: 'Technology',            color: '#C05A2F' },
+  { key: 'travel',       label: 'Travel & Expense',      color: '#D98F1C' },
+  { key: 'marketing',    label: 'Marketing',             color: '#2A7B8C' },
+  { key: 'facilities',   label: 'Facilities',            color: '#4E6B3A' },
+  { key: 'supplies',     label: 'Supplies & Materials',  color: '#7A8A3E' },
+  { key: 'training',     label: 'Training & Dev',        color: '#4A2E5A' },
+  { key: 'other',        label: 'Uncategorized',         color: '#9BA8B5' },
 ]
 const TEAM_CAT_MAP = Object.fromEntries(TEAM_CATEGORIES.map(c => [c.key, c]))
 
@@ -561,7 +628,7 @@ function ELTDateRangePicker({ dateRange, org, onApplyPreset, onApplyCustom, onCl
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-500">{days>0?`${days} days selected`:''}</span>
         <button onClick={() => { if(localStart&&localEnd&&localStart<=localEnd){onApplyCustom(localStart,localEnd);onClose()} }}
-          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>Apply</button>
+          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>Apply</button>
       </div>
     </div>
   )
@@ -600,7 +667,7 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
     <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
       <div className="flex items-center h-12 px-6 gap-4">
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{backgroundColor:'var(--color-accent)'}}>
+          <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
             {orgConfig.logoInitial}
           </div>
           <span className="text-sm font-semibold text-gray-800">{orgConfig.name}</span>
@@ -749,7 +816,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
 
   if (editing) {
     return (
-      <div className="relative bg-white rounded-2xl border-2 shadow-sm p-5 flex-1 min-w-[240px] space-y-2.5" style={{borderColor:'var(--color-accent)'}}>
+      <div className="relative bg-white rounded-2xl border-2 shadow-sm p-5 flex-1 min-w-[240px] space-y-2.5" style={{borderColor:'var(--color-primary)'}}>
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] font-bold uppercase tracking-wider" style={{color:'var(--neutral-60)'}}>Editing Card</span>
           <button onClick={cancel} className="text-gray-400 hover:text-gray-600"><X size={14}/></button>
@@ -762,7 +829,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
           </div>
         ))}
         <p className="text-[9px] text-gray-400">Tip: Enter numeric values (e.g. $1,250,000) to auto-calculate % variance.</p>
-        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+        <button onClick={save} className="w-full py-2 rounded-lg text-sm font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
           Save Changes
         </button>
       </div>
@@ -831,7 +898,7 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
       )}
       {/* Label + info */}
       <div className="flex items-center gap-1.5 mb-1">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-accent)'}}>
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-primary)'}}>
           Net Position YTD
         </div>
         <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
@@ -1126,7 +1193,7 @@ function AddCardPanel({ title, catalog, suggestedCards, existingIds, onAdd, onCl
                 }}
                 disabled={!manualLabel.trim()}
                 className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
-                style={{backgroundColor:'var(--color-accent)'}}>
+                style={{backgroundColor:'var(--color-primary)'}}>
                 Add Card
               </button>
             </div>
@@ -1156,7 +1223,7 @@ function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
       <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>{title}</h2>
       <div className="flex items-center gap-2">
         {editMode && showAdd && (
-          <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+          <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
             <Plus size={11}/> Add card
           </button>
         )}
@@ -1189,7 +1256,7 @@ function ChartTypeToggle({ type, onChange }) {
 // P&L Table
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date' }) {
+function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date', warnItems = {} }) {
   const [expanded, setExpanded] = useState(new Set())
   function toggle(id) { setExpanded(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n }) }
 
@@ -1328,6 +1395,12 @@ function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date' }) 
           <tbody>{rows}</tbody>
         </table>
       </div>
+      {/* Unresolved warnings — shown below the P&L table when data issues exist */}
+      {Object.values(warnItems).some(v => (v?.actual || 0) + (v?.budget || 0) > 0) && (
+        <div className="px-6 py-4 border-t border-gray-100">
+          <UnresolvedSection warnMap={warnItems}/>
+        </div>
+      )}
     </div>
   )
 }
@@ -1514,10 +1587,10 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data in range</div>
         : <ResponsiveContainer width="100%" height={200}>
             {chartType === 'line'
-              ? <LineChart {...common}>{grid}{xa}{ya}{tip}<Line type="monotone" dataKey="count" name="Patrons" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/></LineChart>
+              ? <LineChart {...common}>{grid}{xa}{ya}{tip}<Line type="monotone" dataKey="count" name="Patrons" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/></LineChart>
               : chartType === 'area'
-              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}<Area type="monotone" dataKey="count" name="Patrons" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.15} strokeWidth={2} dot={false}/></AreaChart>
-              : <BarChart {...common}>{grid}{xa}{ya}{tip}<Bar dataKey="count" name="Patrons" fill="var(--color-accent)" radius={[4,4,0,0]}/></BarChart>
+              ? <AreaChart {...common}>{grid}{xa}{ya}{tip}<Area type="monotone" dataKey="count" name="Patrons" stroke="var(--color-primary)" fill="var(--color-primary)" fillOpacity={0.15} strokeWidth={2} dot={false}/></AreaChart>
+              : <BarChart {...common}>{grid}{xa}{ya}{tip}<Bar dataKey="count" name="Patrons" fill="var(--color-primary)" radius={[4,4,0,0]}/></BarChart>
             }
           </ResponsiveContainer>
       }
@@ -1536,7 +1609,13 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
       const p = t.period || (t.date ? t.date.slice(0,7) : null)
       return p && p >= startP && p <= endP && t.record_type === 'income'
     })
-    const incBudget = budgetFlat.filter(b => b.scenario === scenario && b.record_type === 'income')
+    // Apply the same period filter to income budget as to expense budget —
+    // without this, ALL income budget rows across all years are summed.
+    const incBudget = budgetFlat.filter(b =>
+      b.scenario === scenario &&
+      b.record_type === 'income' &&
+      b.period && b.period >= startP && b.period <= endP
+    )
 
     const actualByP = {}, budgetByP = {}
     for (const t of incActuals) {
@@ -1569,15 +1648,15 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
 
   function renderSeries(type) {
     if (type === 'bar') return <>
-      <Bar dataKey="actual" name="Actual" fill="var(--color-accent)" radius={[4,4,0,0]}/>
+      <Bar dataKey="actual" name="Actual" fill="var(--color-primary)" radius={[4,4,0,0]}/>
       <Bar dataKey="budget" name="Budget" fill="#E8A838" radius={[4,4,0,0]} opacity={0.7}/>
     </>
     if (type === 'area') return <>
-      <Area type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" fill="var(--color-accent)" fillOpacity={0.15} strokeWidth={2} dot={false}/>
+      <Area type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" fill="var(--color-primary)" fillOpacity={0.15} strokeWidth={2} dot={false}/>
       <Area type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" fill="#E8A838" fillOpacity={0.1} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
     </>
     return <>
-      <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-accent)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+      <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
       <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
     </>
   }
@@ -1670,23 +1749,529 @@ function highlightNumbers(text) {
   if (!text) return text
   const parts = text.split(/(\$[\d,]+(?:\.\d+)?[MKB]?|\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)/g)
   return parts.map((p,i) => /^(\$[\d,]+(?:\.\d+)?[MKB]?|\d{1,3}(?:,\d{3})*(?:\.\d+)?%?)$/.test(p)
-    ? <span key={i} style={{color:'var(--color-accent)'}}>{p}</span> : p)
+    ? <span key={i} style={{color:'var(--color-primary)'}}>{p}</span> : p)
 }
 
-function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
-  // Months that have data
-  const existingMonths = Object.keys(summaries).sort((a,b) => new Date('1 '+b)-new Date('1 '+a))
-  const [currentMonth, setCurrentMonth] = useState(existingMonths[0] || ALL_MONTHS[0])
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Summary helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** "April 2026" → "2026-04" */
+function monthLabelToPeriod(label) {
+  if (!label) return null
+  const d = new Date('1 ' + label)
+  if (isNaN(d.getTime())) return null
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+/** Format a dollar amount as e.g. "$10.6M", "$340K", "$12,400" */
+function fmtDollars(n) {
+  if (n == null || isNaN(n)) return '$0'
+  const abs = Math.abs(n)
+  const sign = n < 0 ? '-' : ''
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(0)}K`
+  return `${sign}$${abs.toLocaleString()}`
+}
+
+/** Build aggregated AI context from actuals + budgetFlat for the given period */
+function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig, cashData = [] }) {
+  if (!period) return null
+
+  // ── Current month P&L ──────────────────────────────────────────────────────
+  const monthActuals = actuals.filter(t => (t.period || '').startsWith(period))
+  const monthBudgets = budgetFlat.filter(b =>
+    (b.period || '').startsWith(period) && (!activeBudget || b.scenario === activeBudget)
+  )
+
+  // Aggregate by record_type + category
+  // Income amounts are stored as positive in the DB; ensure they remain positive here.
+  const monthlySummary = {}
+  for (const t of monthActuals) {
+    const key = `${t.record_type}|${t.category || 'Uncategorized'}`
+    if (!monthlySummary[key]) monthlySummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0, budget: 0 }
+    monthlySummary[key].actual += t.record_type === 'income' ? Math.abs(t.amount || 0) : Math.abs(t.amount || 0)
+  }
+  for (const b of monthBudgets) {
+    const key = `${b.record_type}|${b.category || 'Uncategorized'}`
+    if (!monthlySummary[key]) monthlySummary[key] = { record_type: b.record_type, category: b.category || 'Uncategorized', actual: 0, budget: 0 }
+    monthlySummary[key].budget += Math.abs(b.amount || 0)
+  }
+
+  // ── YTD P&L ────────────────────────────────────────────────────────────────
+  const [yr, mo] = period.split('-').map(Number)
+  const fyM  = orgConfig.fiscalYearStartMonth  || 10
+  const fyYr = orgConfig.fiscalYearStartYear   || yr
+  const fyStart = `${fyYr}-${String(fyM).padStart(2, '0')}`
+
+  const ytdActuals = actuals.filter(t => {
+    const p = t.period || ''
+    return p >= fyStart && p <= period
+  })
+  const ytdBudgets = budgetFlat.filter(b => {
+    const p = b.period || ''
+    return p >= fyStart && p <= period && (!activeBudget || b.scenario === activeBudget)
+  })
+
+  const ytdSummary = {}
+  for (const t of ytdActuals) {
+    const key = `${t.record_type}|${t.category || 'Uncategorized'}`
+    if (!ytdSummary[key]) ytdSummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0, budget: 0 }
+    ytdSummary[key].actual += Math.abs(t.amount || 0)
+  }
+  for (const b of ytdBudgets) {
+    const key = `${b.record_type}|${b.category || 'Uncategorized'}`
+    if (!ytdSummary[key]) ytdSummary[key] = { record_type: b.record_type, category: b.category || 'Uncategorized', actual: 0, budget: 0 }
+    ytdSummary[key].budget += Math.abs(b.amount || 0)
+  }
+
+  // ── Prior year same period ─────────────────────────────────────────────────
+  const priorYearPeriod = `${yr - 1}-${String(mo).padStart(2, '0')}`
+  const priorActuals = actuals.filter(t => (t.period || '').startsWith(priorYearPeriod))
+  const priorSummary = {}
+  for (const t of priorActuals) {
+    const key = `${t.record_type}|${t.category || 'Uncategorized'}`
+    if (!priorSummary[key]) priorSummary[key] = { record_type: t.record_type, category: t.category || 'Uncategorized', actual: 0 }
+    priorSummary[key].actual += Math.abs(t.amount || 0)
+  }
+
+  // ── Totals ─────────────────────────────────────────────────────────────────
+  const monthRows  = Object.values(monthlySummary)
+  const ytdRows    = Object.values(ytdSummary)
+
+  const totalIncome   = monthRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.actual, 0)
+  const totalExpenses = monthRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.actual, 0)
+  const totalIncBudget = monthRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.budget, 0)
+  const totalExpBudget = monthRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.budget, 0)
+
+  const ytdTotalIncome   = ytdRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.actual, 0)
+  const ytdTotalExpenses = ytdRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.actual, 0)
+  const ytdTotalIncBudget = ytdRows.filter(r => r.record_type === 'income').reduce((s, r) => s + r.budget, 0)
+  const ytdTotalExpBudget = ytdRows.filter(r => r.record_type === 'expense').reduce((s, r) => s + r.budget, 0)
+
+  // Fiscal month index (1-based)
+  const fiscalMonthIndex = ((yr - fyYr) * 12 + mo - fyM + 12) % 12 + 1
+
+  // ── Format rows for prompt ─────────────────────────────────────────────────
+  function formatRows(rows) {
+    return rows
+      .sort((a, b) => b.actual - a.actual)
+      .map(r => {
+        const varAmt = r.actual - r.budget
+        const varPct = r.budget !== 0 ? Math.round((varAmt / r.budget) * 100) : null
+        return {
+          type:     r.record_type,
+          category: r.category,
+          actual:   fmtDollars(r.actual),
+          budget:   r.budget ? fmtDollars(r.budget) : 'no budget',
+          variance: r.budget ? `${fmtDollars(varAmt)} (${varPct}%)` : 'n/a',
+        }
+      })
+  }
+
+  return {
+    period,
+    monthLabel: new Date(yr, mo - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+    fiscalYearStart: fyStart,
+    fiscalMonthIndex,
+    orgName: orgConfig.name || 'the organization',
+    materialityThreshold: orgConfig.materialityThreshold ?? 0.10,
+    currentMonth: {
+      rows: formatRows(monthRows),
+      totalIncome:    fmtDollars(totalIncome),
+      totalExpenses:  fmtDollars(totalExpenses),
+      totalIncBudget: fmtDollars(totalIncBudget),
+      totalExpBudget: fmtDollars(totalExpBudget),
+      netActual:      fmtDollars(totalIncome - totalExpenses),
+      netBudget:      fmtDollars(totalIncBudget - totalExpBudget),
+    },
+    ytd: {
+      rows: formatRows(ytdRows),
+      totalIncome:    fmtDollars(ytdTotalIncome),
+      totalExpenses:  fmtDollars(ytdTotalExpenses),
+      totalIncBudget: fmtDollars(ytdTotalIncBudget),
+      totalExpBudget: fmtDollars(ytdTotalExpBudget),
+      netActual:      fmtDollars(ytdTotalIncome - ytdTotalExpenses),
+      netBudget:      fmtDollars(ytdTotalIncBudget - ytdTotalExpBudget),
+    },
+    priorYear: {
+      rows: formatRows(Object.values(priorSummary)),
+    },
+    // Raw numbers for watch area materiality checks
+    _totals: { totalIncome, totalExpenses, materialityThreshold: orgConfig.materialityThreshold ?? 0.10 },
+    // Cash flow data for the Reserves section
+    cash: (() => {
+      if (!cashData?.length) return null
+      const cashRow = cashData.find(r => r.period === period)
+        || [...cashData].sort((a,b) => b.period.localeCompare(a.period))[0]
+      if (!cashRow) return null
+      const [pYr, pMo] = period.split('-').map(Number)
+      const priorPeriod = pMo === 1
+        ? `${pYr-1}-12`
+        : `${pYr}-${String(pMo-1).padStart(2,'0')}`
+      const priorRow = cashData.find(r => r.period === priorPeriod)
+      const balance        = cashRow.cash_balance       || 0
+      const priorBalance   = priorRow?.cash_balance ?? (cashRow.prior_month_balance || 0)
+      const annualExpenses = (ytdTotalExpenses / Math.max(1, fiscalMonthIndex)) * 12
+      const monthlyAvg     = annualExpenses / 12
+      return {
+        balance,
+        reserveFloor:    cashRow.reserve_floor      || 0,
+        aboveFloor:      cashRow.cash_above_floor   || 0,
+        priorBalance,
+        momChange:       balance - priorBalance,
+        monthlyAvg,
+        monthsCovered:   monthlyAvg > 0 ? +(balance / monthlyAvg).toFixed(1) : null,
+      }
+    })(),
+  }
+}
+
+/** Build the API prompt for a given section + context */
+function buildSectionPrompt(section, ctx) {
+  const monthStr = ctx.monthLabel
+  const fyStart  = ctx.fiscalYearStart.replace('-', '/')
+  const monthNum = ctx.fiscalMonthIndex
+  const orgName  = ctx.orgName
+  const threshold = Math.round(ctx.materialityThreshold * 100)
+
+  const currentMonthData  = JSON.stringify(ctx.currentMonth, null, 2)
+  const ytdData           = JSON.stringify(ctx.ytd,          null, 2)
+  const priorYearData     = JSON.stringify(ctx.priorYear,    null, 2)
+
+  if (section === 'overall') {
+    return `You are a financial writer for a nonprofit organization. Write a monthly financial summary in plain, direct language for organizational leaders. Avoid corporate jargon. Be specific with numbers. Write with confidence but not arrogance.
+
+Here is the financial data for ${monthStr}:
+
+CURRENT MONTH:
+${currentMonthData}
+
+FISCAL YEAR TO DATE (${fyStart} through ${ctx.period}):
+${ytdData}
+
+PRIOR YEAR SAME PERIOD:
+${priorYearData}
+
+ORG NAME: ${orgName}
+
+Write two things:
+1. A bold one-sentence headline that captures the month's overall financial story. Be direct and specific. Example style: "A steady month. Giving is strong, expenses disciplined, and we're ahead of plan."
+
+2. A narrative paragraph (3-5 sentences) that explains:
+   - How far into the fiscal year we are (month ${monthNum} of 12) and what the overall position looks like
+   - How giving/income is tracking vs budget with the key driver
+   - How expenses are tracking vs budget
+   - What the net position means in plain terms
+
+Return as JSON: {"headline": "...", "narrative": "..."}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'takeaways') {
+    return `You are a financial analyst for a nonprofit. Write 3-5 key takeaways for organizational leaders based on this financial data. Each takeaway should have a bold headline and 1-2 sentences of explanation. Use specific numbers. Be direct. Prioritize what matters most to mission-driven leaders: are we healthy, are we growing, are we sustainable?
+
+FINANCIAL DATA:
+CURRENT MONTH:
+${currentMonthData}
+
+FISCAL YEAR TO DATE:
+${ytdData}
+
+PRIOR YEAR:
+${priorYearData}
+
+ORG NAME: ${orgName}
+MONTH: ${monthStr}
+FISCAL YEAR POSITION: Month ${monthNum} of 12
+
+Questions to answer through the takeaways:
+- What is driving performance?
+- Where are we vs where we expected to be?
+- What trends are visible in the data?
+- Are we in a healthy, strong, or concerning position?
+
+Return as JSON:
+{
+  "takeaways": [
+    {"headline": "...", "body": "..."},
+    {"headline": "...", "body": "..."}
+  ]
+}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'watchAreas') {
+    const ti  = ctx._totals.totalIncome
+    const te  = ctx._totals.totalExpenses
+    const thr = ctx._totals.materialityThreshold
+    return `You are a financial analyst for a nonprofit. Identify 3-5 watch areas for organizational leaders. These are the most important financial signals — positive and negative — that leaders need to be aware of.
+
+MATERIALITY THRESHOLD: ${threshold}% of total org budget.
+Only flag items that represent at least ${threshold}% of total income or total expenses. Do not flag minor line items.
+
+FINANCIAL DATA:
+CURRENT MONTH:
+${currentMonthData}
+
+FISCAL YEAR TO DATE:
+${ytdData}
+
+PRIOR YEAR:
+${priorYearData}
+
+TOTAL INCOME (current month): ${fmtDollars(ti)}
+TOTAL EXPENSES (current month): ${fmtDollars(te)}
+MATERIALITY FLOOR (income): ${fmtDollars(ti * thr)}
+MATERIALITY FLOOR (expenses): ${fmtDollars(te * thr)}
+
+Generate exactly 3-5 watch areas. Prioritize the most important.
+Each watch area must:
+- Have a status: "needs-attention", "monitoring", or "on-track"
+- Have a title (one short sentence)
+- Have a body (2-3 sentences with specific numbers and context)
+- Represent a material item above the threshold
+
+Return as JSON:
+{
+  "watch_areas": [
+    {
+      "status": "needs-attention",
+      "title": "...",
+      "body": "..."
+    }
+  ]
+}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'reserves') {
+    if (ctx.cash) {
+      const c = ctx.cash
+      return `You are a financial writer for a nonprofit. Write 2-3 sentences about the organization's cash reserves position for ${monthStr}. Be specific with numbers. Plain language, no jargon.
+
+Write only about cash reserves — the cash balance, how many months of operating expenses it covers, and the change from prior month. Do not write about net operating income or YTD deficit. Only describe what the cash_flow data shows.
+
+CASH RESERVES DATA FOR ${monthStr}:
+Cash balance: ${fmtDollars(c.balance)}
+Reserve floor (minimum required): ${fmtDollars(c.reserveFloor)}
+Cash above floor: ${fmtDollars(c.aboveFloor)}
+Prior month cash balance: ${fmtDollars(c.priorBalance)}
+Month-over-month change: ${fmtDollars(c.momChange)} (${c.momChange >= 0 ? 'increase' : 'decrease'})
+Monthly operating expenses (avg): ${fmtDollars(c.monthlyAvg)}
+Months of expenses covered: ${c.monthsCovered !== null ? c.monthsCovered : 'N/A'}
+
+ORG NAME: ${orgName}
+
+Cover: current cash balance, months of expenses covered, and how the balance changed from the prior month.
+
+Return as JSON: {"reserves": "..."}
+Return only the JSON object, no other text.`
+    }
+    // Fallback to net position when no cash data exists
+    return `Write 2-3 sentences about an organization's financial reserves position based on this data. Be specific with numbers. Only describe what the data shows.
+
+FINANCIAL DATA FOR ${monthStr}:
+Net position (income minus expenses): ${ctx.currentMonth.netActual}
+Net position vs budget: ${ctx.currentMonth.netBudget}
+YTD net position: ${ctx.ytd.netActual}
+YTD vs budget: ${ctx.ytd.netBudget}
+
+ORG NAME: ${orgName}
+MONTH: ${monthStr}
+FISCAL YEAR POSITION: Month ${monthNum} of 12
+
+Return as JSON: {"reserves": "..."}
+Return only the JSON object, no other text.`
+  }
+
+  if (section === 'monthlyActivity') {
+    return `You are a financial writer for a nonprofit. Write 2-3 sentences describing what happened financially in ${monthStr} specifically — not year-to-date. Be specific with numbers. Plain language, no jargon.
+
+CURRENT MONTH DATA (${monthStr}):
+${currentMonthData}
+Total income this month: ${ctx.currentMonth.totalIncome}
+Total expenses this month: ${ctx.currentMonth.totalExpenses}
+Net this month: ${ctx.currentMonth.netActual}
+Income vs budget this month: actual ${ctx.currentMonth.totalIncome} vs budgeted ${ctx.currentMonth.totalIncBudget}
+Expenses vs budget this month: actual ${ctx.currentMonth.totalExpenses} vs budgeted ${ctx.currentMonth.totalExpBudget}
+
+ORG NAME: ${orgName}
+FISCAL YEAR POSITION: Month ${monthNum} of 12
+
+Cover: how giving/income came in vs budget, how expenses tracked, and what the net result was for the month.
+
+Return as JSON: {"monthly_activity": "..."}
+Return only the JSON object, no other text.`
+  }
+
+  return ''
+}
+
+/** Call the generate-summary edge function */
+async function callGenerateAPI(prompt) {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Generation timed out — please try again')), 30000)
+  })
+  try {
+    const { data, error } = await Promise.race([
+      supabase.functions.invoke('generate-summary', {
+        body: { prompt, max_tokens: 1000 },
+      }),
+      timeout,
+    ])
+    if (error) throw new Error(error.message || 'Edge function error')
+    if (!data?.content) throw new Error('Empty response from AI')
+    return data.content
+  } finally {
+    // Always cancel the timer — prevents unhandled rejection if invoke wins
+    clearTimeout(timeoutId)
+  }
+}
+
+/** Parse JSON safely from Claude's response */
+function parseAIResponse(text) {
+  try {
+    // Strip markdown code blocks if present
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
+    return JSON.parse(cleaned)
+  } catch {
+    throw new Error('AI returned invalid JSON')
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generate button sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function GenerateButton({ hasContent, loading, error, onGenerate }) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        <div className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-transparent animate-spin"/>
+        Generating…
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {error && <span className="text-xs text-red-500">{error}</span>}
+      <button
+        onClick={onGenerate}
+        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all"
+        style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}>
+        {hasContent ? '↺ Regenerate' : '✦ Generate'}
+      </button>
+    </div>
+  )
+}
+
+function GenerateSkeleton() {
+  return (
+    <div className="space-y-2 animate-pulse">
+      <div className="h-3 bg-gray-100 rounded w-3/4"/>
+      <div className="h-3 bg-gray-100 rounded w-full"/>
+      <div className="h-3 bg-gray-100 rounded w-5/6"/>
+      <div className="h-3 bg-gray-100 rounded w-2/3"/>
+    </div>
+  )
+}
+
+function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig, actuals, budgetFlat, activeBudget, savedPeriods = new Set(), onSave }) {
+
+  // BEHAVIOR 1: Exec dropdown — only months with a saved DB record, newest first
+  const savedMonths = useMemo(() => {
+    return [...savedPeriods]
+      .map(p => periodToMonthLabel(p))
+      .filter(Boolean)
+      .sort((a, b) => new Date('1 ' + b) - new Date('1 ' + a))
+  }, [savedPeriods])
+
+  // BEHAVIOR 2: New Month picker — all months that have actuals data, newest first
+  const allDataMonths = useMemo(() => {
+    const monthSet = new Set()
+    ;(actuals || []).forEach(t => {
+      if (t.period) {
+        const label = periodToMonthLabel(t.period)
+        if (label) monthSet.add(label)
+      }
+    })
+    // Also include already-saved months (in case actuals were removed)
+    savedMonths.forEach(m => monthSet.add(m))
+    return [...monthSet].sort((a, b) => new Date('1 ' + b) - new Date('1 ' + a))
+  }, [actuals, savedMonths])
+
+  const [currentMonth, setCurrentMonth] = useState(() => savedMonths[0] || ALL_MONTHS[0])
+
+  // When DB loads and savedMonths populates, jump to the most recent saved month
+  // (only if current selection has no actuals data — i.e., it's still the init default)
+  useEffect(() => {
+    if (savedMonths.length > 0 && !allDataMonths.includes(currentMonth)) {
+      setCurrentMonth(savedMonths[0])
+    }
+  }, [savedMonths]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-initialize an empty summary entry when the user switches to a month
+  // that has no saved narrative yet — so KPI cards and Generate buttons work immediately
+  useEffect(() => {
+    if (currentMonth && !summaries[currentMonth]) {
+      onAddSummary(currentMonth)
+    }
+  }, [currentMonth]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const [editMode, setEditMode] = useState(false)
   const [showAddMonth, setShowAddMonth] = useState(false)
   const [showAddKPI, setShowAddKPI] = useState(false)
-  const [newMonthSel, setNewMonthSel] = useState(ALL_MONTHS[0])
   const [manualCards, setManualCards] = useState({})
 
-  const summary = summaries[currentMonth]
-  const noData  = !summary
+  // Cash flow data for Reserves AI section
+  const [cashData, setCashData] = useState([])
+  useEffect(() => {
+    if (!ORG_ID) return
+    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
+      .then(({ data }) => setCashData(data || []))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function update(key, value) { onUpdateSummary(currentMonth, key, value) }
+  // AI generation state
+  const [generating, setGenerating] = useState(new Set()) // section names being generated
+  const [genErrors, setGenErrors]   = useState({})        // { section: errorMessage }
+  const [showGenAllConfirm, setShowGenAllConfirm] = useState(false)
+
+  // Save state
+  const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
+  const [saveBanner, setSaveBanner] = useState(null)   // { type: 'success'|'error', message: string }
+  const saveTimerRef  = useRef(null)
+  const bannerTimerRef = useRef(null)
+
+  const summary = summaries[currentMonth] || null
+
+  // ── Save helpers ────────────────────────────────────────────────────────────
+  async function doSave(monthKey, summaryData) {
+    if (!onSave || !summaryData) return
+    setSaveStatus('saving')
+    const { error } = await onSave(monthKey, summaryData)
+    if (error) {
+      setSaveStatus('error')
+      setSaveBanner({ type: 'error', message: 'Save failed — please try again' })
+    } else {
+      setSaveStatus('saved')
+      const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      setSaveBanner({ type: 'success', message: `Summary saved ✓  ${ts}` })
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current)
+      bannerTimerRef.current = setTimeout(() => { setSaveBanner(null); setSaveStatus('idle') }, 3000)
+    }
+  }
+
+  function update(key, value) {
+    onUpdateSummary(currentMonth, key, value)
+    // Auto-save: debounce 2.5s after last edit
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setSaveStatus('idle')
+    // Guard: if summary is still initialising, pull fresh from state in the closure
+    const updated = { ...(summary || {}), [key]: value }
+    saveTimerRef.current = setTimeout(() => doSave(currentMonth, updated), 2500)
+  }
 
   function updateFinancials(cat, field, val) {
     const fin = { ...(summary?.financials || {}) }
@@ -1728,45 +2313,131 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
     update('watchAreas', summary.watchAreas.filter((_,i)=>i!==idx))
   }
 
-  function handleCreateMonth() {
-    onAddSummary(newMonthSel)
-    setCurrentMonth(newMonthSel)
-    setShowAddMonth(false)
-    setEditMode(true)
+  // ── AI generation ──────────────────────────────────────────────────────────
+
+  function setGen(section, on) {
+    setGenerating(prev => {
+      const next = new Set(prev)
+      if (on) next.add(section); else next.delete(section)
+      return next
+    })
   }
 
-  const fin = summary?.financials || {}
-  const netActual  = (fin.giving?.actual||0) - (fin.expenses?.actual||0)
-  const netBudget  = (fin.giving?.budget||0) - (fin.expenses?.budget||0)
-  const netPriorYr = (fin.giving?.priorYear||0) - (fin.expenses?.priorYear||0)
+  function setGenError(section, msg) {
+    setGenErrors(prev => ({ ...prev, [section]: msg }))
+  }
 
-  // Extract just the month name (e.g. "April 2026" → "April")
-  const monthLabel = currentMonth.split(' ')[0]
+  async function generateSection(section) {
+    const period = monthLabelToPeriod(currentMonth)
+    if (!period) { setGenError(section, 'Cannot determine period for this month'); return }
+
+    const ctx = buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig, cashData })
+    if (!ctx) { setGenError(section, 'No data available for this month'); return }
+
+    setGen(section, true)
+    setGenError(section, null)
+
+    try {
+      const prompt = buildSectionPrompt(section, ctx)
+      const raw    = await callGenerateAPI(prompt)
+      const parsed = parseAIResponse(raw)
+
+      if (section === 'overall') {
+        update('title', parsed.headline || '')
+        update('overallSummary', parsed.narrative || '')
+      } else if (section === 'takeaways') {
+        const kts = (parsed.takeaways || []).map((t, i) => ({
+          id: 'kt-ai-' + Date.now() + '-' + i,
+          title: t.headline || t.title || '',
+          body:  t.body || '',
+        }))
+        update('keyTakeaways', kts)
+      } else if (section === 'watchAreas') {
+        const was = (parsed.watch_areas || []).map((w, i) => ({
+          id:     'wa-ai-' + Date.now() + '-' + i,
+          status: w.status || 'monitoring',
+          title:  w.title || '',
+          body:   w.body  || '',
+        }))
+        update('watchAreas', was)
+      } else if (section === 'reserves') {
+        update('reserves', parsed.reserves || '')
+      } else if (section === 'monthlyActivity') {
+        update('monthlyActivity', parsed.monthly_activity || '')
+      }
+    } catch (err) {
+      setGenError(section, 'Generation failed — check your connection and try again')
+      console.error('AI generation error:', err)
+    } finally {
+      setGen(section, false)
+    }
+  }
+
+  async function generateAll() {
+    setShowGenAllConfirm(false)
+    const sections = ['overall', 'monthlyActivity', 'takeaways', 'watchAreas', 'reserves']
+    // Run all in parallel
+    await Promise.all(sections.map(s => generateSection(s)))
+  }
+
+  // ── FIX 1: Compute Fiscal YTD KPI data from live actuals/budget ──────────
+  const ytdKPI = useMemo(() => {
+    const period = monthLabelToPeriod(currentMonth)
+    if (!period || !actuals?.length) return { giving: {actual:0,budget:0,priorYear:0}, expenses: {actual:0,budget:0,priorYear:0} }
+
+    const [yr, mo] = period.split('-').map(Number)
+    const fyM   = orgConfig?.fiscalYearStartMonth || 10
+    const fyYr  = orgConfig?.fiscalYearStartYear  || yr
+    const fyStart = `${fyYr}-${String(fyM).padStart(2,'0')}`
+
+    // Fiscal YTD actuals
+    const ytdIncome   = (actuals||[]).filter(t => t.record_type === 'income'  && t.period >= fyStart && t.period <= period).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+    const ytdExpenses = (actuals||[]).filter(t => t.record_type === 'expense' && t.period >= fyStart && t.period <= period).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+
+    // Fiscal YTD budget
+    const ytdBudRows      = (budgetFlat||[]).filter(b => b.period >= fyStart && b.period <= period && (!activeBudget || b.scenario === activeBudget))
+    const ytdBudIncome    = ytdBudRows.filter(b => b.record_type === 'income' ).reduce((s,b) => s + Math.abs(b.amount||0), 0)
+    const ytdBudExpenses  = ytdBudRows.filter(b => b.record_type === 'expense').reduce((s,b) => s + Math.abs(b.amount||0), 0)
+
+    // Prior year same Fiscal YTD
+    const pyFyStart  = `${fyYr-1}-${String(fyM).padStart(2,'0')}`
+    const pyEnd      = `${yr-1}-${String(mo).padStart(2,'0')}`
+    const pyIncome   = (actuals||[]).filter(t => t.record_type === 'income'  && t.period >= pyFyStart && t.period <= pyEnd).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+    const pyExpenses = (actuals||[]).filter(t => t.record_type === 'expense' && t.period >= pyFyStart && t.period <= pyEnd).reduce((s,t) => s + Math.abs(t.amount||0), 0)
+
+    return {
+      giving:   { actual: ytdIncome,   budget: ytdBudIncome,   priorYear: pyIncome   },
+      expenses: { actual: ytdExpenses, budget: ytdBudExpenses, priorYear: pyExpenses },
+    }
+  }, [currentMonth, actuals, budgetFlat, activeBudget, orgConfig])
 
   function renderMonthlyKPICard(cardId) {
     const remove = () => update('kpiCards', (summary.kpiCards||[]).filter(c=>c!==cardId))
     if (cardId === 'monthly-giving') {
-      return <MonthlyKPICard key={cardId} title={`Total Giving — ${monthLabel}`}
-        actual={fin.giving?.actual||0} budget={fin.giving?.budget||0} priorYear={fin.giving?.priorYear||0}
-        editMode={editMode} onEdit={(f,v)=>updateFinancials('giving',f,v)} onRemove={remove}/>
+      return <MonthlyKPICard key={cardId} title="Total Giving — Fiscal YTD"
+        actual={ytdKPI.giving.actual} budget={ytdKPI.giving.budget} priorYear={ytdKPI.giving.priorYear}
+        editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-expenses') {
-      return <MonthlyKPICard key={cardId} title={`Expenses — ${monthLabel}`} inverse
-        actual={fin.expenses?.actual||0} budget={fin.expenses?.budget||0} priorYear={fin.expenses?.priorYear||0}
-        editMode={editMode} onEdit={(f,v)=>updateFinancials('expenses',f,v)} onRemove={remove}/>
+      return <MonthlyKPICard key={cardId} title="Expenses — Fiscal YTD" inverse
+        actual={ytdKPI.expenses.actual} budget={ytdKPI.expenses.budget} priorYear={ytdKPI.expenses.priorYear}
+        editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-net') {
-      return <MonthlyKPICard key={cardId} title={`Net Position — ${monthLabel}`}
-        actual={netActual} budget={netBudget} priorYear={netPriorYr}
-        editMode={editMode} onEdit={()=>{}} onRemove={remove}/>
+      const netA = ytdKPI.giving.actual   - ytdKPI.expenses.actual
+      const netB = ytdKPI.giving.budget   - ytdKPI.expenses.budget
+      const netP = ytdKPI.giving.priorYear - ytdKPI.expenses.priorYear
+      return <MonthlyKPICard key={cardId} title="Net Position — Fiscal YTD"
+        actual={netA} budget={netB} priorYear={netP}
+        editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-cash') {
-      return <MonthlyKPICard key={cardId} title={`Month-End Cash — ${monthLabel}`}
+      return <MonthlyKPICard key={cardId} title="Month-End Cash"
         actual={summary.cash?.actual||0} budget={summary.cash?.budget||0} priorYear={summary.cash?.priorYear||0}
         editMode={editMode} onEdit={(f,v)=>{const c={...(summary.cash||{}),[f]:v};update('cash',c)}} onRemove={remove}/>
     }
     if (cardId === 'monthly-supporters') {
-      return <MonthlyKPICard key={cardId} title={`Active Supporters — ${monthLabel}`}
+      return <MonthlyKPICard key={cardId} title="Active Supporters"
         actual={summary.supporters?.actual||0} budget={summary.supporters?.budget||0} priorYear={summary.supporters?.priorYear||0}
         editMode={editMode} onEdit={(f,v)=>{const s={...(summary.supporters||{}),[f]:v};update('supporters',s)}} onRemove={remove}/>
     }
@@ -1784,13 +2455,24 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
     <div className="min-h-screen" style={{backgroundColor:'var(--color-primary-bg)'}}>
       <div className="max-w-3xl mx-auto px-6 py-8 pb-16">
 
+        {/* ── Save banner ── */}
+        {saveBanner && (
+          <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 ${
+            saveBanner.type === 'success'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-red-600 text-white'
+          }`}>
+            {saveBanner.message}
+          </div>
+        )}
+
         {/* ── Document header: icon + title + inline month selector + action buttons ── */}
         <div className="flex items-start justify-between gap-4 mb-8">
           {/* Left: icon + label + month dropdown + prepared date */}
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
-                 style={{backgroundColor:'var(--color-accent-light)'}}>
-              <FileText size={18} style={{color:'var(--neutral-60)'}}/>
+                 style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
+              <FileText size={18} className="text-white"/>
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5"
@@ -1798,18 +2480,29 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
                 Financial Summary
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                {existingMonths.length > 0 ? (
+                {savedMonths.length === 0 ? (
+                  /* No saved summaries yet */
+                  <span className="text-sm text-gray-400 italic">No summaries yet — click "+ New Month" to create one</span>
+                ) : savedMonths.includes(currentMonth) ? (
+                  /* Exec read-only dropdown: only shows saved/completed months */
                   <select
                     value={currentMonth}
                     onChange={e => setCurrentMonth(e.target.value)}
                     className="text-xl font-bold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer py-0 pl-0 pr-6"
                     style={{backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath fill='%236b7280' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")`, backgroundRepeat:'no-repeat', backgroundPosition:'right 2px center', appearance:'none', WebkitAppearance:'none'}}>
-                    {existingMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                    {savedMonths.map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
                 ) : (
-                  <span className="text-xl font-bold text-gray-900">{currentMonth}</span>
+                  /* Creator is editing an unsaved/new month */
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-bold text-gray-900">{currentMonth}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border"
+                      style={{color:'var(--color-primary)', borderColor:'var(--color-primary)', opacity:0.7}}>
+                      Draft
+                    </span>
+                  </div>
                 )}
-                {summary && (
+                {summary?.prepared && savedMonths.includes(currentMonth) && (
                   <>
                     <span className="text-gray-300 text-sm">·</span>
                     <span className="text-xs text-gray-400">Prepared {summary.prepared}</span>
@@ -1820,9 +2513,41 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           </div>
           {/* Right: action buttons */}
           <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+            {summary && (
+              generating.size > 0 ? (
+                <div className="flex items-center gap-1.5 text-xs text-gray-400 px-3 py-1.5">
+                  <div className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-transparent animate-spin"/>
+                  Generating…
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const hasContent = summary.title || summary.overallSummary || (summary.keyTakeaways||[]).length || (summary.watchAreas||[]).length || summary.reserves
+                    if (hasContent) setShowGenAllConfirm(true)
+                    else generateAll()
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap"
+                  style={{ borderColor: 'var(--color-primary)', color: 'var(--color-primary)' }}>
+                  ✦ Generate All
+                </button>
+              )
+            )}
+            {summary && (
+              <button
+                onClick={() => doSave(currentMonth, summary)}
+                disabled={saveStatus === 'saving'}
+                className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap transition-all disabled:opacity-60"
+                style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
+                {saveStatus === 'saving' ? (
+                  <><div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin"/> Saving…</>
+                ) : (
+                  <><Save size={11}/> Save Summary</>
+                )}
+              </button>
+            )}
             <button onClick={() => setShowAddMonth(true)}
               className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg text-white whitespace-nowrap"
-              style={{backgroundColor:'var(--color-accent)'}}>
+              style={{backgroundColor:'var(--color-primary)'}}>
               <Plus size={11}/> New Month
             </button>
             <button onClick={() => setEditMode(v => !v)}
@@ -1832,29 +2557,32 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
           </div>
         </div>
 
-        {noData ? (
-          /* ── No summary state ── */
-          <div className="text-center py-16">
-            <FileText size={40} className="text-gray-200 mx-auto mb-4"/>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">No summary for {currentMonth}</h3>
-            <p className="text-sm text-gray-400 mb-6">Create a monthly narrative summary for this period.</p>
-            <button onClick={() => { onAddSummary(currentMonth); setEditMode(true) }}
-              className="px-5 py-2 rounded-lg text-sm font-medium text-white"
-              style={{backgroundColor:'var(--color-accent)'}}>
-              Create Summary
-            </button>
-          </div>
-        ) : (
-          <>
+        <>
 
           {/* ── OVERALL SUMMARY ── */}
-          <SectionLabel>Overall Summary</SectionLabel>
-          <div className="mb-2">
-            <EditableTitle value={summary.title} onChange={v=>update('title',v)} editMode={editMode}
-              className="text-3xl font-bold text-gray-900 leading-tight mb-4"/>
+          <div className="flex items-center justify-between mb-2">
+            <SectionLabel className="mb-0">Overall Summary</SectionLabel>
+            <GenerateButton
+              hasContent={!!(summary?.title || summary?.overallSummary)}
+              loading={generating.has('overall')}
+              error={genErrors.overall}
+              onGenerate={() => generateSection('overall')}/>
           </div>
-          <EditableArea value={summary.overallSummary} onChange={v=>update('overallSummary',v)} editMode={editMode}
-            className="text-sm text-gray-600 leading-relaxed" rows={4} placeholder="Write an overall summary of the month..."/>
+          {generating.has('overall') ? (
+            <div className="mb-6 space-y-3">
+              <div className="h-8 bg-gray-100 rounded w-2/3 animate-pulse"/>
+              <GenerateSkeleton/>
+            </div>
+          ) : (
+            <>
+              <div className="mb-2">
+                <EditableTitle value={summary?.title || ''} onChange={v=>update('title',v)} editMode={editMode}
+                  className="text-3xl font-bold text-gray-900 leading-tight mb-4"/>
+              </div>
+              <EditableArea value={summary?.overallSummary || ''} onChange={v=>update('overallSummary',v)} editMode={editMode}
+                className="text-sm text-gray-600 leading-relaxed" rows={4} placeholder="Write an overall summary of the month..."/>
+            </>
+          )}
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── FINANCIAL POSITION ── */}
@@ -1862,59 +2590,95 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
             <SectionLabel>Financial Position</SectionLabel>
           </div>
           <div className="flex gap-3 flex-wrap mb-4" style={{alignItems:'stretch'}}>
-            {(summary.kpiCards||[]).map(id => renderMonthlyKPICard(id))}
+            {(summary?.kpiCards||[]).map(id => renderMonthlyKPICard(id))}
             {editMode && (
               <button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-4 min-w-[140px] max-w-[180px] text-gray-300 hover:text-gray-500">
                 <Plus size={18}/><span className="text-xs font-medium">Add card</span>
               </button>
             )}
           </div>
-          <div className="mt-6">
-            <EditableArea value={summary.monthlyNarrative} onChange={v=>update('monthlyNarrative',v)} editMode={editMode}
-              className="text-sm text-gray-600 leading-relaxed" rows={6} placeholder="Describe what happened this month, why, and whether you're on track..."/>
+          <div className="my-8 border-t border-gray-200"/>
+
+          {/* ── MONTHLY ACTIVITY ── */}
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-primary)'}}>
+              Monthly Activity — {currentMonth}
+            </span>
+            <div className="flex-1 mx-4 border-t border-gray-200"/>
+            <GenerateButton
+              hasContent={!!summary?.monthlyActivity}
+              loading={generating.has('monthlyActivity')}
+              error={genErrors.monthlyActivity}
+              onGenerate={() => generateSection('monthlyActivity')}/>
           </div>
+          {generating.has('monthlyActivity') ? (
+            <GenerateSkeleton/>
+          ) : (
+            <EditableArea value={summary?.monthlyActivity || ''} onChange={v=>update('monthlyActivity',v)} editMode={editMode}
+              className="text-sm text-gray-600 leading-relaxed" rows={3}
+              placeholder="What happened financially this month — income vs budget, expense trends, and net result..."/>
+          )}
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── KEY TAKEAWAYS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Key Takeaways</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-primary)'}}>Key Takeaways</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
-            {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+            <div className="flex items-center gap-2">
+              <GenerateButton
+                hasContent={(summary?.keyTakeaways||[]).length > 0}
+                loading={generating.has('takeaways')}
+                error={genErrors.takeaways}
+                onGenerate={() => generateSection('takeaways')}/>
+              {editMode && <button onClick={addTakeaway} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-primary)'}}><Plus size={11}/> Add</button>}
+            </div>
           </div>
-          <div className="space-y-0">
-            {(summary.keyTakeaways||[]).map((kt, idx) => (
-              <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
-                <div className="flex items-start gap-4">
-                  <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-accent)'}}>{String(idx+1).padStart(2,'0')}</span>
-                  <div className="flex-1 min-w-0">
-                    {editMode ? (
-                      <>
-                        <input value={kt.title} onChange={e=>editTakeaway(idx,'title',e.target.value)}
-                          className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500 mb-2"/>
-                        <textarea value={kt.body} onChange={e=>editTakeaway(idx,'body',e.target.value)} rows={3}
-                          className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-semibold text-gray-900 mb-1">{kt.title}</p>
-                        <p className="text-sm text-gray-600 leading-relaxed">{highlightNumbers(kt.body)}</p>
-                      </>
+          {generating.has('takeaways') ? (
+            <div className="space-y-3">
+              {[1,2,3].map(i => (
+                <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 animate-pulse">
+                  <div className="h-4 bg-gray-100 rounded w-1/2 mb-2"/>
+                  <div className="h-3 bg-gray-100 rounded w-full mb-1"/>
+                  <div className="h-3 bg-gray-100 rounded w-4/5"/>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-0">
+              {(summary?.keyTakeaways||[]).map((kt, idx) => (
+                <div key={kt.id} className="mb-3 last:mb-0 bg-white rounded-xl border border-gray-100 p-4">
+                  <div className="flex items-start gap-4">
+                    <span className="text-sm font-bold tabular-nums flex-shrink-0 mt-0.5 w-6" style={{color:'var(--color-primary)'}}>{String(idx+1).padStart(2,'0')}</span>
+                    <div className="flex-1 min-w-0">
+                      {editMode ? (
+                        <>
+                          <input value={kt.title} onChange={e=>editTakeaway(idx,'title',e.target.value)}
+                            className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500 mb-2"/>
+                          <textarea value={kt.body} onChange={e=>editTakeaway(idx,'body',e.target.value)} rows={3}
+                            className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-gray-900 mb-1">{kt.title}</p>
+                          <p className="text-sm text-gray-600 leading-relaxed">{highlightNumbers(kt.body)}</p>
+                        </>
+                      )}
+                    </div>
+                    {editMode && (
+                      <div className="flex flex-col gap-1 flex-shrink-0">
+                        <button onClick={()=>moveTakeaway(idx,-1)} disabled={idx===0} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={14}/></button>
+                        <button onClick={()=>moveTakeaway(idx,1)} disabled={idx===((summary?.keyTakeaways||[]).length-1)} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={14}/></button>
+                        <button onClick={()=>removeTakeaway(idx)} className="p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
+                      </div>
                     )}
                   </div>
-                  {editMode && (
-                    <div className="flex flex-col gap-1 flex-shrink-0">
-                      <button onClick={()=>moveTakeaway(idx,-1)} disabled={idx===0} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronUp size={14}/></button>
-                      <button onClick={()=>moveTakeaway(idx,1)} disabled={idx===(summary.keyTakeaways.length-1)} className="p-1 rounded text-gray-300 hover:text-gray-600 disabled:opacity-20"><ChevronDown size={14}/></button>
-                      <button onClick={()=>removeTakeaway(idx)} className="p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))}
-            {(summary.keyTakeaways||[]).length===0 && editMode && (
-              <p className="text-sm text-gray-400 italic py-4">No takeaways yet. Click "+ Add" to add one.</p>
-            )}
-          </div>
+              ))}
+              {(summary?.keyTakeaways||[]).length===0 && !generating.has('takeaways') && (
+                <p className="text-sm text-gray-400 italic py-4">No takeaways yet. Click "✦ Generate" or "+ Add" to add some.</p>
+              )}
+            </div>
+          )}
           <div className="my-8"/>
 
           {/* ── ROLLING QUOTE ── */}
@@ -1923,78 +2687,174 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary }) {
 
           {/* ── WATCH AREAS ── */}
           <div className="flex items-center justify-between mb-6">
-            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-accent)'}}>Watch Areas</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.15em]" style={{color:'var(--color-primary)'}}>Watch Areas</span>
             <div className="flex-1 mx-4 border-t border-gray-200"/>
-            {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-accent)'}}><Plus size={11}/> Add</button>}
+            <div className="flex items-center gap-2">
+              <GenerateButton
+                hasContent={(summary?.watchAreas||[]).length > 0}
+                loading={generating.has('watchAreas')}
+                error={genErrors.watchAreas}
+                onGenerate={() => generateSection('watchAreas')}/>
+              {editMode && <button onClick={addWatchArea} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg text-white" style={{backgroundColor:'var(--color-primary)'}}><Plus size={11}/> Add</button>}
+            </div>
           </div>
-          <div className="space-y-6">
-            {(summary.watchAreas||[]).map((wa, idx) => {
-              const s = WATCH_STATUSES[wa.status] || WATCH_STATUSES['monitoring']
-              return (
-                <div key={wa.id} className="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
-                  {editMode ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <select value={wa.status} onChange={e=>editWatchArea(idx,'status',e.target.value)}
-                          className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-gray-200 focus:outline-none bg-white cursor-pointer">
-                          <option value="needs-attention">Needs Attention</option>
-                          <option value="monitoring">Monitoring</option>
-                          <option value="on-track">On Track</option>
-                        </select>
-                        <button onClick={()=>removeWatchArea(idx)} className="ml-auto p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
-                      </div>
-                      <input value={wa.title} onChange={e=>editWatchArea(idx,'title',e.target.value)}
-                        className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
-                      <textarea value={wa.body} onChange={e=>editWatchArea(idx,'body',e.target.value)} rows={3}
-                        className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
-                    </div>
-                  ) : (
-                    <>
-                      <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded mb-3 ${s.pill}`}>{s.label}</span>
-                      <p className="font-semibold text-gray-900 mb-1.5">{wa.title}</p>
-                      <p className="text-sm text-gray-600 leading-relaxed">{wa.body}</p>
-                    </>
-                  )}
+          {generating.has('watchAreas') ? (
+            <div className="space-y-6">
+              {[1,2,3].map(i => (
+                <div key={i} className="border-b border-gray-100 pb-6 animate-pulse">
+                  <div className="h-5 bg-gray-100 rounded w-24 mb-3"/>
+                  <div className="h-4 bg-gray-100 rounded w-1/2 mb-2"/>
+                  <div className="h-3 bg-gray-100 rounded w-full mb-1"/>
+                  <div className="h-3 bg-gray-100 rounded w-4/5"/>
                 </div>
-              )
-            })}
-            {(summary.watchAreas||[]).length===0 && editMode && (
-              <p className="text-sm text-gray-400 italic">No watch areas yet. Click "+ Add" to add one.</p>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {(summary?.watchAreas||[]).map((wa, idx) => {
+                const s = WATCH_STATUSES[wa.status] || WATCH_STATUSES['monitoring']
+                return (
+                  <div key={wa.id} className="border-b border-gray-100 pb-6 last:border-0 last:pb-0">
+                    {editMode ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <select value={wa.status} onChange={e=>editWatchArea(idx,'status',e.target.value)}
+                            className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-gray-200 focus:outline-none bg-white cursor-pointer">
+                            <option value="needs-attention">Needs Attention</option>
+                            <option value="monitoring">Monitoring</option>
+                            <option value="on-track">On Track</option>
+                          </select>
+                          <button onClick={()=>removeWatchArea(idx)} className="ml-auto p-1 rounded text-gray-300 hover:text-red-500"><X size={14}/></button>
+                        </div>
+                        <input value={wa.title} onChange={e=>editWatchArea(idx,'title',e.target.value)}
+                          className="w-full font-semibold text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
+                        <textarea value={wa.body} onChange={e=>editWatchArea(idx,'body',e.target.value)} rows={3}
+                          className="w-full text-sm text-gray-600 bg-transparent resize-none border-b border-dashed border-gray-300 focus:outline-none focus:border-gray-500"/>
+                      </div>
+                    ) : (
+                      <>
+                        <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded mb-3 ${s.pill}`}>{s.label}</span>
+                        <p className="font-semibold text-gray-900 mb-1.5">{wa.title}</p>
+                        <p className="text-sm text-gray-600 leading-relaxed">{wa.body}</p>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+              {(summary?.watchAreas||[]).length===0 && !generating.has('watchAreas') && (
+                <p className="text-sm text-gray-400 italic">No watch areas yet. Click "✦ Generate" or "+ Add" to add one.</p>
+              )}
+            </div>
+          )}
           <div className="my-8 border-t border-gray-200"/>
 
           {/* ── RESERVES ── */}
-          <SectionLabel color="var(--color-accent)">Reserves</SectionLabel>
-          <EditableArea value={summary.reserves} onChange={v=>update('reserves',v)} editMode={editMode}
-            className="text-sm text-gray-700 leading-relaxed mb-4" rows={4} placeholder="Describe the reserves position, rationale, and outlook..."/>
-          {(editMode || summary.reservesNote) && (
-            <EditableArea value={summary.reservesNote} onChange={v=>update('reservesNote',v)} editMode={editMode}
+          <div className="flex items-center justify-between mb-2">
+            <SectionLabel className="mb-0" color="var(--color-primary)">Reserves</SectionLabel>
+            <GenerateButton
+              hasContent={!!summary?.reserves}
+              loading={generating.has('reserves')}
+              error={genErrors.reserves}
+              onGenerate={() => generateSection('reserves')}/>
+          </div>
+          {generating.has('reserves') ? (
+            <div className="mb-4"><GenerateSkeleton/></div>
+          ) : (
+            <EditableArea value={summary?.reserves || ''} onChange={v=>update('reserves',v)} editMode={editMode}
+              className="text-sm text-gray-700 leading-relaxed mb-4" rows={4} placeholder="Describe the reserves position, rationale, and outlook..."/>
+          )}
+          {(editMode || summary?.reservesNote) && (
+            <EditableArea value={summary?.reservesNote || ''} onChange={v=>update('reservesNote',v)} editMode={editMode}
               className="text-xs text-gray-400 leading-relaxed" rows={2} placeholder="Add a footnote or note about reserve reporting timing..."/>
           )}
 
           {/* ── FOOTER ── */}
           <div className="mt-12 pt-6 border-t border-gray-200 flex items-center justify-between text-xs text-gray-400">
-            <span>Prepared by the Finance Team · {summary.prepared}</span>
-            {existingMonths[1] && <span>Next summary · {existingMonths[0]}</span>}
+            <span>Prepared by the Finance Team · {summary?.prepared}</span>
+            {savedMonths[1] && <span>Prev summary · {savedMonths[savedMonths.indexOf(currentMonth) + 1] || savedMonths[savedMonths.length - 1]}</span>}
           </div>
-          </>
-        )}
+        </>
 
       </div>{/* end max-w-2xl */}
 
-      {/* Add Month Modal */}
-      {showAddMonth && (
+      {/* Generate All Confirmation Modal */}
+      {showGenAllConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-80 p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Create Summary for Month</h3>
-            <select value={newMonthSel} onChange={e=>setNewMonthSel(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 mb-4">
-              {ALL_MONTHS.filter(m=>!summaries[m]).map(m=><option key={m} value={m}>{m}</option>)}
-            </select>
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-96 p-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">Replace existing content?</h3>
+            <p className="text-sm text-gray-500 mb-5">This will replace existing content in all sections. Continue?</p>
             <div className="flex gap-2">
-              <button onClick={()=>setShowAddMonth(false)} className="flex-1 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">Cancel</button>
-              <button onClick={handleCreateMonth} className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors" style={{backgroundColor:'var(--color-accent)'}}>Create</button>
+              <button onClick={() => setShowGenAllConfirm(false)}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+                Cancel
+              </button>
+              <button onClick={generateAll}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+                style={{backgroundColor:'var(--color-primary)'}}>
+                Generate All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Month Picker — shows all months with transaction data */}
+      {showAddMonth && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+          onClick={() => setShowAddMonth(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-88 flex flex-col"
+            style={{maxHeight:'70vh', width:360}}
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Select Month</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">All months with transaction data · ✓ = summary saved</p>
+              </div>
+              <button onClick={() => setShowAddMonth(false)}
+                className="w-6 h-6 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                <X size={14}/>
+              </button>
+            </div>
+            {/* Month list */}
+            <div className="flex-1 overflow-y-auto p-2">
+              {allDataMonths.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-10">
+                  No transaction data found.<br/>Import transactions to get started.
+                </p>
+              ) : (
+                allDataMonths.map(m => {
+                  const p  = monthLabelToPeriod(m)
+                  const isSaved   = p && savedPeriods.has(p)
+                  const isCurrent = m === currentMonth
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => {
+                        setCurrentMonth(m)
+                        setShowAddMonth(false)
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl transition-colors text-left ${
+                        isCurrent
+                          ? 'text-white'
+                          : 'hover:bg-gray-50 text-gray-900'
+                      }`}
+                      style={isCurrent ? {backgroundColor:'var(--color-primary)'} : {}}>
+                      <span className="text-sm font-medium">{m}</span>
+                      {isSaved && !isCurrent && (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600">
+                          <Check size={11}/> Saved
+                        </span>
+                      )}
+                      {isSaved && isCurrent && (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-white opacity-80">
+                          <Check size={11}/> Saved
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>
@@ -2040,9 +2900,10 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   // activeBudget is a scenario string from AppContext.availableScenarios
   const scenario = activeBudget || availableScenarios[0] || ''
 
-  const now = new Date()
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  const currentMonthDisplay = lastMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+  // Derive period label from the END of the selected date range, not "last month".
+  // e.g. Fiscal YTD ending May 2026 → "May 2026"; Full Fiscal Year ending May 2026 → "May 2026"
+  const endDateStr = dateRange?.endDate || new Date().toISOString().slice(0, 10)
+  const currentMonthDisplay = new Date(endDateStr + 'T00:00:00').toLocaleString('en-US', { month: 'long', year: 'numeric' })
 
   const [editKPI,            setEditKPI]            = useState(false)
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
@@ -2059,13 +2920,19 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   const [cashData,   setCashData]   = useState([])
   const [patronData, setPatronData] = useState([])
   useEffect(() => {
-    supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID)
-      .then(({ data }) => setCashData(data || []))
-    supabase.from('v_patron_trends').select('*').eq('org_id', ORG_ID)
-      .then(({ data }) => setPatronData(data || []))
+    Promise.all([
+      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
+      supabase.from('v_patron_trends').select('*').eq('org_id', ORG_ID),
+    ]).then(([{ data: cash }, { data: patron }]) => {
+      setCashData(cash || [])
+      setPatronData(patron || [])
+    })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const d = filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData)
+  const d = useMemo(
+    () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData) || EMPTY_ELT,
+    [dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData]
+  )
   const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
@@ -2095,17 +2962,46 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     {id:'net-operating',type:'total',label:'Net Operating Income',actual:netPosition,budget:netForecast,group:'net'},
   ]
 
+  // Unresolved rows — summarise _warnings for the current date range
+  const plWarnItems = useMemo(() => {
+    const startP = (dateRange.startDate || '').substring(0, 7)
+    const endP   = (dateRange.endDate   || '').substring(0, 7)
+    const map = {}
+    for (const t of actuals) {
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!p || p < startP || p > endP) continue
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
+    }
+    for (const b of budgetFlat) {
+      if (b.scenario !== scenario) continue
+      if (!b.period || b.period < startP || b.period > endP) continue
+      for (const w of (b._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, budget: 0, count: 0 }
+        map[w].budget = (map[w].budget || 0) + Math.abs(b.amount || 0)
+      }
+    }
+    return map
+  }, [actuals, budgetFlat, scenario, dateRange])
+
   // Account-level rows for P&L expand — groups actuals by account within each category bucket
-  const plAccounts = computePLAccounts(actuals, {
-    contributions: d.budget.contributions,
-    merch:         d.budget.merchandiseRevenue,
-    'other-inc':   d.budget.otherIncome,
-    staff:         d.budget.staff,
-    contract:      d.budget.contract,
-    technology:    d.budget.technology,
-    travel:        d.budget.travel,
-    'other-exp':   Math.max(0, d.budget.otherGenAdmin),
-  }, dateRange)
+  const plAccounts = useMemo(
+    () => computePLAccounts(actuals, {
+      contributions: d.budget.contributions,
+      merch:         d.budget.merchandiseRevenue,
+      'other-inc':   d.budget.otherIncome,
+      staff:         d.budget.staff,
+      contract:      d.budget.contract,
+      technology:    d.budget.technology,
+      travel:        d.budget.travel,
+      'other-exp':   Math.max(0, d.budget.otherGenAdmin),
+    }, dateRange),
+    [actuals, d.budget.contributions, d.budget.merchandiseRevenue, d.budget.otherIncome,
+     d.budget.staff, d.budget.contract, d.budget.technology, d.budget.travel, d.budget.otherGenAdmin, dateRange]
+  )
 
   function renderKPICard(cardId) {
     if(cardId==='giving') {
@@ -2154,8 +3050,11 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   function renderPatronMetricCard(cardId) {
     const p = d.patrons
     const removeMetric = () => setPatronMetricCards(c=>c.filter(x=>x!==cardId))
-    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label="vs Prior Month" sub1Delta={p.total-p.priorMonth} sub1Base={p.priorMonth} sub1Format="count" sub2Label="vs Prior Year" sub2Delta={p.total-p.priorYear} sub2Base={p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
-    if(cardId==='new-patrons') return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Base={p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={(p.newThisPeriod/p.newPriorPeriod-1)*100} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='total-patrons') return <PatronMetricCard key={cardId} label="Total Active Supporters" mainValue={p.total.toLocaleString()} sub1Label={p.priorMonth > 0 ? "vs Prior Month" : null} sub1Delta={p.total-p.priorMonth} sub1Base={p.priorMonth} sub1Format="count" sub2Label={p.priorYear > 0 ? "vs Prior Year" : null} sub2Delta={p.total-p.priorYear} sub2Base={p.priorYear} sub2Format="count" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    if(cardId==='new-patrons') {
+      const growthRate = p.newPriorPeriod > 0 ? (p.newThisPeriod/p.newPriorPeriod-1)*100 : null
+      return <PatronMetricCard key={cardId} label="New Supporters (Period)" mainValue={p.newThisPeriod.toLocaleString()} sub1Label="vs Prior Period" sub1Delta={p.newThisPeriod-p.newPriorPeriod} sub1Base={p.newPriorPeriod} sub1Format="count" sub2Label="Growth rate" sub2Delta={growthRate} sub2Format="percent" editMode={editPatronMetrics} onRemove={removeMetric}/>
+    }
     if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Base={p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Base={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
     if(cardId==='retention') return (
       <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
@@ -2189,7 +3088,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
         {/* Logo slot — swap orgConfig.logoUrl for a real image when ready */}
         <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm"
-             style={{backgroundColor: orgConfig?.accentColor || 'var(--color-accent)'}}>
+             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
           {orgConfig?.logoUrl
             ? <img src={orgConfig.logoUrl} alt={orgConfig?.name} className="w-8 h-8 object-contain rounded"/>
             : <BarChart2 size={22} className="text-white"/>}
@@ -2197,7 +3096,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1"
              style={{color:'var(--neutral-60)'}}>
-            Financial Summary
+            Dashboard
           </p>
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-2xl font-bold tracking-tight text-gray-900">{currentMonthDisplay}</span>
@@ -2260,7 +3159,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel}/></section>
+      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/></section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
@@ -2518,7 +3417,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Team Detail</p>
             <h2 className="text-xl font-bold text-gray-900">{team.name}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager} · Dept {team.id}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Manager: {team.manager}{team.code ? ` · ${team.code}` : ''}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Local date range control */}
@@ -2615,6 +3514,12 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
                   </div>
                 )
               })}
+              {/* Unresolved warnings for this team */}
+              {Object.values(team.warnItems || {}).some(v => (v?.actual || 0) + (v?.budget || 0) > 0) && (
+                <div className="px-2 pt-2">
+                  <UnresolvedSection warnMap={team.warnItems}/>
+                </div>
+              )}
             </div>
 
             {/* ── Right: chart + table + notes ── */}
@@ -2813,7 +3718,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
 // Teams Tab — full enterprise layout
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TeamsTab({ dateRange, activeBudget }) {
+function TeamsTab({ dateRange, activeBudget, orgConfig }) {
   const { actuals, budgetFlat } = useApp()
   const navigate = useNavigate()
 
@@ -2822,45 +3727,70 @@ function TeamsTab({ dateRange, activeBudget }) {
   const endM   = (endDate   || '2026-09-30').slice(0,7)
   const rangeLabel = presetLabel(dateRange?.preset)
 
-  // Fetch team manager names once
+  // Fetch team manager names + codes once
   const [teamManagers, setTeamManagers] = useState({})
+  const [teamCodes,    setTeamCodes]    = useState({})
   useEffect(() => {
-    supabase.from('teams').select('team_name, manager_name')
+    supabase.from('teams').select('team_name, manager_name, team_code')
       .then(({ data }) => {
         if (!data) return
-        const m = {}
-        data.forEach(t => { if (t.team_name) m[t.team_name] = t.manager_name || '' })
+        const m = {}, c = {}
+        data.forEach(t => {
+          if (t.team_name) {
+            m[t.team_name] = t.manager_name || ''
+            c[t.team_name] = t.team_code    || ''
+          }
+        })
         setTeamManagers(m)
+        setTeamCodes(c)
       })
   }, [])
 
-  // Build per-team actuals (expenses only, in date range)
-  const { teamActualMap, teamIdMap } = useMemo(() => {
+  // Build per-team actuals (expenses only, in date range).
+  // Transactions without a team_name are tallied separately as unassigned — they
+  // represent real spend that either (a) was imported without a dept_code,
+  // (b) has a dept_code that isn't linked to any team in the registry, or
+  // (c) belonged to a team that was later deleted (on delete set null cascade).
+  const { teamActualMap, teamIdMap, unassignedActual, unassignedDeptCodes } = useMemo(() => {
     const actualMap = {}, idMap = {}
+    let unassigned = 0
+    const deptCodes = new Set()
     for (const t of actuals) {
       if (!t.date || t.date < startDate || t.date > endDate) continue
       if (t.record_type === 'income') continue
-      const name = t.team_name || 'Unknown'
+      if (!t.team_name) {
+        unassigned += Math.abs(t.amount || 0)
+        if (t.dept_code) deptCodes.add(t.dept_code)
+        else deptCodes.add('(no dept)')
+        continue
+      }
+      const name = t.team_name
       actualMap[name] = (actualMap[name] || 0) + Math.abs(t.amount || 0)
       if (t.team_id && !idMap[name]) idMap[name] = t.team_id
     }
-    return { teamActualMap: actualMap, teamIdMap: idMap }
+    return { teamActualMap: actualMap, teamIdMap: idMap, unassignedActual: unassigned, unassignedDeptCodes: deptCodes }
   }, [actuals, startDate, endDate])
 
-  // Build per-team budget (selected scenario, in date range)
-  const teamBudgetMap = useMemo(() => {
+  // Build per-team budget (selected scenario, in date range).
+  // Budget rows without a team_name are tallied as unassigned budget.
+  const { teamBudgetMap, unassignedBudget } = useMemo(() => {
     const m = {}
+    let unassigned = 0
     for (const b of budgetFlat) {
       if (b.scenario !== activeBudget) continue
       if (b.record_type === 'income') continue
       if (!b.period || b.period < startM || b.period > endM) continue
-      const name = b.team_name || 'Unknown'
+      if (!b.team_name) {
+        unassigned += Math.abs(b.amount || 0)
+        continue
+      }
+      const name = b.team_name
       m[name] = (m[name] || 0) + Math.abs(b.amount || 0)
     }
-    return m
+    return { teamBudgetMap: m, unassignedBudget: unassigned }
   }, [budgetFlat, activeBudget, startM, endM])
 
-  // Merge into team rows
+  // Merge into team rows (assigned teams only — unassigned handled separately below)
   const teams = useMemo(() => {
     const allNames = new Set([...Object.keys(teamActualMap), ...Object.keys(teamBudgetMap)])
     return [...allNames].map(name => ({
@@ -2871,8 +3801,10 @@ function TeamsTab({ dateRange, activeBudget }) {
     }))
   }, [teamActualMap, teamBudgetMap, teamIdMap])
 
-  const totalActual   = teams.reduce((s,t) => s + t.actual,  0)
-  const totalBudget   = teams.reduce((s,t) => s + t.budget,  0)
+  const hasUnassigned   = unassignedActual > 0
+  // Totals include unassigned so the page reconciles to real org spend
+  const totalActual   = teams.reduce((s,t) => s + t.actual,  0) + unassignedActual
+  const totalBudget   = teams.reduce((s,t) => s + t.budget,  0) + unassignedBudget
   const totalVariance = totalActual - totalBudget
   const overBudget    = teams.filter(t => t.budget > 0 && t.actual > t.budget).length
 
@@ -2900,21 +3832,41 @@ function TeamsTab({ dateRange, activeBudget }) {
       const key = catGroup(t)
       catActualTotals[key] = (catActualTotals[key] || 0) + Math.abs(t.amount || 0)
     }
-    // Per-category budget totals
+    // Per-category budget totals — exclude orphaned rows (account_id not in chart_of_accounts)
+    // so they don't inflate "Uncategorized" with $0 actual / phantom budget.
     const teamBudTxs = budgetFlat.filter(b =>
       b.team_name === teamRow.name && b.scenario === activeBudget &&
-      b.record_type !== 'income' && b.period && b.period >= startM && b.period <= endM
+      b.record_type !== 'income' && b.period && b.period >= startM && b.period <= endM &&
+      b._hasAccount !== false   // skip orphaned budget rows
     )
     const catBudgetTotals = {}
     for (const b of teamBudTxs) {
       const key = catGroup(b)
       catBudgetTotals[key] = (catBudgetTotals[key] || 0) + Math.abs(b.amount || 0)
     }
+    // Per-category prior year actuals (same date range, one year back)
+    const pyStartM = `${parseInt(startM.slice(0,4))-1}${startM.slice(4)}`
+    const pyEndM   = `${parseInt(endM.slice(0,4))-1}${endM.slice(4)}`
+    const pyTeamTxs = actuals.filter(t => {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null)
+      return t.team_name === teamRow.name && t.record_type !== 'income' && p && p >= pyStartM && p <= pyEndM
+    })
+    const catPYTotals = {}
+    for (const t of pyTeamTxs) {
+      const key = catGroup(t)
+      catPYTotals[key] = (catPYTotals[key] || 0) + Math.abs(t.amount || 0)
+    }
     // Merge into cats shape TeamDetailDrawer expects
     const allCatKeys = new Set([...Object.keys(catActualTotals), ...Object.keys(catBudgetTotals)])
     const cats = {}
     for (const key of allCatKeys) {
-      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: 0 }
+      cats[key] = { actual: catActualTotals[key]||0, budget: catBudgetTotals[key]||0, priorYear: catPYTotals[key]||0 }
+    }
+    // Remove categories where BOTH actual and budget are $0 — these are orphaned
+    // budget rows that slipped through (e.g. account_id with no matching chart entry)
+    // or historical categories with no activity in the selected range.
+    for (const key of Object.keys(cats)) {
+      if (cats[key].actual === 0 && cats[key].budget === 0) delete cats[key]
     }
     // Real monthly data per category (for the category chart)
     const byPeriod = {}
@@ -2930,15 +3882,34 @@ function TeamsTab({ dateRange, activeBudget }) {
       return { ...row, month: new Date(parseInt(y),parseInt(m)-1,1).toLocaleString('en-US',{month:'short'})+' '+y.slice(2) }
     })
 
+    // Warning summary for this team's actuals in range
+    const teamWarnItems = {}
+    for (const t of teamTxs) {
+      for (const w of (t._warnings || [])) {
+        if (!teamWarnItems[w]) teamWarnItems[w] = { actual: 0, count: 0 }
+        teamWarnItems[w].actual += Math.abs(t.amount || 0)
+        teamWarnItems[w].count++
+      }
+    }
+    // Also budget unresolved for this team
+    for (const b of teamBudTxs) {
+      for (const w of (b._warnings || [])) {
+        if (!teamWarnItems[w]) teamWarnItems[w] = { actual: 0, budget: 0, count: 0 }
+        teamWarnItems[w].budget = (teamWarnItems[w].budget || 0) + Math.abs(b.amount || 0)
+      }
+    }
+
     return {
       name:       teamRow.name,
       id:         teamRow.id,
+      code:       teamCodes[teamRow.name] || '',
       manager:    teamManagers[teamRow.name] || 'Not assigned',
       actual:     teamRow.actual,
       budget:     teamRow.budget,
       spreadKey:  'flat',
-      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: 0 } },
+      cats:       Object.keys(cats).length ? cats : { other: { actual: teamRow.actual, budget: teamRow.budget, priorYear: pyTeamTxs.reduce((s,t)=>s+Math.abs(t.amount||0),0) } },
       realMonthly,
+      warnItems:  teamWarnItems,
     }
   }
 
@@ -2980,8 +3951,9 @@ function TeamsTab({ dateRange, activeBudget }) {
 
       {/* Page header */}
       <div className="flex items-start gap-4 pb-2 border-b border-gray-100">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{backgroundColor:'var(--color-accent-light)'}}>
-          <Users size={18} style={{color:'var(--neutral-60)'}}/>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+             style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
+          <Users size={18} className="text-white"/>
         </div>
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-1" style={{color:'var(--neutral-60)'}}>
@@ -3068,7 +4040,7 @@ function TeamsTab({ dateRange, activeBudget }) {
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2 justify-end">
                       <div className="w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-accent)'}}/>
+                        <div className="h-full rounded-full" style={{width:`${Math.min(share*3,100)}%`,backgroundColor:'var(--color-primary)'}}/>
                       </div>
                       <span className="text-xs tabular-nums text-gray-500 w-10 text-right">{share.toFixed(1)}%</span>
                     </div>
@@ -3076,6 +4048,33 @@ function TeamsTab({ dateRange, activeBudget }) {
                 </tr>
               )
             })}
+            {/* Unassigned row */}
+            {hasUnassigned && (
+              <tr className="border-b border-amber-100 bg-amber-50/40">
+                <td className="px-6 py-3">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={13} className="text-amber-500 flex-shrink-0"/>
+                    <span className="font-medium text-amber-800">Unassigned</span>
+                  </div>
+                  <div className="text-[10px] text-amber-600 mt-0.5">
+                    {unassignedDeptCodes.size} dept code{unassignedDeptCodes.size !== 1 ? 's' : ''} — no team mapping
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums font-medium text-amber-700">{formatCurrency(unassignedActual,{compact:false})}</td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-400">—</td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-400">—</td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-400">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-600">—</span>
+                </td>
+                <td className="px-6 py-3">
+                  <div className="flex items-center gap-2 justify-end">
+                    <span className="text-xs tabular-nums text-amber-600">
+                      {totalActual > 0 ? ((unassignedActual/totalActual)*100).toFixed(1) : '0.0'}%
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            )}
             {/* Totals */}
             <tr className="bg-gray-900">
               <td className="px-6 py-3 font-bold text-white">Total — All Teams</td>
@@ -3094,6 +4093,34 @@ function TeamsTab({ dateRange, activeBudget }) {
           </tbody>
         </table>
       </div>
+
+      {/* Unassigned footnote — now with actionable warning links */}
+      {hasUnassigned && (
+        <UnresolvedSection
+          warnMap={(() => {
+            // Aggregate unassigned actuals by specific warn type
+            const map = {}
+            for (const t of actuals) {
+              if (!t.date || t.date < startDate || t.date > endDate) continue
+              if (t.record_type === 'income') continue
+              if (t.team_name) continue  // assigned — skip
+              for (const w of (t._warnings || [])) {
+                if (!map[w]) map[w] = { actual: 0, count: 0 }
+                map[w].actual += Math.abs(t.amount || 0)
+                map[w].count++
+              }
+              // Fallback: if no _warnings but still unassigned, treat as no_team
+              if (!(t._warnings?.length)) {
+                if (!map.no_team) map.no_team = { actual: 0, count: 0 }
+                map.no_team.actual += Math.abs(t.amount || 0)
+                map.no_team.count++
+              }
+            }
+            return map
+          })()}
+          className="mt-3"
+        />
+      )}
 
     </div>
 
@@ -3246,7 +4273,7 @@ function DocumentsTab({ orgConfig }) {
             )}
           </div>
           <button onClick={() => setShowUpload(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-accent)'}}>
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
             <Upload size={11}/> Upload document
           </button>
         </div>
@@ -3377,7 +4404,7 @@ function DocumentsTab({ orgConfig }) {
                 </button>
                 <button onClick={handleUpload} disabled={!upName.trim()}
                   className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
-                  style={{backgroundColor:'var(--color-accent)'}}>
+                  style={{backgroundColor:'var(--color-primary)'}}>
                   Add Document
                 </button>
               </div>
@@ -3408,7 +4435,7 @@ function generateReportHTML({ sections, dateRange, orgConfig, summaries, summary
     cash:        { current:0, priorMonth:0, priorYear:0 },
   }
   const d           = eltData || EMPTY_ELT
-  const accentColor = orgConfig?.accentColor || '#00B3E5'
+  const primaryColor = orgConfig?.primaryColor || '#00B3E5'
   const orgName     = orgConfig?.name || 'Organization'
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
@@ -3429,7 +4456,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1
 h1{font-size:26px;font-weight:800;color:#191A1B;margin-bottom:6px}
 h2{font-size:16px;font-weight:700;color:#191A1B;margin:28px 0 10px}
 h3{font-size:13px;font-weight:600;color:#4F5669;margin:16px 0 6px}
-.label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:${accentColor};margin-bottom:4px}
+.label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:${primaryColor};margin-bottom:4px}
 .divider{border:none;border-top:1px solid #E4E8ED;margin:24px 0}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:14px;margin:12px 0 20px}
 .kpi{background:#FBF7EF;border:1px solid #E4E8ED;border-radius:10px;padding:14px}
@@ -3439,13 +4466,13 @@ table{width:100%;border-collapse:collapse;font-size:11px;margin:10px 0 20px}
 th{background:#FBF7EF;padding:7px 12px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#6B7384;border-bottom:2px solid #E4E8ED;text-align:left}
 .tr{text-align:right}
 td{padding:7px 12px;border-bottom:1px solid #ECEFF3}
-.sec-row td{background:#F6EFE1;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${accentColor};padding:6px 12px}
+.sec-row td{background:#F6EFE1;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:${primaryColor};padding:6px 12px}
 .sub-row td{padding-left:28px}
 .sum-row td{background:#FBF7EF;font-weight:600}
 .tot-row td{background:#1A140E;color:#F8F8F8;font-weight:700}
 .narrative{line-height:1.8;color:#4F5669;margin:8px 0 14px}
 .takeaway{padding:10px 0;border-bottom:1px solid #ECEFF3}
-.tk-num{font-weight:800;color:${accentColor};margin-right:6px}
+.tk-num{font-weight:800;color:${primaryColor};margin-right:6px}
 .footer{margin-top:40px;padding-top:14px;border-top:1px solid #E4E8ED;font-size:10px;color:#89929E;display:flex;justify-content:space-between}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{padding:32px}}`
 
@@ -3661,7 +4688,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
       {/* Generate button */}
       <button onClick={handleExport} disabled={sections.length===0}
         className="w-full py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-40 flex items-center justify-center gap-2 transition-opacity"
-        style={{backgroundColor:'var(--color-accent)'}}>
+        style={{backgroundColor:'var(--color-primary)'}}>
         <Download size={14}/> Generate PDF
       </button>
       <p className="text-[10px] text-center" style={{color:'var(--fg-3)'}}>Opens a print-ready page in a new tab · use browser Print → Save as PDF</p>
@@ -3936,7 +4963,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
 
         <button onClick={handleImport} disabled={!fileName}
           className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-          style={{backgroundColor:'var(--color-accent)'}}>
+          style={{backgroundColor:'var(--color-primary)'}}>
           {mode === 'append' ? 'Append Data' : 'Replace Data'}
         </button>
       </div>
@@ -3993,7 +5020,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
                 {ALL_MONTHS.map(m=><option key={m} value={m}>{m}{summaries[m]?' ✓':''}</option>)}
               </select>
               {!targetSummary && (
-                <button onClick={handleQuickAdd} className="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style={{backgroundColor:'var(--color-accent)'}}>
+                <button onClick={handleQuickAdd} className="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style={{backgroundColor:'var(--color-primary)'}}>
                   + Create
                 </button>
               )}
@@ -4032,11 +5059,59 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
 // Shared empty summary template
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DB helpers for monthly_summaries table
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** "April 2026" → "2026-04" (reuse monthLabelToPeriod defined above) */
+
+/** "2026-04" → "April 2026" */
+function periodToMonthLabel(period) {
+  if (!period) return null
+  const [y, m] = period.split('-')
+  const d = new Date(parseInt(y), parseInt(m) - 1, 1)
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+}
+
+/** Map a summary object → DB row payload */
+function summaryToDBRow(orgId, period, summary) {
+  return {
+    org_id:            orgId,
+    period,
+    overall_headline:  summary.title            || '',
+    overall_narrative: summary.overallSummary   || '',
+    monthly_activity:  summary.monthlyActivity  || '',
+    takeaways:         summary.keyTakeaways     || [],
+    watch_areas:       summary.watchAreas       || [],
+    reserves:          summary.reserves         || '',
+    reserves_note:     summary.reservesNote     || '',
+    saved_at:          new Date().toISOString(),
+    saved_by:          'system',
+  }
+}
+
+/** Map a DB row → summary object shape */
+function dbRowToSummary(row) {
+  return {
+    title:           row.overall_headline  || '',
+    overallSummary:  row.overall_narrative || '',
+    monthlyActivity: row.monthly_activity  || '',
+    keyTakeaways:    row.takeaways         || [],
+    watchAreas:      row.watch_areas       || [],
+    reserves:        row.reserves          || '',
+    reservesNote:    row.reserves_note     || '',
+    prepared:        row.saved_at
+      ? new Date(row.saved_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+      : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
+  }
+}
+
 const EMPTY_SUMMARY_TEMPLATE = () => ({
   prepared: new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
   title: '',
   overallSummary: '',
   monthlyNarrative: '',
+  monthlyActivity: '',
   financials: {
     giving:   {actual:0,budget:0,priorYear:0},
     expenses: {actual:0,budget:0,priorYear:0},
@@ -4053,7 +5128,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals, availableScenarios, selectedScenario } = useApp()
+  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
@@ -4072,6 +5147,32 @@ export default function ELTDashboard() {
 
   // Monthly summaries — lifted to root so Import and Summary tabs share data
   const [summaries, setSummaries] = useState(INITIAL_SUMMARIES)
+  // Set of YYYY-MM strings for months that have a saved DB record
+  const [savedPeriods, setSavedPeriods] = useState(new Set())
+
+  // Load all saved summaries from DB when org data is available
+  useEffect(() => {
+    if (!ORG_ID) return
+    async function loadSavedSummaries() {
+      const { data } = await supabase
+        .from('monthly_summaries')
+        .select('*')
+        .eq('org_id', ORG_ID)
+        .eq('deleted', false)
+      if (!data || data.length === 0) return
+      setSavedPeriods(new Set(data.map(r => r.period)))
+      setSummaries(prev => {
+        const next = { ...prev }
+        for (const row of data) {
+          const label = periodToMonthLabel(row.period)
+          if (!label) continue
+          next[label] = { ...EMPTY_SUMMARY_TEMPLATE(), ...next[label], ...dbRowToSummary(row) }
+        }
+        return next
+      })
+    }
+    loadSavedSummaries()
+  }, [orgConfig.name]) // re-run when org loads (name changes from default)
 
   function applyPreset(preset) { setDateRange({preset,...getELTPresetRange(preset,orgConfig)}) }
   function applyCustom(s,e)    { setDateRange({preset:'custom',startDate:s,endDate:e}) }
@@ -4083,6 +5184,21 @@ export default function ELTDashboard() {
     setSummaries(prev => ({ ...prev, [month]: { ...EMPTY_SUMMARY_TEMPLATE(), ...prev[month] } }))
   }
 
+  async function handleSaveSummary(month, summary) {
+    const period = monthLabelToPeriod(month)
+    if (!period || !ORG_ID) return { error: 'Missing org or period' }
+    const payload = summaryToDBRow(ORG_ID, period, summary)
+    const { data, error } = await supabase
+      .from('monthly_summaries')
+      .upsert(payload, { onConflict: 'org_id,period' })
+      .select()
+      .single()
+    if (!error) {
+      setSavedPeriods(prev => new Set([...prev, period]))
+    }
+    return { data, error }
+  }
+
   return (
     <div className="min-h-screen flex flex-col" style={{backgroundColor:'var(--color-primary-bg)'}}>
       <ELTNav orgConfig={orgConfig} activeTab={activeTab} setActiveTab={setActiveTab}
@@ -4090,10 +5206,10 @@ export default function ELTDashboard() {
         activeBudget={activeBudget} onSetBudget={setActiveBudget}/>
       <main className="flex-1 overflow-auto">
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
-        {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary}/>}
-        {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget}/>}
+        {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} orgConfig={orgConfig} actuals={actuals} budgetFlat={budgetFlat} activeBudget={activeBudget} savedPeriods={savedPeriods} onSave={handleSaveSummary}/>}
+        {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget} orgConfig={orgConfig}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
-        {activeTab==='comments'  && <CommentsPage />}
+        {activeTab==='comments'  && <CommentsPage context="executive" />}
       </main>
     </div>
   )

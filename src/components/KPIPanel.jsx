@@ -163,7 +163,7 @@ function InlineAddForm({ commentType, onSave, onCancel }) {
           onClick={handleSave}
           disabled={!text.trim() || !author.trim()}
           className="text-[11px] px-2.5 py-1 text-white rounded-lg disabled:opacity-40 transition-colors"
-          style={{ backgroundColor: 'var(--color-accent)' }}
+          style={{ backgroundColor: 'var(--color-primary)' }}
         >
           Save
         </button>
@@ -346,7 +346,7 @@ function TopListCard({ card, actuals, title, field, onRemove }) {
               <div className="ml-5 h-1 bg-gray-100 rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-300"
-                  style={{ width: `${(amount / max) * 100}%`, backgroundColor: 'var(--color-accent)' }}
+                  style={{ width: `${(amount / max) * 100}%`, backgroundColor: 'var(--color-primary)' }}
                 />
               </div>
             </div>
@@ -667,7 +667,7 @@ function DeptSpendCard({ card, actuals, onRemove }) {
                 <span className="text-[11px] font-semibold text-gray-800 tabular-nums flex-shrink-0">{formatCurrency(amount)}</span>
               </div>
               <div className="ml-8 h-1 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${(amount/max)*100}%`, backgroundColor: 'var(--color-accent)' }} />
+                <div className="h-full rounded-full" style={{ width: `${(amount/max)*100}%`, backgroundColor: 'var(--color-primary)' }} />
               </div>
             </div>
           ))}

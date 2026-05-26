@@ -24,6 +24,7 @@ import {
   CheckCircle2, XCircle, AlertCircle,
 } from 'lucide-react'
 import { supabase, ORG_ID } from '../lib/supabase'
+import { useApp } from '../context/AppContext'
 import LastImportSummary from '../components/LastImportSummary'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -422,14 +423,17 @@ function validateRows(canonicalRows, { accounts, departments, teams, existingTxI
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TransactionImportFlow() {
+  // ── Org config from context (avoids re-fetching org_settings) ─────────────
+  const { orgConfig } = useApp()
+
   // ── Registry data loaded from Supabase ─────────────────────────────────────
   const [accounts,      setAccounts]      = useState([])
   const [departments,   setDepartments]   = useState([])
   const [teams,         setTeams]         = useState([])
   const [grants,        setGrants]        = useState([])
   const [savedMappings, setSavedMappings] = useState([])
-  const [orgSettings,   setOrgSettings]   = useState(null)
   const [registriesLoading, setRegLoading] = useState(true)
+  const [regError,          setRegError]   = useState(null)
 
   // ── Flow state ─────────────────────────────────────────────────────────────
   const [step, setStep] = useState('mode')
@@ -475,33 +479,36 @@ export default function TransactionImportFlow() {
   useEffect(() => {
     async function load() {
       setRegLoading(true)
+      setRegError(null)
       const [
-        { data: acc },
-        { data: depts },
-        { data: tms },
-        { data: grs },
-        { data: maps },
-        { data: settings },
+        { data: acc,      error: accErr },
+        { data: depts,    error: deptErr },
+        { data: tms,      error: tmsErr },
+        { data: grs,      error: grsErr },
+        { data: maps,     error: mapsErr },
       ] = await Promise.all([
         supabase.from('chart_of_accounts').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('departments').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('teams').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('grants').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('field_mappings').select('*').eq('org_id', ORG_ID).eq('deleted', false).eq('import_type', 'transactions'),
-        supabase.from('org_settings').select('*').limit(1).single(),
       ])
+      if (accErr || deptErr || tmsErr || grsErr || mapsErr) {
+        setRegError('Failed to load required data — please refresh and try again')
+        setRegLoading(false)
+        return
+      }
       setAccounts(acc || [])
       setDepartments(depts || [])
       setTeams(tms || [])
       setGrants(grs || [])
       setSavedMappings(maps || [])
-      setOrgSettings(settings || null)
       setRegLoading(false)
     }
     load()
   }, [])
 
-  const fyStartMonth = orgSettings?.fiscal_year_start_month || 10
+  const fyStartMonth = orgConfig.fiscalYearStartMonth || 10
 
   // ── File handling ───────────────────────────────────────────────────────────
   function handleFileChange(e) {
@@ -766,7 +773,7 @@ export default function TransactionImportFlow() {
       }
 
       // 4. Create import_log entry
-      const { data: logEntry } = await supabase.from('import_log').insert([{
+      const { data: logEntry, error: logErr } = await supabase.from('import_log').insert([{
         org_id:      ORG_ID,
         import_type: 'transactions',
         mode,
@@ -781,8 +788,8 @@ export default function TransactionImportFlow() {
           ? errorRows.slice(0, 200).map(r => ({ row: r._rowNum, reason: r._skip_reason }))
           : null,
       }]).select().single()
-
-      const batchId = logEntry?.id
+      if (logErr || !logEntry?.id) throw new Error('Failed to create import record — please try again')
+      const batchId = logEntry.id
 
       // 5. Insert transactions in batches of 100
       const batchRows = txRows.map(r => ({ ...r, import_batch_id: batchId }))
@@ -840,6 +847,15 @@ export default function TransactionImportFlow() {
       <div className="flex flex-col items-center justify-center py-20 gap-3">
         <Loader2 size={24} className="text-teal-600 animate-spin"/>
         <p className="text-sm text-gray-400">Loading registries from Supabase…</p>
+      </div>
+    )
+  }
+
+  if (regError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <AlertTriangle size={24} className="text-red-500"/>
+        <p className="text-sm text-red-700 font-medium">{regError}</p>
       </div>
     )
   }

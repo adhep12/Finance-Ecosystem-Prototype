@@ -339,7 +339,7 @@ export function groupByField(actuals, field) {
  * @param {Object}      budgetByCat  { category: totalBudgetForRange }
  * @param {Object|null} sortConfig   { col: 'actual'|'budget'|'delta'|'pct', dir: 'asc'|'desc' }
  */
-export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sortConfig = null) {
+export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sortConfig = null, initialParentBudget = 0) {
   const result = []
 
   function getBudget(g, field, parentBudget, parentActual) {
@@ -359,8 +359,9 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
         case 'budget':  av = ab;                bv = bb;                break
         case 'delta':   av = a.total - ab;      bv = b.total - bb;      break
         case 'pct':
-          av = ab > 0 ? (a.total - ab) / ab : 0
-          bv = bb > 0 ? (b.total - bb) / bb : 0
+          // "% of Total" column sorts by actual spend (pct of total is proportional to actual)
+          av = a.total
+          bv = b.total
           break
         default:        av = a.total;           bv = b.total
       }
@@ -389,7 +390,11 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
       const isDimmed   = hasOpen && g.key !== openAtThis
       const budget     = getBudget(g, field, parentBudget, parentActual)
 
-      result.push({ type: 'group', field, value: g.key, actual: g.total, budget, depth, isExpanded, isDimmed, items: g.items })
+      // budgetIsReal — purely data-driven: true when this row has a budget > 0.
+      // No hardcoding by field type. If budget data exists at any drill level it
+      // shows automatically; if budget is zero/missing the UI shows '—'.
+      const budgetIsReal = budget > 0
+      result.push({ type: 'group', field, value: g.key, actual: g.total, budget, budgetIsReal, depth, isExpanded, isDimmed, items: g.items })
 
       if (isExpanded) {
         process(g.items, depth + 1, budget, g.total)
@@ -397,7 +402,7 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
     }
   }
 
-  process(actuals, 0, 0, actuals.reduce((s, t) => s + t.amount, 0))
+  process(actuals, 0, initialParentBudget, actuals.reduce((s, t) => s + t.amount, 0))
   return result
 }
 
