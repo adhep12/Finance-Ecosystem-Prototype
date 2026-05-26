@@ -389,11 +389,10 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
       const isDimmed   = hasOpen && g.key !== openAtThis
       const budget     = getBudget(g, field, parentBudget, parentActual)
 
-      // budgetIsReal = true when budget comes from actual budgetByCat data
-      // (category level) or is the first sub-level after category (account level).
-      // false when it's a proportional estimate for grant/vendor/department rows.
-      // This lets the UI show '—' for grant/vendor rows to avoid misleading values.
-      const budgetIsReal = field === 'category' || field === 'account'
+      // budgetIsReal — purely data-driven: true when this row has a budget > 0.
+      // No hardcoding by field type. If budget data exists at any drill level it
+      // shows automatically; if budget is zero/missing the UI shows '—'.
+      const budgetIsReal = budget > 0
       result.push({ type: 'group', field, value: g.key, actual: g.total, budget, budgetIsReal, depth, isExpanded, isDimmed, items: g.items })
 
       if (isExpanded) {

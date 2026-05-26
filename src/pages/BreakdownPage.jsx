@@ -418,47 +418,31 @@ function GroupRow({ row, onToggle, onHide }) {
         {formatCurrency(row.actual)}
       </div>
 
-      {/* Budget */}
-      {row.budgetIsReal ? (
-        <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
-          {row.budget !== null && row.budget > 0 ? formatCurrency(row.budget) : '—'}
-        </div>
-      ) : (
-        <div className="text-right flex-shrink-0 text-gray-300 text-sm" style={{ width: 96 }}>—</div>
-      )}
+      {/* Budget — show when budget > 0, dash otherwise (data-driven, not type-hardcoded) */}
+      <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
+        {row.budget > 0 ? formatCurrency(row.budget) : <span className="text-gray-300">—</span>}
+      </div>
 
-      {/* Over/Under */}
-      {row.budgetIsReal ? (
-        <div className="text-right flex-shrink-0" style={{ width: 110 }}>
-          {delta !== null ? (
-            <>
-              <div className="text-sm font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
-                {formatOverUnder(delta)}
-              </div>
-              {pctUsed !== null && (
-                <div className="text-[10px] text-gray-400">{pctUsed}% used</div>
-              )}
-            </>
-          ) : <span className="text-gray-300">—</span>}
-        </div>
-      ) : (
-        <div className="text-right flex-shrink-0" style={{ width: 110 }}>
-          <span className="text-gray-300 cursor-default" title="Budget tracked at category and account level.">—</span>
-        </div>
-      )}
+      {/* Over/Under — only meaningful when budget > 0 */}
+      <div className="text-right flex-shrink-0" style={{ width: 110 }}>
+        {row.budget > 0 && delta !== null ? (
+          <>
+            <div className="text-sm font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
+              {formatOverUnder(delta)}
+            </div>
+            {pctUsed !== null && (
+              <div className="text-[10px] text-gray-400">{pctUsed}% used</div>
+            )}
+          </>
+        ) : <span className="text-gray-300">—</span>}
+      </div>
 
-      {/* Variance badge — only show real % when budget comes from actual data
-           (category and account levels). Grant/vendor rows show '—' to avoid
-           misleading repeated variance values. */}
+      {/* Variance % badge — calculated per-row when budget > 0, dash otherwise */}
       <div className="text-right flex-shrink-0 flex justify-end" style={{ width: 100 }}>
-        {row.budgetIsReal ? (
-          <VarianceBadge
-            actual={row.actual}
-            budget={row.budget || null}
-          />
-        ) : (
-          <span className="text-gray-300 text-sm cursor-default" title="Budget tracked at category and account level.">—</span>
-        )}
+        {row.budget > 0
+          ? <VarianceBadge actual={row.actual} budget={row.budget} />
+          : <span className="text-gray-300 text-sm">—</span>
+        }
       </div>
     </div>
   )
