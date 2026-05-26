@@ -1,18 +1,19 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   ReferenceLine, Cell,
 } from 'recharts'
 import {
-  TrendingUp, TrendingDown, DollarSign, AlertTriangle, Minus,
+  AlertTriangle,
   ChevronDown, ChevronRight, ChevronLeft,
-  Plus, X, Edit2, Trash2,
-  BarChart2, Activity, Filter, Search, Check, Settings,
-  Building2, Calendar, Download, GripVertical, RotateCcw,
-  Ban, Eye, EyeOff, ArrowUp, ArrowDown, CheckSquare, Square,
-  Layers, FileText, Clock, ChevronUp, ArrowUpDown, ExternalLink,
+  Plus, X, Edit2,
+  Filter, Search, Check, Settings,
+  Building2, Calendar, GripVertical, RotateCcw,
+  Ban, ArrowUp, ArrowDown, CheckSquare, Square,
+  ArrowUpDown,
+  TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import CommentsPage from './CommentsPage'
@@ -31,16 +32,24 @@ import {
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { supabase, ORG_ID } from '../lib/supabase'
+import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
+import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, TEAM_COLORS, getTeamColor } from '../constants/colors'
+import { PRESET_CARDS, getPresetsForSection } from '../constants/presetCards'
+import PresetCard from '../components/PresetCard'
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEPT_COLORS  = { '101':'#0EA5A0','102':'#C05A2F','103':'#E8A838' }
-// Colour rotation for team spend stacked bar
-const TEAM_PALETTE = ['#0EA5A0','#C05A2F','#E8A838','#4A2E5A','#6366F1','#10B981','#EC4899','#9BA8B5']
-const FIELD_COLORS = { department:'#0EA5A0', category:'#C05A2F', account:'#E8A838', grant:'#4A2E5A', vendor:'#9BA8B5' }
-const FIELD_LABELS = { department:'Department', category:'Category', account:'Account', grant:'Grant', vendor:'Vendor' }
-const ALL_DRILL_FIELDS = ['department','category','account','grant','vendor']
+const FIELD_COLORS = {
+  category:DATA_COLORS[1], account:DATA_COLORS[3], team:DATA_COLORS[0], dept:DATA_COLORS[4], vendor:DATA_COLORS[7],
+  // legacy keys kept for backward compat with OverviewTab drill
+  department:DATA_COLORS[0], grant:DATA_COLORS[2],
+}
+const FIELD_LABELS = {
+  category:'Category', account:'Account', team:'Team', dept:'Department', vendor:'Vendor',
+  department:'Department', grant:'Grant',
+}
+const ALL_DRILL_FIELDS = ['category','account','team','dept','vendor']
 
 // ── Full 15-card Finance KPI catalog ─────────────────────────────────────────
 const FINANCE_KPI_CATALOG = [
@@ -74,6 +83,8 @@ const DEFAULT_FINANCE_KPI_IDS = [...FINANCIAL_KPI_IDS, ...SUPPORTER_KPI_IDS]
 function pad2(n){ return String(n).padStart(2,'0') }
 function ymd(y,m,d){ return `${y}-${pad2(m)}-${pad2(d)}` }
 function monthKey(dateStr){ return dateStr.slice(0,7) }
+function prevMonthStr(period){ const [y,m]=period.split('-').map(Number); return m===1?`${y-1}-12`:`${y}-${pad2(m-1)}` }
+function prevYearStr(period){ return `${Number(period.slice(0,4))-1}-${period.slice(5,7)}` }
 
 function getMasterPresetRange(preset, org = {}){
   const today = new Date()
@@ -239,7 +250,7 @@ function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
       <div className="border-t border-gray-100 my-1"/>
       {allDepts.map(code=>{
         const active = !activeDepts || activeDepts.has(code)
-        const color  = DEPT_COLORS[code] || '#9BA8B5'
+        const color  = DATA_COLORS[allDepts.indexOf(code) % DATA_COLORS.length] || DATA_COLORS[7]
         return (
           <button key={code} onClick={()=>onToggle(code)}
             className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors">
@@ -294,7 +305,7 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
         {/* Left: org identity */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="w-6 h-6 rounded-sm flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-            style={{backgroundColor:'var(--color-accent)'}}>
+            style={{backgroundColor: orgConfig?.primaryColor || 'var(--color-primary)'}}>
             {orgConfig.logoInitial || (orgConfig.name||'F').charAt(0).toUpperCase()}
           </div>
           <span className="text-sm font-semibold text-gray-800">{orgConfig.name||'Finance'}</span>
@@ -383,7 +394,7 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
 // Finance KPI Card — 15 data-wired cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
+const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
   cashFlowData, patronData, dateRange, orgConfig, editMode, onRemove }){
   const { deptNames, comments } = useApp()
   const { startDate, endDate } = dateRange
@@ -488,14 +499,27 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
       break
     }
     case 'teams-over-budget': {
-      const allCodes = [...new Set(actuals.map(t => t.department).filter(Boolean))]
-      const overCount = allCodes.filter(code => {
-        const act = expInRange.filter(t => t.department===code).reduce((s,t) => s+Math.abs(t.amount||0), 0)
-        const bud = budgetFlat.filter(b => b.scenario===scenario && b.department===code && b.record_type!=='income' && b.period>=startM && b.period<=endM)
-          .reduce((s,b) => s+(b.amount||0), 0)
-        return bud > 0 && act > bud
-      }).length
-      mainValue = `${overCount} / ${allCodes.length}`
+      // Build dept-code → team-name from budgetFlat (rows carry team_name from mapBudgetFlatDirect)
+      const deptToTeam = {}
+      for (const b of budgetFlat) {
+        if (b.department && b.team_name) deptToTeam[b.department] = b.team_name
+      }
+      // All teams that have expense budget entries in the selected scenario+range
+      const relevantBudget = budgetFlat.filter(b =>
+        b.scenario===scenario && b.record_type!=='income' &&
+        b.period && b.period>=startM && b.period<=endM && b.team_name
+      )
+      const allTeams = [...new Set(relevantBudget.map(b => b.team_name))]
+      // Sum budget and actual per team
+      const budByTeam = {}
+      for (const b of relevantBudget) budByTeam[b.team_name] = (budByTeam[b.team_name]||0) + (b.amount||0)
+      const actByTeam = {}
+      for (const t of expInRange) {
+        const tn = deptToTeam[t.department]
+        if (tn) actByTeam[tn] = (actByTeam[tn]||0) + Math.abs(t.amount||0)
+      }
+      const overCount = allTeams.filter(tn => (actByTeam[tn]||0) > (budByTeam[tn]||0)).length
+      mainValue = `${overCount} of ${allTeams.length}`
       isInverse = overCount > 0
       subNote = overCount === 0 ? 'All teams on budget ✓' : `${overCount} team${overCount!==1?'s':''} over budget`
       break
@@ -507,14 +531,34 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
       break
     }
     case 'new-supporters': {
-      const newTotal = patronInRange.reduce((s,p) => s + (p.new_patrons_total||0), 0)
-      mainValue = newTotal > 0 ? newTotal.toLocaleString() : '—'
-      subNote = `${patronInRange.length} month${patronInRange.length!==1?'s':''} in range`
+      const currentNew = latestPatron?.new_patrons_total || 0
+      mainValue = latestPatron ? currentNew.toLocaleString() : '—'
+      if (latestPatron) {
+        const priorPeriod = prevMonthStr(latestPatron.period)
+        const priorRow = patronData.find(p => p.period === priorPeriod)
+        if (priorRow != null) {
+          const priorNew = priorRow.new_patrons_total || 0
+          cmp1 = { label: `vs ${priorPeriod} (Prior Month)`, delta: currentNew - priorNew, base: priorNew, format: 'count' }
+        }
+        subNote = `Most recent: ${latestPatron.period}`
+      } else {
+        subNote = 'No patron data'
+      }
       break
     }
     case 'avg-gift': {
-      mainValue = latestPatron?.avg_gift_size > 0 ? formatCurrency(latestPatron.avg_gift_size) : '—'
-      subNote = latestPatron ? `as of ${latestPatron.period}` : 'No patron data'
+      const currentGift = latestPatron?.avg_gift_size || 0
+      mainValue = currentGift > 0 ? formatCurrency(currentGift) : '—'
+      if (latestPatron) {
+        const priorYearPeriod = prevYearStr(latestPatron.period)
+        const priorRow = patronData.find(p => p.period === priorYearPeriod)
+        if (priorRow?.avg_gift_size > 0) {
+          cmp1 = { label: `vs ${priorYearPeriod} (Prior Year)`, delta: currentGift - priorRow.avg_gift_size, base: priorRow.avg_gift_size }
+        }
+        subNote = `as of ${latestPatron.period}`
+      } else {
+        subNote = 'No patron data'
+      }
       break
     }
     case 'recurring-patrons': {
@@ -563,40 +607,141 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
   function CmpRow({ cmp }) {
     if (!cmp) return null
     const pct = makePct(cmp.delta, cmp.base)
+    const isCount = cmp.format === 'count'
+    const fmtDelta = isCount ? Math.round(cmp.delta).toLocaleString() : formatCurrency(cmp.delta)
+    const fmtBase  = isCount ? Math.round(cmp.base).toLocaleString()  : formatCurrency(cmp.base)
+    const deltaColor = cmp.delta >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative
     return (
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp.label}</div>
+        <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color: '#9CA3AF'}}>{cmp.label}</div>
         <div className="flex items-center gap-2 flex-wrap">
           <TrendBadge delta={cmp.delta} inverse={isInverse} label={pct}/>
-          <span className={`text-sm font-semibold ${varColor(cmp.delta, isInverse)}`}>
-            {cmp.delta >= 0 ? '+' : ''}{formatCurrency(cmp.delta)}
+          <span className="text-sm font-semibold" style={{color: deltaColor}}>
+            {cmp.delta >= 0 ? '+' : ''}{fmtDelta}
           </span>
-          <span className="text-xs text-gray-400">vs {formatCurrency(cmp.base)}</span>
+          <span className="text-xs text-gray-400">vs {fmtBase}</span>
         </div>
       </div>
     )
   }
 
-  const isDark = id === 'net-position'
+  // Status-driven styling for specific cards
+  let valueColor = '#111827'
+  let cardBgColor = '#FFFFFF'
+  let cardBorderColor = 'rgba(0, 0, 0, 0.06)'
+  let cardBorderLeftColor = null
+  let cardBorderTopColor = null
+  let cardBadge = null
+  let fontSize = 'text-2xl' // Tier 3 default (28px)
+  let padding = 'p-5' // Default 20px padding
+
+  if (id === 'net-position') {
+    const netValue = totalGiving - totalExpenses
+    const isPositive = netValue >= 0
+    valueColor = isPositive ? STATUS_COLORS.positive : STATUS_COLORS.negative
+    fontSize = 'text-6xl' // 48px for Net Position
+    padding = 'p-6' // 24px padding
+
+    if (isPositive) {
+      cardBgColor = '#F0FDF4'
+      cardBorderColor = 'rgba(61, 153, 112, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.positive
+      cardBadge = 'Surplus'
+    } else {
+      cardBgColor = '#FEF2F2'
+      cardBorderColor = 'rgba(192, 57, 43, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.negative
+      cardBadge = 'Deficit'
+    }
+  } else if (id === 'total-giving') {
+    fontSize = 'text-4xl' // 36px for driver cards
+    padding = 'p-5' // 20px padding
+    cardBorderTopColor = DATA_COLORS[0] // steel blue for income
+  } else if (id === 'total-expenses') {
+    fontSize = 'text-4xl' // 36px for driver cards
+    padding = 'p-5' // 20px padding
+    cardBorderTopColor = DATA_COLORS[5] // muted red for expenses
+  }
+
+  // Teams Over Budget status-driven styling
+  if (id === 'teams-over-budget') {
+    const teamsOverCount = subNote ? parseInt(subNote.match(/\d+/)?.[0] || 0) : 0
+    if (teamsOverCount === 0) {
+      cardBgColor = '#F0FDF4'
+      cardBorderColor = 'rgba(61, 153, 112, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.positive
+      valueColor = STATUS_COLORS.positive
+    } else if (teamsOverCount <= 3) {
+      cardBgColor = '#FFFBEB'
+      cardBorderColor = 'rgba(232, 168, 56, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.warning
+      valueColor = STATUS_COLORS.warning
+    } else {
+      cardBgColor = '#FEF2F2'
+      cardBorderColor = 'rgba(192, 57, 43, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.negative
+      valueColor = STATUS_COLORS.negative
+    }
+  }
+
+  // Cash Above Floor status-driven styling
+  if (id === 'cash-above-floor') {
+    // Parse the value to see if near floor
+    const floorValue = 50000 // Example threshold
+    const currentValue = parseFloat(mainValue.replace(/[$,]/g, '')) || 0
+    if (currentValue > 0 && currentValue < floorValue * 0.2) {
+      cardBgColor = '#FFFBEB'
+      cardBorderColor = 'rgba(232, 168, 56, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.warning
+    }
+  }
+
+  // New Supporters status-driven styling (top border based on MoM growth)
+  if (id === 'new-supporters' && cmp1) {
+    const isGrowth = cmp1.delta >= 0
+    cardBorderTopColor = isGrowth ? STATUS_COLORS.positive : STATUS_COLORS.negative
+  }
+
+  // Avg Gift Size status-driven styling (amber for downward trend)
+  if (id === 'avg-gift' && cmp1) {
+    const isTrendingDown = cmp1.delta < 0
+    if (isTrendingDown) {
+      cardBgColor = '#FFFBEB'
+      cardBorderColor = 'rgba(232, 168, 56, 0.2)'
+      cardBorderLeftColor = STATUS_COLORS.warning
+    }
+  }
 
   return (
-    <div className={`relative rounded-2xl p-5 ${isDark ? '' : 'bg-white border border-gray-100'}`}
+    <div className={`relative rounded-xl ${padding} border`}
       style={{
-        ...(isDark ? {backgroundColor:'var(--ink-900)',border:'1px solid var(--ink-800)'} : {}),
-        boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
+        backgroundColor: cardBgColor,
+        borderColor: cardBorderColor,
+        borderLeftWidth: cardBorderLeftColor ? '4px' : '1px',
+        borderLeftColor: cardBorderLeftColor || cardBorderColor,
+        borderTopWidth: cardBorderTopColor ? '3px' : '1px',
+        borderTopColor: cardBorderTopColor || cardBorderColor,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)',
       }}>
       {editMode && (
         <button onClick={onRemove}
-          className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
-          style={isDark
-            ? {backgroundColor:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.4)'}
-            : {backgroundColor:'#F3F4F6',color:'#9CA3AF'}}>
+          className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+          style={{backgroundColor:'#F3F4F6',color:'#9CA3AF'}}>
           <X size={11}/>
         </button>
       )}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1"
-        style={{color: isDark ? 'rgba(255,255,255,0.45)' : 'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
-      <div className="text-3xl font-bold mb-3" style={{color: isDark ? '#FFFFFF' : '#111827'}}>{mainValue}</div>
+      <div className="flex items-start justify-between mb-2">
+        <div className="text-[11px] font-bold uppercase tracking-wider"
+          style={{color: '#6B7384'}}>{catalogDef?.label || id}</div>
+        {cardBadge && (
+          <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+            cardBadge === 'Surplus' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          }`}>
+            {cardBadge}
+          </span>
+        )}
+      </div>
+      <div className={`font-bold mb-3 ${fontSize}`} style={{color: valueColor}}>{mainValue}</div>
       {(cmp1 || cmp2) && (
         <div className="space-y-2.5">
           <CmpRow cmp={cmp1}/>
@@ -604,13 +749,13 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
         </div>
       )}
       {subNote && (
-        <div className="text-xs mt-2" style={{color: isDark ? 'rgba(255,255,255,0.45)' : (isInverse && id==='teams-over-budget' ? '#EF4444' : '#9CA3AF')}}>
+        <div className="text-xs mt-2" style={{color: isInverse && id==='teams-over-budget' ? '#EF4444' : '#9CA3AF'}}>
           {subNote}
         </div>
       )}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Add Finance KPI Panel — catalog browser
@@ -683,7 +828,7 @@ const axisStyle = { fontSize:10, fill:'#9CA3AF' }
 // Chart Panel wrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChartPanel({ title, subtitle, editMode, onRemove, children }){
+const ChartPanel = React.memo(function ChartPanel({ title, subtitle, editMode, onRemove, children }){
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       {editMode && onRemove && (
@@ -698,7 +843,7 @@ function ChartPanel({ title, subtitle, editMode, onRemove, children }){
       {children}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Finance Overview — 4 preset chart components
@@ -801,8 +946,8 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
               <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
-                <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+                <Line type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -812,7 +957,7 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
 }
 
 // Chart 2: Net Position by Month — bar chart, green/red conditional coloring
-function NetPositionCard({ actuals, incomeMonths, dateRange }){
+const NetPositionCard = React.memo(function NetPositionCard({ actuals, incomeMonths, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -848,9 +993,9 @@ function NetPositionCard({ actuals, incomeMonths, dateRange }){
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
-                <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="0" label={{ value:'$0', position:'insideLeft', fontSize:9, fill:'#9CA3AF', dy:-6 }}/>
+                <ReferenceLine y={0} stroke={STATUS_COLORS.neutral} strokeWidth={1} strokeDasharray="4 4" label={{ value:'$0', position:'insideLeft', fontSize:9, fill:STATUS_COLORS.neutral, dy:-6 }}/>
                 <Bar dataKey="net" radius={[3,3,0,0]}>
-                  {chartData.map((d,i)=><Cell key={i} fill={d.net>=0?'#10B981':'#EF4444'}/>)}
+                  {chartData.map((d,i)=><Cell key={i} fill={d.net>=0?STATUS_COLORS.positive:STATUS_COLORS.negative}/>)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -858,10 +1003,10 @@ function NetPositionCard({ actuals, incomeMonths, dateRange }){
       }
     </div>
   )
-}
+})
 
 // Chart 3: Cash Position Over Time — line chart, cash_balance + reserve_floor
-function CashPositionCard({ cashFlowData, dateRange }){
+const CashPositionCard = React.memo(function CashPositionCard({ cashFlowData, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -887,31 +1032,30 @@ function CashPositionCard({ cashFlowData, dateRange }){
               <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
-                <Line type="monotone" dataKey="floor" name="Reserve Floor"  stroke="#EF4444" strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
+                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="floor" name="Reserve Floor"  stroke={STATUS_COLORS.negative} strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
               </LineChart>
             </ResponsiveContainer>
           </div>
       }
     </div>
   )
-}
+})
 
 // Chart 4: Team Spend Comparison — stacked bar chart, one segment per team
-function TeamSpendCard({ actuals, dateRange }){
+const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
-  const { deptNames } = useApp()
 
   const { chartData, teams } = useMemo(()=>{
     const expRange = filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income')
-    // group by period + department
+    // group by period + team_name (not department — keeps 8 series not 24)
     const byPeriodTeam={}
     const teamSet=new Set()
     for(const t of expRange){
       const p=t.period||(t.date?t.date.slice(0,7):null); if(!p) continue
       if(p<startP||p>endP) continue
-      const team=deptNames[t.department]||t.department||'Other'
+      const team=t.team_name||'Unknown'
       teamSet.add(team)
       if(!byPeriodTeam[p]) byPeriodTeam[p]={}
       byPeriodTeam[p][team]=(byPeriodTeam[p][team]||0)+Math.abs(t.amount||0)
@@ -921,7 +1065,7 @@ function TeamSpendCard({ actuals, dateRange }){
       label:periodLabel(p), ...tm
     }))
     return { chartData:data, teams }
-  },[actuals,startDate,endDate,startP,endP,deptNames])
+  },[actuals,startDate,endDate,startP,endP])
 
   const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
@@ -940,7 +1084,7 @@ function TeamSpendCard({ actuals, dateRange }){
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
                 {teams.map((t,i)=>(
                   <Bar key={t} dataKey={t} name={t} stackId="a"
-                    fill={TEAM_PALETTE[i%TEAM_PALETTE.length]} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
+                    fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -948,13 +1092,13 @@ function TeamSpendCard({ actuals, dateRange }){
       }
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Watch Area Panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
+const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
   const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
   const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
@@ -973,21 +1117,26 @@ function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, on
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Budget Watch Areas</div>
       {alerts.length===0 && <div className="text-xs text-gray-400 text-center py-4">All categories under 80% of budget</div>}
-      {alerts.map(({cat,bud,actual,pct})=>(
-        <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${pct>=100?'bg-red-500':pct>=90?'bg-orange-400':'bg-amber-400'}`}/>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
-            <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
-              <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor:pct>=100?'#EF4444':pct>=90?'#F97316':'#F59E0B'}}/>
+      {alerts.map(({cat,bud,actual,pct})=>{
+        const barColor = pct > 100 ? STATUS_COLORS.negative : pct >= 80 ? STATUS_COLORS.warning : STATUS_COLORS.positive
+        const dotColor = pct > 100 ? STATUS_COLORS.negative : pct >= 80 ? STATUS_COLORS.warning : STATUS_COLORS.positive
+        const isBold = pct > 100
+        return (
+          <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor: dotColor}}/>
+            <div className="flex-1 min-w-0">
+              <div className={`text-xs font-medium text-gray-700 truncate ${isBold ? 'font-semibold' : ''}`}>{cat}</div>
+              <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor: barColor}}/>
+              </div>
             </div>
+            <div className="text-xs font-semibold flex-shrink-0" style={{color: barColor}}>{Math.round(pct)}%</div>
           </div>
-          <div className="text-xs font-semibold flex-shrink-0" style={{color:pct>=100?'#EF4444':pct>=90?'#F97316':'#F59E0B'}}>{Math.round(pct)}%</div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Patron Watch Areas Panel
@@ -1027,7 +1176,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
     if (consecutiveDecline >= 2) {
       alerts.push({
         id: 'new-declining',
-        color: 'amber',
+        color: STATUS_COLORS.warning,
         msg: `New patron acquisition declining — ${mLabel(declineMonths[0])} and ${mLabel(declineMonths[1])} both below prior month pace.`,
       })
     }
@@ -1044,7 +1193,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
         if (avg - curr > 3) {
           alerts.push({
             id: 'retention-drop',
-            color: 'amber',
+            color: STATUS_COLORS.negative,
             msg: `Retention rate dropped to ${curr.toFixed(1)}% — below ${avg.toFixed(1)}% trailing average.`,
           })
         }
@@ -1071,7 +1220,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
       const pri = giftMonths[0]?.avg_gift_size || 0
       alerts.push({
         id: 'gift-declining',
-        color: 'amber',
+        color: STATUS_COLORS.warning,
         msg: `Avg gift size trending down — ${fmtCompact(cur)} vs ${fmtCompact(pri)} prior month.`,
       })
     }
@@ -1089,7 +1238,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
         </div>
       ) : signals.map(s => (
         <div key={s.id} className="flex items-start gap-2.5 py-2 border-b border-gray-50 last:border-0">
-          <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 mt-1"/>
+          <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1" style={{backgroundColor: s.color}}/>
           <p className="text-xs text-gray-700 leading-relaxed">{s.msg}</p>
         </div>
       ))}
@@ -1103,163 +1252,305 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
   const { orgConfig } = useApp()
-  // v2 key — resets any saved 15-card layout to the new 9-card default
-  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('finance-kpi-v2-ids', DEFAULT_FINANCE_KPI_IDS)
-  const [editKPI,     setEditKPI]     = useState(false)
-  const [showAddKPI,  setShowAddKPI]  = useState(false)
-  const [editWatch,   setEditWatch]   = useState(false)
 
-  // Drag-to-reorder state
-  const [dragIdx, setDragIdx] = useState(null)
-  const [dropIdx, setDropIdx] = useState(null)
-
-  // Remote data fetches (once on mount)
+  // ── Remote data ─────────────────────────────────────────────────────────
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
 
+  // ── Edit layout state ────────────────────────────────────────────────────
+  const [editMode,     setEditMode]     = useState(false)
+  // addedCards: rows from org_dashboard_layout for this org + dashboard
+  const [addedCards,   setAddedCards]   = useState([]) // { id, section, card_key, display_order }
+  const [showPicker,   setShowPicker]   = useState(null) // { section: 'financial_health' }
+  const [confirmRemove, setConfirmRemove] = useState(null) // { cardKey, section }
+
+  // ── Load all data on mount ───────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
       supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
       supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-    ]).then(([cashRes, patronRes]) => {
-      setCashFlowData(cashRes.data || [])
-      setPatronData(patronRes.data || [])
-    })
+      supabase.from('org_dashboard_layout').select('*')
+        .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview'),
+    ]).then(([cashRes, patronRes, layoutRes]) => {
+      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
+      if (!patronRes.error) setPatronData(patronRes.data || [])
+      if (!layoutRes.error) setAddedCards(layoutRes.data || [])
+    }).catch(err => console.error('[OverviewTab] data load error:', err))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Drag handlers
-  function handleDragStart(i){ setDragIdx(i) }
-  function handleDragOver(e, i){ e.preventDefault(); setDropIdx(i) }
-  function handleDrop(i){
-    if(dragIdx===null || dragIdx===i){ setDragIdx(null); setDropIdx(null); return }
-    const next = [...visibleKPIs]
-    const [moved] = next.splice(dragIdx, 1)
-    next.splice(i, 0, moved)
-    setVisibleKPIs(next)
-    setDragIdx(null); setDropIdx(null)
+  // ── Add / remove handlers (save to Supabase instantly) ──────────────────
+  async function handleAddCard(section, cardKey) {
+    const display_order = addedCards.filter(c => c.section === section).length
+    const { data, error } = await supabase.from('org_dashboard_layout').insert({
+      org_id: ORG_ID,
+      dashboard: 'admin_overview',
+      section,
+      card_key: cardKey,
+      display_order,
+    }).select().single()
+    if (!error && data) setAddedCards(prev => [...prev, data])
+    setShowPicker(null)
   }
 
-  const kpiProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
-
-  // Split visibleKPIs into two display rows by group membership
-  // Row 1 = financial health cards; Row 2 = supporter health cards; overflow → Row 1
-  const row1Ids = visibleKPIs.filter(id => !SUPPORTER_KPI_IDS.includes(id) || FINANCIAL_KPI_IDS.includes(id))
-    .filter(id => !SUPPORTER_KPI_IDS.includes(id))
-  const row2Ids = visibleKPIs.filter(id => SUPPORTER_KPI_IDS.includes(id))
-  // any extra ids (non-standard) go into row1
-  const extraIds = visibleKPIs.filter(id => !FINANCIAL_KPI_IDS.includes(id) && !SUPPORTER_KPI_IDS.includes(id))
-  const allRow1 = [...row1Ids, ...extraIds]
-
-  function KPIRow({ ids, rowStartIndex }) {
-    if (ids.length === 0) return null
-    return (
-      <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))'}}>
-        {ids.map((id) => {
-          const i = visibleKPIs.indexOf(id)
-          return (
-            <div key={id}
-              draggable={editKPI}
-              onDragStart={()=>handleDragStart(i)}
-              onDragOver={e=>handleDragOver(e,i)}
-              onDrop={()=>handleDrop(i)}
-              onDragEnd={()=>{ setDragIdx(null); setDropIdx(null) }}
-              className={`relative transition-opacity ${editKPI?'cursor-grab active:cursor-grabbing':''} ${dragIdx===i?'opacity-40':''}`}>
-              {editKPI && dropIdx===i && dragIdx!==null && dragIdx!==i && (
-                <div className="absolute -top-1 left-0 right-0 h-0.5 bg-gray-900 rounded-full z-10"/>
-              )}
-              {editKPI && (
-                <div className="absolute top-3 left-3 z-10 opacity-30 pointer-events-none">
-                  <GripVertical size={13} className="text-gray-600"/>
-                </div>
-              )}
-              <FinanceKPICard id={id} {...kpiProps} editMode={editKPI}
-                onRemove={()=>setVisibleKPIs(p=>p.filter(v=>v!==id))}/>
-            </div>
-          )
-        })}
-      </div>
-    )
+  async function handleRemoveCard(cardKey) {
+    const { error } = await supabase.from('org_dashboard_layout')
+      .delete()
+      .eq('org_id', ORG_ID)
+      .eq('dashboard', 'admin_overview')
+      .eq('card_key', cardKey)
+    if (!error) setAddedCards(prev => prev.filter(c => c.card_key !== cardKey))
+    setConfirmRemove(null)
   }
+
+  const addedForSection = (section) =>
+    addedCards.filter(c => c.section === section).sort((a, b) => a.display_order - b.display_order)
+
+  // ── Shared props for cards ───────────────────────────────────────────────
+  const kpiProps    = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
+  const presetProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange }
+
+  // ── Fixed KPI IDs ────────────────────────────────────────────────────────
+  const tier1Ids    = ['net-position']
+  const tier2Ids    = ['total-giving', 'total-expenses']
+  const tier3Ids    = ['cash-position', 'cash-above-floor', 'teams-over-budget']
+  const supporterIds = ['total-supporters', 'new-supporters', 'avg-gift']
+
+  // ── Section header (with optional + Add Card button) ────────────────────
+  const SectionHeader = ({ label, section }) => (
+    <div className="flex items-center gap-3 mt-8 mb-4">
+      <h2 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">{label}</h2>
+      <div className="flex-1 h-px" style={{backgroundColor: 'rgba(0,0,0,0.08)'}}/>
+      {editMode && section && (
+        <button
+          onClick={() => setShowPicker({ section })}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-dashed transition-colors whitespace-nowrap"
+          style={{ borderColor: orgConfig?.primaryColor || ORG_COLORS.primary, color: orgConfig?.primaryColor || ORG_COLORS.primary }}
+        >
+          <Plus size={11}/> Add Card
+        </button>
+      )}
+    </div>
+  )
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
+    <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'#F4F5F7'}}>
 
-      {/* ── KPI Section ── */}
+      {/* ── Edit mode banner ────────────────────────────────────────────── */}
+      {editMode && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl text-sm font-medium"
+          style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid rgba(59,130,246,0.2)' }}>
+          <Edit2 size={13}/>
+          Layout edit mode — changes save automatically
+        </div>
+      )}
+
+      {/* ── Page header — Edit Layout toggle ───────────────────────────── */}
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={() => setEditMode(e => !e)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors"
+          style={editMode
+            ? { backgroundColor: orgConfig?.primaryColor || ORG_COLORS.primary, color: '#fff', borderColor: 'transparent' }
+            : { backgroundColor: '#fff', color: '#374151', borderColor: 'rgba(0,0,0,0.1)' }
+          }
+        >
+          <Settings size={12}/>
+          {editMode ? 'Done' : 'Edit Layout'}
+        </button>
+      </div>
+
+      {/* ══ FINANCIAL HEALTH ════════════════════════════════════════════════ */}
       <section>
-        <div className="flex items-center justify-between mb-5">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Key Metrics</span>
-          <div className="flex items-center gap-2">
-            {editKPI && (
-              <button onClick={()=>setShowAddKPI(true)}
-                className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
-                <Plus size={11}/> Add Card
-              </button>
-            )}
-            <button onClick={()=>setEditKPI(p=>!p)}
-              className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${editKPI?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-              <Edit2 size={11}/> {editKPI?'Done':'Edit'}
-            </button>
-          </div>
+        <SectionHeader label="Financial Health" section="financial_health"/>
+
+        {/* Tier 1 — Net Position hero */}
+        <div className="grid gap-4 mb-4">
+          {tier1Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
-        {visibleKPIs.length === 0 ? (
-          <div className="text-sm text-gray-400 text-center py-10 bg-white rounded-2xl border border-gray-100">
-            No cards visible. Click <strong>Edit → Add Card</strong> to add some.
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Row 1 — Financial Health */}
-            {allRow1.length > 0 && (
-              <div>
-                <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">Financial Health</div>
-                <KPIRow ids={allRow1} rowStartIndex={0}/>
-              </div>
-            )}
-            {/* Row 2 — Supporter Health */}
-            {row2Ids.length > 0 && (
-              <div>
-                <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">Supporter Health</div>
-                <KPIRow ids={row2Ids} rowStartIndex={allRow1.length}/>
-              </div>
-            )}
+        {/* Tier 2 — Drivers */}
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Drivers</div>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {tier2Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
+        </div>
+
+        {/* Tier 3 — Supporting Context */}
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Supporting Context</div>
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          {tier3Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
+        </div>
+
+        {/* Added preset cards for financial_health */}
+        {addedForSection('financial_health').length > 0 && (
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {addedForSection('financial_health').map(c => (
+              <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
+                editMode={editMode}
+                onRemove={() => setConfirmRemove({ cardKey: c.card_key, section: 'financial_health' })}
+              />
+            ))}
           </div>
         )}
       </section>
 
-      {/* ── Charts Section ── */}
+      {/* ══ SUPPORTER HEALTH ════════════════════════════════════════════════ */}
       <section>
-        <div className="mb-4">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Charts</span>
+        <SectionHeader label="Supporter Health" section="supporter_health"/>
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          {supporterIds.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
-        {/* Chart 1: full-width spend vs planned */}
-        <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
-        {/* Charts 2 & 3: side-by-side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-          <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
-          <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
-        </div>
-        {/* Team Spend chart moved to Teams tab */}
+
+        {/* Added preset cards for supporter_health */}
+        {addedForSection('supporter_health').length > 0 && (
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {addedForSection('supporter_health').map(c => (
+              <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
+                editMode={editMode}
+                onRemove={() => setConfirmRemove({ cardKey: c.card_key, section: 'supporter_health' })}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* ── Watch Areas Section ── */}
+      {/* ══ CHARTS ══════════════════════════════════════════════════════════ */}
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Watch Areas</span>
+        <SectionHeader label="Charts" section="charts"/>
+
+        {/* Default charts */}
+        <div className="space-y-4 mb-4">
+          <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+            <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
+            </div>
+          </div>
         </div>
+
+        {/* Added preset cards for charts */}
+        {addedForSection('charts').length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            {addedForSection('charts').map(c => (
+              <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
+                editMode={editMode}
+                onRemove={() => setConfirmRemove({ cardKey: c.card_key, section: 'charts' })}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ══ WATCH AREAS ═════════════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader label="Watch Areas" section={null}/>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-2xl">
           <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={false} onRemove={()=>{}}/>
           <PatronWatchAreaPanel patronData={patronData} dateRange={dateRange}/>
         </div>
       </section>
 
-      {/* ── Add KPI Modal ── */}
-      {showAddKPI && (
-        <AddFinanceKPIPanel
-          existingIds={visibleKPIs}
-          onAdd={id => setVisibleKPIs(p => [...p, id])}
-          onClose={() => setShowAddKPI(false)}/>
+      {/* ══ ADD CARD PICKER MODAL ════════════════════════════════════════════ */}
+      {showPicker && (
+        <AddCardPicker
+          section={showPicker.section}
+          addedKeys={addedCards.map(c => c.card_key)}
+          onAdd={(cardKey) => handleAddCard(showPicker.section, cardKey)}
+          onClose={() => setShowPicker(null)}
+        />
       )}
 
+      {/* ══ REMOVE CONFIRMATION ══════════════════════════════════════════════ */}
+      {confirmRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+          onClick={() => setConfirmRemove(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-6 w-80"
+            onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-semibold text-gray-900 mb-1">Remove this card?</div>
+            <div className="text-xs text-gray-500 mb-5">The card will be removed from your layout. You can add it back at any time.</div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmRemove(null)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 border border-gray-200 transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => handleRemoveCard(confirmRemove.cardKey)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors"
+                style={{ backgroundColor: STATUS_COLORS.negative }}>
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Card Picker — modal panel for selecting optional preset cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SECTION_LABELS = {
+  financial_health: 'Financial Health',
+  supporter_health: 'Supporter Health',
+  charts:           'Charts',
+}
+
+function AddCardPicker({ section, addedKeys, onAdd, onClose }) {
+  const available = getPresetsForSection(section)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/20 backdrop-blur-sm"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full sm:w-[420px] max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Add to {SECTION_LABELS[section]}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Select a card to add to this section</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={16}/></button>
+        </div>
+
+        {/* Card list */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {available.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-8">No preset cards available for this section.</p>
+          )}
+          {available.map(card => {
+            const alreadyAdded = addedKeys.includes(card.key)
+            return (
+              <button
+                key={card.key}
+                onClick={() => !alreadyAdded && onAdd(card.key)}
+                disabled={alreadyAdded}
+                className={`w-full flex items-start gap-3 p-3.5 rounded-xl border text-left transition-colors ${
+                  alreadyAdded
+                    ? 'border-gray-100 bg-gray-50 opacity-60 cursor-default'
+                    : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-gray-800">{card.label}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{card.description}</div>
+                </div>
+                {alreadyAdded
+                  ? <Check size={15} className="flex-shrink-0 mt-0.5 text-green-500"/>
+                  : <Plus  size={15} className="flex-shrink-0 mt-0.5 text-gray-400"/>
+                }
+              </button>
+            )
+          })}
+        </div>
+
+      </div>
     </div>
   )
 }
@@ -1297,7 +1588,7 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
   return (
     <div className="flex gap-3 px-5 py-3 border-b border-gray-100 overflow-x-auto">
       {cards.map(({code,actual,budget,pct,delta})=>{
-        const color = DEPT_COLORS[code]||'#9BA8B5'
+        const color = DATA_COLORS[allDepts.indexOf(code) % DATA_COLORS.length] || DATA_COLORS[7]
         const over  = delta>0
         return (
           <div key={code} className="flex-shrink-0 bg-white rounded-2xl border border-gray-100 px-4 py-3 min-w-[170px]"
@@ -1308,9 +1599,9 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
             {pct!==null && (
               <div className="flex items-center gap-1 mt-1">
                 <div className="flex-1 bg-gray-100 rounded-full h-1">
-                  <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?'#EF4444':color}}/>
+                  <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?STATUS_COLORS.negative:STATUS_COLORS.positive}}/>
                 </div>
-                <span className="text-[10px] font-semibold" style={{color:over?'#EF4444':'#10B981'}}>{pct}%</span>
+                <span className="text-[10px] font-semibold" style={{color:over?STATUS_COLORS.negative:STATUS_COLORS.positive}}>{pct}%</span>
               </div>
             )}
           </div>
@@ -1531,20 +1822,20 @@ function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
   const { deptNames, incomeMonths, orgConfig, comments } = useApp()
+  const navigate = useNavigate()
 
-  // Drill order: category is always first (P&L rows are categories)
-  const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','grant','vendor'])
+  // Drill order: any of category/account/team/dept/vendor in any order
+  const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','vendor'])
   const [viewMode,   setViewMode]   = useState('summary')
-  const [searchQ,    setSearchQ]    = useState('')
+  const [searchQ,         setSearchQ]         = useState('')
+  const [debouncedSearchQ, setDebouncedSearchQ] = useState('')
+  const searchDebounceRef = useRef(null)
   const [deptFilter, setDeptFilter] = useState(null)  // null = all
   const [selectedTx, setSelectedTx] = useState(null)
 
-  // Expand state: Set of category values expanded in each section
-  const [expandedIncome,   setExpandedIncome]   = useState(new Set())
-  const [expandedExpenses, setExpandedExpenses] = useState(new Set())
-  // Sub-path state: {catValue: openPath[]} for drill within each expanded category
-  const [incSubPaths, setIncSubPaths] = useState({})
-  const [expSubPaths, setExpSubPaths] = useState({})
+  // Single open-path per section — same approach as team breakdown
+  const [incOpenPath, setIncOpenPath] = useState([])
+  const [expOpenPath, setExpOpenPath] = useState([])
 
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
@@ -1559,6 +1850,8 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     ]).then(([cf, pd]) => {
       if (!cf.error) setCashFlowData(cf.data || [])
       if (!pd.error) setPatronData(pd.data || [])
+    }).catch(err => {
+      console.error('[MasterDashboard] Dashboard data load error:', err)
     })
   }, [])
 
@@ -1574,88 +1867,109 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const navFiltered  = useMemo(() => activeDepts ? dateFiltered.filter(t => activeDepts.has(t.department)) : dateFiltered, [dateFiltered, activeDepts])
   const deptFiltered = useMemo(() => deptFilter ? navFiltered.filter(t => deptFilter.has(t.department)) : navFiltered, [navFiltered, deptFilter])
   const searched     = useMemo(() => {
-    const q = searchQ.trim().toLowerCase()
+    const q = debouncedSearchQ.trim().toLowerCase()
     if (!q) return deptFiltered
     return deptFiltered.filter(t => [t.vendor, t.description, t.category, t.account, t.grant].some(v => v?.toLowerCase().includes(q)))
-  }, [deptFiltered, searchQ])
+  }, [deptFiltered, debouncedSearchQ])
+
+  // Enrich searched rows with team/dept aliases for drill-order grouping
+  const enrichedSearched = useMemo(() => searched.map(t => ({
+    ...t,
+    team: t.team_name || 'Unknown Team',
+    dept: deptNames[t.department] || t.department || 'Unknown Dept',
+  })), [searched, deptNames])
 
   // Split income vs expense (income amounts made positive)
-  const incomeActuals  = useMemo(() => searched.filter(t => t.record_type === 'income').map(t => ({ ...t, amount: Math.abs(t.amount||0) })), [searched])
-  const expenseActuals = useMemo(() => searched.filter(t => t.record_type !== 'income'), [searched])
+  const incomeActuals  = useMemo(() => enrichedSearched.filter(t => t.record_type === 'income').map(t => ({ ...t, amount: Math.abs(t.amount||0) })), [enrichedSearched])
+  const expenseActuals = useMemo(() => enrichedSearched.filter(t => t.record_type !== 'income'), [enrichedSearched])
 
-  // Budget split
+  // Budget split — expense budget filtered by dept is irrelevant here (null = all depts)
   const expBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'), scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
+  // Income budget: NEVER filter by department — income budget is org-wide (stored under dept 801)
   const incBudgetByCat = useMemo(() => calcBudgetByCategory(budgetFlat.filter(b=>b.record_type==='income'),  scenario, startDate, endDate, null), [budgetFlat, scenario, startDate, endDate])
 
-  // Category groups (for P&L rows at depth 0)
-  const incomeGroups = useMemo(() => {
-    const map = {}
+  // Total income budget sum — fallback when budget rows have category=null
+  const totalIncBudgetRaw = useMemo(() => {
+    const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
+    return budgetFlat
+      .filter(b => b.record_type==='income' && b.scenario===scenario && b.period>=startM && b.period<=endM)
+      .reduce((s,b) => s+(b.amount||0), 0)
+  }, [budgetFlat, scenario, startDate, endDate])
+
+  // Resolve income budget — if category-level budget exists use it; otherwise distribute
+  // proportionally (budget rows often have category=null)
+  const resolvedIncBudgetByCat = useMemo(() => {
+    const total = Object.values(incBudgetByCat).reduce((s,v)=>s+v,0)
+    if (total > 0 || totalIncBudgetRaw === 0) return incBudgetByCat
+    // Proportional fallback — key by first-level drill field value
+    const totalAct = incomeActuals.reduce((s,t)=>s+t.amount,0)
+    if (totalAct === 0) return {}
+    // Group income actuals by first drill field to distribute budget proportionally
+    const field = drillOrder[0] || 'category'
+    const byField = {}
     for (const t of incomeActuals) {
-      const cat = t.category || 'Uncategorized'
-      if (!map[cat]) map[cat] = { actual: 0, items: [] }
-      map[cat].actual += (t.amount || 0)
-      map[cat].items.push(t)
+      const key = t[field] || 'Other'
+      byField[key] = (byField[key]||0) + t.amount
     }
-    return Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual).map(([cat, d]) => ({ cat, ...d, budget: incBudgetByCat[cat] || 0 }))
-  }, [incomeActuals, incBudgetByCat])
+    const result = {}
+    for (const [key, amt] of Object.entries(byField)) {
+      result[key] = (amt / totalAct) * totalIncBudgetRaw
+    }
+    return result
+  }, [incBudgetByCat, totalIncBudgetRaw, incomeActuals, drillOrder])
 
-  const expenseGroups = useMemo(() => {
+  // Visible rows for each P&L section — full drill order applied from depth 0
+  const incVisibleRows = useMemo(() =>
+    buildVisibleRows(incomeActuals, drillOrder, incOpenPath, resolvedIncBudgetByCat, null)
+  , [incomeActuals, drillOrder, incOpenPath, resolvedIncBudgetByCat])
+
+  const expVisibleRows = useMemo(() =>
+    buildVisibleRows(expenseActuals, drillOrder, expOpenPath, expBudgetByCat, null)
+  , [expenseActuals, drillOrder, expOpenPath, expBudgetByCat])
+
+  // Totals (derived from flat actuals, always accurate regardless of drill order)
+  const totalIncActual = useMemo(() => incomeActuals.reduce((s,t)=>s+(t.amount||0),0), [incomeActuals])
+  const totalIncBudget = useMemo(() => {
+    // Sum budget from top-level visible rows (covers all items)
+    const topRows = incVisibleRows.filter(r => r.depth === 0 && r.type === 'group')
+    const budgetTotal = topRows.reduce((s,r) => s+r.budget, 0)
+    return budgetTotal > 0 ? budgetTotal : totalIncBudgetRaw
+  }, [incVisibleRows, totalIncBudgetRaw])
+  const totalExpActual = useMemo(() => expenseActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0), [expenseActuals])
+  const totalExpBudget = useMemo(() => Object.values(expBudgetByCat).reduce((s,v)=>s+v,0), [expBudgetByCat])
+  const netActual      = totalIncActual - totalExpActual
+  const netBudget      = totalIncBudget - totalExpBudget
+
+  // Unresolved rows — actuals with _warnings in range
+  const unresolvedMap = useMemo(() => {
+    const startP = (startDate || '').substring(0, 7)
+    const endP   = (endDate   || '').substring(0, 7)
     const map = {}
-    for (const t of expenseActuals) {
-      const cat = t.category || 'Uncategorized'
-      if (!map[cat]) map[cat] = { actual: 0, items: [] }
-      map[cat].actual += (t.amount || 0)
-      map[cat].items.push(t)
+    for (const t of searched) {
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
     }
-    return Object.entries(map).sort(([,a],[,b]) => b.actual - a.actual).map(([cat, d]) => ({ cat, ...d, budget: expBudgetByCat[cat] || 0 }))
-  }, [expenseActuals, expBudgetByCat])
+    // Also surface budget unresolved rows so the admin knows the budget impact
+    for (const b of budgetFlat) {
+      if (b.scenario !== scenario) continue
+      if (!b.period || b.period < startP || b.period > endP) continue
+      for (const w of (b._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, budget: 0, count: 0 }
+        map[w].budget = (map[w].budget || 0) + Math.abs(b.amount || 0)
+      }
+    }
+    return map
+  }, [searched, budgetFlat, scenario, startDate, endDate])
 
-  // Totals
-  const totalIncActual   = useMemo(() => incomeGroups.reduce((s,g)=>s+g.actual,0), [incomeGroups])
-  const totalIncBudget   = useMemo(() => incomeGroups.reduce((s,g)=>s+g.budget,0), [incomeGroups])
-  const totalExpActual   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.actual,0), [expenseGroups])
-  const totalExpBudget   = useMemo(() => expenseGroups.reduce((s,g)=>s+g.budget,0), [expenseGroups])
-  const netActual        = totalIncActual - totalExpActual
-  const netBudget        = totalIncBudget - totalExpBudget
-
-  // Sub-drill order (everything below category)
-  const subDrillOrder = useMemo(() => drillOrder.filter(f => f !== 'category'), [drillOrder])
-
-  // Expand / collapse all
-  function expandAll() {
-    setExpandedIncome(new Set(incomeGroups.map(g=>g.cat)))
-    setExpandedExpenses(new Set(expenseGroups.map(g=>g.cat)))
+  // Toggle row in income section — single open-path (same pattern as team breakdown)
+  function toggleInc(depth, value) {
+    setIncOpenPath(prev => prev[depth] === value ? prev.slice(0, depth) : [...prev.slice(0, depth), value])
   }
-  function collapseAll() {
-    setExpandedIncome(new Set()); setExpandedExpenses(new Set())
-    setIncSubPaths({}); setExpSubPaths({})
-  }
-  const anyExpanded = expandedIncome.size > 0 || expandedExpenses.size > 0
-
-  // Toggle category expand
-  function toggleIncCat(cat) {
-    setExpandedIncome(prev => { const n=new Set(prev); n.has(cat)?n.delete(cat):n.add(cat); return n })
-    setIncSubPaths(p => ({ ...p, [cat]: [] }))
-  }
-  function toggleExpCat(cat) {
-    setExpandedExpenses(prev => { const n=new Set(prev); n.has(cat)?n.delete(cat):n.add(cat); return n })
-    setExpSubPaths(p => ({ ...p, [cat]: [] }))
-  }
-
-  // Toggle sub-row within an expanded category
-  function toggleIncSub(cat, depth, value) {
-    setIncSubPaths(p => {
-      const prev = p[cat] || []
-      const next = prev[depth]===value ? prev.slice(0,depth) : [...prev.slice(0,depth), value]
-      return { ...p, [cat]: next }
-    })
-  }
-  function toggleExpSub(cat, depth, value) {
-    setExpSubPaths(p => {
-      const prev = p[cat] || []
-      const next = prev[depth]===value ? prev.slice(0,depth) : [...prev.slice(0,depth), value]
-      return { ...p, [cat]: next }
-    })
+  function toggleExp(depth, value) {
+    setExpOpenPath(prev => prev[depth] === value ? prev.slice(0, depth) : [...prev.slice(0, depth), value])
   }
 
   // Top vendors (for summary panel)
@@ -1668,28 +1982,73 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     return Object.entries(map).sort(([,a],[,b])=>b-a).slice(0,5).map(([vendor,amount])=>({ vendor, amount }))
   }, [expenseActuals])
 
-  // ── Row render helpers ──────────────────────────────────────────────────────
+  // ── Unified P&L row renderer ────────────────────────────────────────────────
+  // Handles both depth-0 (top-level) and deeper rows with the same component.
+  // isExpense flips variance color semantics (over budget = red for expenses,
+  // but for income over budget = green).
 
-  function PLCategoryRow({ cat, actual, budget, isExpense, isExpanded, totalInc, onToggle }) {
-    const variance = actual - budget
-    const pos = isExpense ? variance <= 0 : variance >= 0
-    const varColor = pos ? 'text-emerald-600' : 'text-red-600'
-    const pctInc = totalInc > 0 ? actual / totalInc * 100 : 0
+  function PLRow({ row, onToggle, isExpense }) {
+    if (row.type === 'transaction') {
+      const t = row.item
+      return (
+        <tr className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
+          onClick={() => setSelectedTx(t)}>
+          <td className="py-2" style={{ paddingLeft: 12 + row.depth * 20 }}>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-200 flex-shrink-0 pl-1">•</span>
+              <span className="text-xs text-gray-600 truncate max-w-[200px]">{t.vendor || '—'}</span>
+              {t.date && <span className="text-[10px] text-gray-300 flex-shrink-0">{t.date}</span>}
+            </div>
+          </td>
+          <td className="px-4 py-2 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(Math.abs(t.amount),{compact:false})}</td>
+          <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
+          <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
+          <td className="px-6 py-2 text-right text-xs text-gray-300">—</td>
+        </tr>
+      )
+    }
+
+    // Group row
+    const actual   = Math.abs(row.actual)
+    const budget   = row.budgetIsReal ? row.budget : 0
+    const variance = budget > 0 ? actual - budget : null
+    // Expense: positive variance = over budget (bad = red)
+    // Income:  negative variance = below target (bad = red)
+    const isBad    = variance !== null && (isExpense ? variance > 0 : variance < 0)
+    const varCls   = isBad ? 'text-red-600' : 'text-emerald-600'
+    const pctInc   = totalIncActual > 0 ? actual / totalIncActual * 100 : 0
+    const isTop    = row.depth === 0
+    const color    = FIELD_COLORS[row.field] || '#9BA8B5'
+
     return (
       <tr className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-        onClick={onToggle}>
-        <td className="px-4 py-2.5">
-          <div className="flex items-center gap-2" style={{ paddingLeft: 8 }}>
-            <span className={`flex-shrink-0 text-gray-400 transition-transform duration-150 ${isExpanded?'rotate-90':''}`}>
-              <ChevronRight size={13}/>
+        onClick={() => onToggle(row.depth, row.value)}
+        style={{ opacity: row.isDimmed ? 0.35 : 1 }}>
+        <td className="py-2.5" style={{ paddingLeft: 12 + row.depth * 20 }}>
+          <div className="flex items-center gap-1.5">
+            <span className={`flex-shrink-0 transition-transform duration-150 ${row.isExpanded ? 'rotate-90' : ''} ${isTop ? 'text-gray-400' : 'text-gray-300'}`}>
+              <ChevronRight size={isTop ? 13 : 11}/>
             </span>
-            <span className="text-sm font-medium text-gray-800">{cat}</span>
+            {/* Field tag badge for non-top rows */}
+            {!isTop && (
+              <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{ backgroundColor: color+'20', color }}>
+                {FIELD_LABELS[row.field] || row.field}
+              </span>
+            )}
+            <span className={`truncate ${isTop ? 'text-sm font-medium text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
+              {row.value}
+            </span>
           </div>
         </td>
-        <td className="px-4 py-2.5 text-right tabular-nums text-sm font-semibold text-gray-800">{formatCurrency(actual,{compact:false})}</td>
-        <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">{budget>0?formatCurrency(budget,{compact:false}):'—'}</td>
-        <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${varColor}`}>
-          {budget>0 ? `${variance>=0?'+':''}${formatCurrency(variance,{compact:false})}` : '—'}
+        <td className={`px-4 py-2.5 text-right tabular-nums ${isTop ? 'text-sm font-semibold text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
+          {formatCurrency(actual, {compact:false})}
+        </td>
+        <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">
+          {budget > 0 ? formatCurrency(budget, {compact:false}) : <span className="text-gray-300">—</span>}
+        </td>
+        <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${variance !== null ? varCls : 'text-gray-300'}`}>
+          {variance !== null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, {compact:false})}` : '—'}
         </td>
         <td className="px-6 py-2.5 text-right tabular-nums text-xs">
           <div className="flex items-center justify-end gap-2">
@@ -1701,62 +2060,6 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         </td>
       </tr>
     )
-  }
-
-  function PLSubRows({ items, subDrillOrder, openPath, onToggle, totalInc }) {
-    const subRows = useMemo(() =>
-      buildVisibleRows(items, subDrillOrder, openPath, {}, null)
-    , [items, subDrillOrder, openPath])
-
-    return subRows.map((row, i) => {
-      if (row.type === 'transaction') {
-        const t = row.item
-        return (
-          <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors"
-            onClick={() => setSelectedTx(t)}>
-            <td className="py-2" style={{ paddingLeft: 16 + row.depth*20 + 24 }}>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-200 flex-shrink-0">•</span>
-                <span className="text-xs text-gray-600 truncate max-w-[160px]">{t.vendor||'—'}</span>
-                {t.date && <span className="text-[10px] text-gray-300 flex-shrink-0">{t.date}</span>}
-              </div>
-            </td>
-            <td className="px-4 py-2 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(t.amount,{compact:false})}</td>
-            <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
-            <td className="px-4 py-2 text-right text-xs text-gray-300">—</td>
-            <td className="px-6 py-2 text-right text-xs text-gray-300">—</td>
-          </tr>
-        )
-      }
-      // Group row
-      const delta = row.budget > 0 ? row.actual - row.budget : null
-      return (
-        <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors"
-          onClick={() => onToggle(row.depth, row.value)}
-          style={{ opacity: row.isDimmed ? 0.35 : 1 }}>
-          <td className="py-2.5" style={{ paddingLeft: 16 + row.depth*20 + 16 }}>
-            <div className="flex items-center gap-1.5">
-              <span className={`text-gray-300 flex-shrink-0 transition-transform duration-150 ${row.isExpanded?'rotate-90':''}`}>
-                <ChevronRight size={11}/>
-              </span>
-              <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
-                style={{ backgroundColor: FIELD_COLORS[row.field]+'20', color: FIELD_COLORS[row.field] }}>
-                {FIELD_LABELS[row.field]}
-              </span>
-              <span className="text-xs font-medium text-gray-700 truncate">{row.value}</span>
-            </div>
-          </td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs font-medium text-gray-700">{formatCurrency(row.actual,{compact:false})}</td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">{row.budget>0?formatCurrency(row.budget,{compact:false}):'—'}</td>
-          <td className="px-4 py-2.5 text-right tabular-nums text-xs text-gray-400">
-            {delta!==null ? `${delta>=0?'+':''}${formatCurrency(delta,{compact:false})}` : '—'}
-          </td>
-          <td className="px-6 py-2.5 text-right text-xs text-gray-300">
-            {totalInc>0 ? `${(row.actual/totalInc*100).toFixed(1)}%` : '—'}
-          </td>
-        </tr>
-      )
-    })
   }
 
   function PLSectionRow({ label }) {
@@ -1795,9 +2098,14 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         {/* Search */}
         <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-48 flex-shrink-0">
           <Search size={12} className="text-gray-400"/>
-          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Search…"
+          <input value={searchQ} onChange={e => {
+            const v = e.target.value
+            setSearchQ(v)
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+            searchDebounceRef.current = setTimeout(() => setDebouncedSearchQ(v), 200)
+          }} placeholder="Search…"
             className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"/>
-          {searchQ&&<button onClick={()=>setSearchQ('')}><X size={10} className="text-gray-400"/></button>}
+          {searchQ&&<button onClick={()=>{ setSearchQ(''); setDebouncedSearchQ('') }}><X size={10} className="text-gray-400"/></button>}
         </div>
 
         {/* Department filter dropdown */}
@@ -1806,37 +2114,34 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         <div className="w-px h-5 bg-gray-200 flex-shrink-0"/>
 
         {/* Drill order label */}
-        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex-shrink-0">Sub-drill</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 flex-shrink-0">Drill Order</span>
 
-        {/* Draggable pills (sub-levels only — Category is always fixed as P&L rows) */}
+        {/* Draggable pills — reorder to change top-level P&L grouping */}
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {subDrillOrder.map((field,idx) => {
-            const fullIdx = drillOrder.indexOf(field)
-            return (
-              <div key={field}
-                draggable
-                onDragStart={e=>{ e._dragField=field; e.dataTransfer.effectAllowed='move' }}
-                onDragOver={e=>e.preventDefault()}
-                onDrop={e=>{
-                  e.preventDefault()
-                  const from=e._dragField||drillOrder.find(f=>f!=='category'&&f!==field)
-                  if(!from||from===field) return
-                  const next=[...drillOrder]
-                  const fi=next.indexOf(from), ti=next.indexOf(field)
-                  if(fi<0||ti<0) return
-                  next.splice(fi,1); next.splice(ti,0,from)
-                  setDrillOrder(next); setIncSubPaths({}); setExpSubPaths({})
-                }}>
-                <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
-                  style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
-                  <GripVertical size={10} className="opacity-60"/>
-                  {FIELD_LABELS[field]}
-                  <button onClick={()=>{ setDrillOrder(drillOrder.filter(f=>f!==field)); setIncSubPaths({}); setExpSubPaths({}) }}
-                    className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
-                </div>
+          {drillOrder.map((field) => (
+            <div key={field}
+              draggable
+              onDragStart={e => { e.dataTransfer.setData('text/plain', field); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => {
+                e.preventDefault()
+                const from = e.dataTransfer.getData('text/plain')
+                if (!from || from === field) return
+                const next = [...drillOrder]
+                const fi = next.indexOf(from), ti = next.indexOf(field)
+                if (fi < 0 || ti < 0) return
+                next.splice(fi, 1); next.splice(ti, 0, from)
+                setDrillOrder(next); setIncOpenPath([]); setExpOpenPath([])
+              }}>
+              <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
+                style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
+                <GripVertical size={10} className="opacity-60"/>
+                {FIELD_LABELS[field]}
+                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
+                  className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
               </div>
-            )
-          })}
+            </div>
+          ))}
           {/* Add field */}
           {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).length>0 && (
             <div className="relative group">
@@ -1845,14 +2150,14 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               </button>
               <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
                 {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
-                  <button key={f} onClick={()=>setDrillOrder([...drillOrder,f])} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                  <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
                     {FIELD_LABELS[f]}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <button onClick={()=>{ setDrillOrder(['category','account','grant','vendor']); setIncSubPaths({}); setExpSubPaths({}) }}
+          <button onClick={()=>{ setDrillOrder(['category','account','vendor']); setIncOpenPath([]); setExpOpenPath([]) }}
             className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"><RotateCcw size={10}/>Reset</button>
         </div>
 
@@ -1889,61 +2194,78 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                   <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Budget</th>
                   <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Variance</th>
                   <th className="text-right px-6 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-32">
-                    <div className="flex items-center justify-end gap-2">
-                      <span>% of Income</span>
-                      <button onClick={anyExpanded?collapseAll:expandAll}
-                        className="text-teal-600 hover:text-teal-700 transition-colors flex items-center gap-0.5 font-medium normal-case tracking-normal text-xs">
-                        {anyExpanded?<><ChevronUp size={10}/> Collapse</>:<><ChevronDown size={10}/> Expand</>}
-                      </button>
-                    </div>
+                    <span>% of Income</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {/* ── INCOME ── */}
                 <PLSectionRow label="Income"/>
-                {incomeGroups.length===0 && (
+                {incVisibleRows.length === 0 && (
                   <tr><td colSpan={5} className="px-4 py-3 text-xs text-gray-300 italic">No income in range</td></tr>
                 )}
-                {incomeGroups.map(g => (
-                  <React.Fragment key={g.cat}>
-                    <PLCategoryRow cat={g.cat} actual={g.actual} budget={g.budget} isExpense={false}
-                      isExpanded={expandedIncome.has(g.cat)} totalInc={totalIncActual}
-                      onToggle={() => toggleIncCat(g.cat)}/>
-                    {expandedIncome.has(g.cat) && g.items.length > 0 && subDrillOrder.length > 0 && (
-                      <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
-                        openPath={incSubPaths[g.cat]||[]}
-                        onToggle={(d,v) => toggleIncSub(g.cat,d,v)}
-                        totalInc={totalIncActual}/>
-                    )}
-                  </React.Fragment>
+                {incVisibleRows.map((row, i) => (
+                  <PLRow key={i} row={row} onToggle={toggleInc} isExpense={false}/>
                 ))}
                 <PLTotalRow label="Total Income" actual={totalIncActual} budget={totalIncBudget}/>
                 <tr><td colSpan={5} className="py-1.5"/></tr>
 
                 {/* ── EXPENSES ── */}
                 <PLSectionRow label="Expenses"/>
-                {expenseGroups.length===0 && (
+                {expVisibleRows.length === 0 && (
                   <tr><td colSpan={5} className="px-4 py-3 text-xs text-gray-300 italic">No expenses in range</td></tr>
                 )}
-                {expenseGroups.map(g => (
-                  <React.Fragment key={g.cat}>
-                    <PLCategoryRow cat={g.cat} actual={g.actual} budget={g.budget} isExpense={true}
-                      isExpanded={expandedExpenses.has(g.cat)} totalInc={totalIncActual}
-                      onToggle={() => toggleExpCat(g.cat)}/>
-                    {expandedExpenses.has(g.cat) && g.items.length > 0 && subDrillOrder.length > 0 && (
-                      <PLSubRows items={g.items} subDrillOrder={subDrillOrder}
-                        openPath={expSubPaths[g.cat]||[]}
-                        onToggle={(d,v) => toggleExpSub(g.cat,d,v)}
-                        totalInc={totalIncActual}/>
-                    )}
-                  </React.Fragment>
+                {expVisibleRows.map((row, i) => (
+                  <PLRow key={i} row={row} onToggle={toggleExp} isExpense={true}/>
                 ))}
                 <PLTotalRow label="Total Expenses" actual={totalExpActual} budget={totalExpBudget}/>
                 <tr><td colSpan={5} className="py-1.5"/></tr>
 
                 {/* ── NET OPERATING INCOME ── */}
                 <PLTotalRow label="Net Operating Income" actual={netActual} budget={netBudget} isNet/>
+
+                {/* ── UNRESOLVED ITEMS ── */}
+                {Object.entries(unresolvedMap).some(([, v]) => (v.actual || 0) + (v.budget || 0) > 0) && (
+                  <>
+                    <tr><td colSpan={5} className="py-1"/></tr>
+                    <tr className="bg-amber-50/80">
+                      <td colSpan={5} className="px-4 py-2">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle size={11} className="text-amber-500"/>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Unresolved Items</span>
+                          <span className="text-[10px] text-amber-400 ml-1">· click any row to fix</span>
+                        </div>
+                      </td>
+                    </tr>
+                    {Object.entries(unresolvedMap).map(([type, vals]) => {
+                      if (!vals || (vals.actual || 0) + (vals.budget || 0) === 0) return null
+                      const cfg = WARN_CONFIG[type]
+                      if (!cfg) return null
+                      const total = (vals.actual || 0) + (vals.budget || 0)
+                      return (
+                        <tr key={type}
+                          onClick={() => navigate(cfg.url)}
+                          className="border-b border-amber-100 bg-amber-50/40 hover:bg-amber-100 cursor-pointer transition-colors group">
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-start gap-2" style={{ paddingLeft: 8 }}>
+                              <AlertTriangle size={12} className="text-amber-500 flex-shrink-0 mt-0.5"/>
+                              <div>
+                                <div className="text-sm font-medium text-amber-800">{cfg.label}</div>
+                                <div className="text-xs text-amber-500 underline group-hover:no-underline">{cfg.action}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-sm font-semibold text-amber-700">
+                            {formatCurrency(total, {compact: false})}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs text-amber-300">—</td>
+                          <td className="px-4 py-2.5 text-right text-xs text-amber-300">—</td>
+                          <td className="px-6 py-2.5 text-right text-xs text-amber-400 font-medium">fix →</td>
+                        </tr>
+                      )
+                    })}
+                  </>
+                )}
               </tbody>
             </table>
           </div>
@@ -1992,16 +2314,16 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                 </div>
               )}
 
-              {/* Income categories */}
-              {incomeGroups.length > 0 && (
+              {/* Income breakdown (top-level groups only) */}
+              {incVisibleRows.filter(r => r.type === 'group' && r.depth === 0).length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Income Breakdown</p>
                   <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-1.5"
                     style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-                    {incomeGroups.slice(0,5).map(g=>(
-                      <div key={g.cat} className="flex justify-between text-xs">
-                        <span className="text-gray-500 truncate max-w-[100px]">{g.cat}</span>
-                        <span className="font-medium text-gray-700 tabular-nums">{formatCurrency(g.actual)}</span>
+                    {incVisibleRows.filter(r => r.type === 'group' && r.depth === 0).slice(0,5).map(g=>(
+                      <div key={g.value} className="flex justify-between text-xs">
+                        <span className="text-gray-500 truncate max-w-[100px]">{g.value}</span>
+                        <span className="font-medium text-gray-700 tabular-nums">{formatCurrency(Math.abs(g.actual))}</span>
                       </div>
                     ))}
                   </div>
@@ -2228,7 +2550,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
                 <td className="px-4 py-2 text-gray-500 tabular-nums">{t.date}</td>
                 <td className="px-4 py-2 font-medium text-gray-800 max-w-[180px] truncate">{t.vendor}</td>
                 <td className="px-4 py-2"><span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{backgroundColor:(DEPT_COLORS[t.department]||'#9BA8B5')+'20',color:DEPT_COLORS[t.department]||'#9BA8B5'}}>
+                  style={{backgroundColor:(DATA_COLORS[allDepts.indexOf(t.department) % DATA_COLORS.length] || DATA_COLORS[7])+'20',color:DATA_COLORS[allDepts.indexOf(t.department) % DATA_COLORS.length] || DATA_COLORS[7]}}>
                   {deptNames[t.department]||t.department}</span></td>
                 <td className="px-4 py-2 text-gray-600">{t.category}</td>
                 <td className="px-4 py-2 text-gray-400 text-xs">{t.account}</td>
@@ -2302,6 +2624,21 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
     }
     return m
   }, [budgetFlat, scenario, startP, endP])
+
+  // ── Unresolved warning map — transactions in range with _warnings ─────────
+  const unresolvedMap = useMemo(() => {
+    const map = {}
+    for (const t of actuals) {
+      const p = t.period || (t.date ? t.date.slice(0, 7) : null)
+      if (!p || p < startP || p > endP) continue
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
+    }
+    return map
+  }, [actuals, startP, endP])
 
   // ── Per-team per-category breakdown (for Top Issue + hover) ───────────────
   const teamCatMap = useMemo(() => {
@@ -2482,6 +2819,11 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
       </div>
 
       <div className="p-6 space-y-6">
+        {/* ── Unresolved warnings ──────────────────────────────────────── */}
+        {Object.keys(unresolvedMap).length > 0 && (
+          <UnresolvedSection warnMap={unresolvedMap} />
+        )}
+
         {/* ── Main table ───────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
           <table className="w-full text-sm">
@@ -2513,7 +2855,6 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
                     className={`border-b border-gray-50 transition-colors group ${team.id?'cursor-pointer hover:bg-gray-50':'hover:bg-gray-50/50'}`}>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-gray-800 group-hover:text-teal-700 transition-colors">{team.name}</div>
-                      {mgr && <div className="text-[10px] text-gray-400 mt-0.5">{mgr}</div>}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400">{mgr || '—'}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold text-gray-800">{formatCurrency(team.actual,{compact:false})}</td>
@@ -2608,8 +2949,24 @@ export default function MasterDashboard(){
   // Load org settings for fiscal year config (used by MasterTransactionsEditor)
   const { settings: orgSettings } = useOrgSettings()
 
+  const location = useLocation()
+
   const [activeTab,   setActiveTab]   = useState('overview')
   const [activeDepts, setActiveDepts] = useState(null) // null = all
+
+  // Deep-link support: /master?tab=setup&setup=accounts navigates directly
+  // to a specific tab (and setup subtab) — used by UnresolvedWarning links.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const tab = params.get('tab')
+    if (tab) setActiveTab(tab)
+  }, [location.search])
+
+  // Extract setup subtab from URL to pass to SetupPage
+  const setupInitialTab = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('setup') || null
+  }, [location.search])
 
   // Local date range (master dashboard has its own, independent of AppContext global)
   const [dateRange, setDateRange] = useState(() => ({
@@ -2662,7 +3019,7 @@ export default function MasterDashboard(){
       {activeTab==='teams'         && <TeamsTab {...tabProps}/>}
       {activeTab==='comments'      && <div className="flex-1"><CommentsPage/></div>}
       {activeTab==='import'        && <MasterImportTab/>}
-      {activeTab==='setup'         && <SetupPage/>}
+      {activeTab==='setup'         && <SetupPage initialTab={setupInitialTab}/>}
     </div>
   )
 }

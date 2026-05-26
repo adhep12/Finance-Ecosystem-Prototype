@@ -848,22 +848,22 @@ function AccountsRegistry() {
   const [txCounts, setTxCounts] = useState({}) // account_code → count
 
   useEffect(() => {
-    // Gather category suggestions from existing accounts
-    supabase.from('chart_of_accounts').select('category').eq('org_id', ORG_ID).eq('deleted', false)
-      .then(({ data }) => {
-        const cats = [...new Set((data || []).map(r => r.category).filter(Boolean))]
-        setCategoryHints(cats.sort())
-      })
+    // Fetch category hints + transaction counts in parallel
+    Promise.all([
+      supabase.from('chart_of_accounts').select('category').eq('org_id', ORG_ID).eq('deleted', false),
+      supabase.from('transactions').select('account_id').eq('org_id', ORG_ID).eq('deleted', false),
+    ]).then(([{ data: acctData }, { data: txData }]) => {
+      // Gather category suggestions from existing accounts
+      const cats = [...new Set((acctData || []).map(r => r.category).filter(Boolean))]
+      setCategoryHints(cats.sort())
 
-    // Transaction counts per account_id (the FK stored on the transaction row)
-    supabase.from('transactions').select('account_id').eq('org_id', ORG_ID).eq('deleted', false)
-      .then(({ data }) => {
-        const counts = {}
-        for (const r of (data || [])) {
-          if (r.account_id) counts[r.account_id] = (counts[r.account_id] || 0) + 1
-        }
-        setTxCounts(counts)
-      })
+      // Transaction counts per account_id (the FK stored on the transaction row)
+      const counts = {}
+      for (const r of (txData || [])) {
+        if (r.account_id) counts[r.account_id] = (counts[r.account_id] || 0) + 1
+      }
+      setTxCounts(counts)
+    })
   }, [])
 
   const {
@@ -1176,7 +1176,7 @@ function OrgSettingsForm() {
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Preview</label>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                style={{ backgroundColor: draft.primary_color || '#D4896A' }}>
+                style={{ backgroundColor: draft.primary_color || '#00B3E5' }}>
                 {draft.logo_initial || '?'}
               </div>
               <span className="text-sm text-gray-600">{draft.org_name}</span>
@@ -1250,6 +1250,18 @@ function OrgSettingsForm() {
               className="flex-1 px-3 py-2 text-sm focus:outline-none"/>
           </div>
           <p className="text-xs text-gray-400 mt-1">Minimum cash balance for Cash Position KPI</p>
+        </div>
+
+        <div className="w-64 mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Watch Area Materiality Threshold</label>
+          <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-400">
+            <input type="number" min={0} max={100} step={1}
+              value={Math.round((draft.materiality_threshold ?? 0.10) * 100)}
+              onChange={e => set('materiality_threshold', (parseFloat(e.target.value) || 0) / 100)}
+              className="flex-1 px-3 py-2 text-sm focus:outline-none"/>
+            <span className="px-3 text-sm text-gray-400 bg-gray-50 border-l border-gray-200 py-2">%</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Minimum % of total org expenses or income for an item to be flagged as a watch area. Default is 10%.</p>
         </div>
       </div>
 
@@ -1861,8 +1873,13 @@ function FieldMappingsRegistry() {
 // SetupPage — top-level component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function SetupPage() {
-  const [activeTab, setActiveTab] = useState('org')
+export default function SetupPage({ initialTab = null }) {
+  const [activeTab, setActiveTab] = useState(initialTab || 'org')
+
+  // Sync when deep-link changes (e.g. navigating from warning → setup tab)
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab)
+  }, [initialTab])
 
   return (
     <div className="flex flex-col min-h-screen bg-white">

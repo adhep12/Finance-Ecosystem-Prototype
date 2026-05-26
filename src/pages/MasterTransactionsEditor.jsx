@@ -22,6 +22,8 @@ import {
   ArrowUpDown, SlidersHorizontal,
 } from 'lucide-react'
 import { supabase, ORG_ID, dbUpdate, dbSoftDelete } from '../lib/supabase'
+import { useApp } from '../context/AppContext'
+import { UnresolvedChip, UnresolvedSection } from '../components/UnresolvedWarning'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -135,12 +137,14 @@ function MultiCheckFilter({ label, options, selected, onToggle, onClear, groups 
       </button>
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 min-w-[180px] max-h-64 overflow-y-auto">
-          {activeCount > 0 && (
-            <button onClick={() => { onClear(); setOpen(false) }}
-              className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 border-b border-gray-100 font-medium">
-              Clear all ({activeCount})
-            </button>
-          )}
+          {/* Header row: All / Clear */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100">
+            <button onClick={() => { onClear() }} className="text-xs text-teal-600 hover:underline font-medium">All</button>
+            {activeCount > 0 && <>
+              <span className="text-gray-300 text-xs">·</span>
+              <button onClick={() => { onClear(); setOpen(false) }} className="text-xs text-red-500 hover:underline">Clear ({activeCount})</button>
+            </>}
+          </div>
           {renderItems()}
         </div>
       )}
@@ -152,7 +156,7 @@ function MultiCheckFilter({ label, options, selected, onToggle, onClear, groups 
 // AmountRangeFilter
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
+function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear, baseAmounts = [] }) {
   const [open, setOpen] = useState(false)
   const ref = useRef()
   useEffect(() => {
@@ -161,6 +165,22 @@ function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
     return () => document.removeEventListener('mousedown', h)
   }, [])
   const active = amtMin !== '' || amtMax !== ''
+
+  const presets = [
+    { label: 'Under $1K',   min: '',     max: '1000'  },
+    { label: '$1K – $10K',  min: '1000', max: '10000' },
+    { label: 'Over $10K',   min: '10000',max: ''      },
+    { label: 'Over $50K',   min: '50000',max: ''      },
+  ]
+  const BUCKETS = [
+    { label: '<$1K',      min: 0,     max: 1000      },
+    { label: '$1K-$10K',  min: 1000,  max: 10000     },
+    { label: '$10K-$50K', min: 10000, max: 50000     },
+    { label: '>$50K',     min: 50000, max: Infinity   },
+  ]
+  const counts = BUCKETS.map(b => baseAmounts.filter(a => a >= b.min && a < b.max).length)
+  const maxCount = Math.max(...counts, 1)
+
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(p => !p)}
@@ -170,8 +190,33 @@ function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
         <ChevronDown size={10}/>
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-52">
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 w-56">
           <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Amount Range</div>
+
+          {/* Mini histogram */}
+          {baseAmounts.length > 0 && (
+            <div className="flex items-end gap-1 mb-3 h-10">
+              {BUCKETS.map((b, i) => (
+                <div key={b.label} className="flex-1 flex flex-col items-center gap-0.5">
+                  <div className="w-full bg-teal-100 rounded-sm transition-all"
+                    style={{ height: `${(counts[i] / maxCount) * 32}px`, minHeight: counts[i] > 0 ? 2 : 0 }}/>
+                  <span className="text-[8px] text-gray-400 leading-none">{b.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Preset buttons */}
+          <div className="flex flex-wrap gap-1 mb-2">
+            {presets.map(p => (
+              <button key={p.label}
+                onClick={() => { onMin(p.min); onMax(p.max) }}
+                className="px-2 py-0.5 text-[10px] border border-gray-200 rounded-full text-gray-500 hover:bg-gray-100 transition-colors whitespace-nowrap">
+                {p.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex gap-2 items-center">
             <input type="number" placeholder="Min" value={amtMin}
               onChange={e => onMin(e.target.value)}
@@ -188,6 +233,50 @@ function AmountRangeFilter({ amtMin, amtMax, onMin, onMax, onClear }) {
       )}
     </div>
   )
+}
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+function formatPeriod(p) {
+  if (!p) return '—'
+  const [y, m] = p.split('-').map(Number)
+  return `${MONTH_NAMES[m-1]} ${y}`
+}
+
+function applyBudgetFilters(rows, except, { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }) {
+  let r = rows
+  if (except !== 'period') {
+    if (budgetStartPeriod) r = r.filter(b => b.period >= budgetStartPeriod)
+    if (budgetEndPeriod)   r = r.filter(b => b.period <= budgetEndPeriod)
+  }
+  if (except !== 'dept' && budgetDeptFilter.size > 0) r = r.filter(b => budgetDeptFilter.has(b.dept_name || b.department))
+  if (except !== 'cat' && budgetCatFilter.size > 0)   r = r.filter(b => budgetCatFilter.has(b.category))
+  if (except !== 'scenario' && budgetScenarioFilter.size > 0) r = r.filter(b => budgetScenarioFilter.has(b.scenario))
+  return r
+}
+
+// Apply all actuals filters except the named one — used to compute each
+// dropdown's available options from the live dataset (cascading/dynamic filters).
+function applyActualsFilters(rows, except, { search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax }) {
+  let r = rows
+  const q = (search || '').trim().toLowerCase()
+  if (q && except !== 'search') {
+    r = r.filter(row => [row.vendor, row.description, row.account_name, row.dept_name, row.category, row.grant_name, row.account_code, row.dept_code]
+      .some(v => String(v || '').toLowerCase().includes(q)))
+  }
+  if (recordType !== 'all' && except !== 'recordType') r = r.filter(row => row.record_type === recordType)
+  if (except !== 'dept'   && deptFilter.size   > 0) r = r.filter(row => deptFilter.has(row.department_id))
+  if (except !== 'cat'    && catFilter.size    > 0) r = r.filter(row => catFilter.has(row.category))
+  if (except !== 'acct'   && acctFilter.size   > 0) r = r.filter(row => acctFilter.has(row.account_id))
+  if (except !== 'grant'  && grantFilter.size  > 0) r = r.filter(row => {
+    if (grantFilter.has('none')) return !row.grant_id || grantFilter.has(row.grant_id)
+    return grantFilter.has(row.grant_id)
+  })
+  if (except !== 'vendor' && vendorFilter.size > 0) r = r.filter(row => vendorFilter.has(row.vendor || ''))
+  if (except !== 'amount') {
+    if (amtMin !== '') r = r.filter(row => Math.abs(row.amount || 0) >= parseFloat(amtMin))
+    if (amtMax !== '') r = r.filter(row => Math.abs(row.amount || 0) <= parseFloat(amtMax))
+  }
+  return r
 }
 
 /** Compute default date range: current fiscal year start → today */
@@ -427,6 +516,7 @@ function AddTransactionForm({ departments, accounts, grants, onAdd, onCancel }) 
 
 export default function MasterTransactionsEditor({ orgSettings }) {
   const fyStartMonth = orgSettings?.fiscal_year_start_month || 10
+  const { budgetFlat, deptNames: contextDeptNames } = useApp()
 
   // ── Registries ──────────────────────────────────────────────────────────────
   const [departments, setDepartments] = useState([])
@@ -443,6 +533,9 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const deptOpts  = departments.map(d => ({ value: d.id,  label: `${d.dept_code} — ${d.dept_name}` }))
   const acctOpts  = accounts.map(a =>   ({ value: a.id,   label: `${a.account_code} — ${a.account_name}` }))
   const grantOpts = grants.map(g =>     ({ value: g.id,   label: `${g.grant_code} — ${g.grant_name}` }))
+
+  // ── Registry error ──────────────────────────────────────────────────────────
+  const [regError, setRegError] = useState(null)
 
   // ── Transactions state ──────────────────────────────────────────────────────
   const [rows,        setRows]        = useState([])
@@ -464,17 +557,28 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const [historyId,   setHistoryId]   = useState(null)
   const [saving,      setSaving]      = useState({}) // { [id]: bool }
   const [toast,       setToast]       = useState(null)
+  const [viewMode,    setViewMode]    = useState('actuals')  // 'actuals' | 'budget'
 
-  // Column filters
-  const [deptFilter,  setDeptFilter]  = useState(new Set())  // dept IDs
-  const [catFilter,   setCatFilter]   = useState(new Set())  // category strings
-  const [acctFilter,  setAcctFilter]  = useState(new Set())  // account IDs
-  const [grantFilter, setGrantFilter] = useState(new Set())  // grant IDs or 'none'
-  const [amtMin,      setAmtMin]      = useState('')
-  const [amtMax,      setAmtMax]      = useState('')
-  const [vendorSearch,setVendorSearch]= useState('')
+  // Column filters (actuals)
+  const [deptFilter,   setDeptFilter]   = useState(new Set())  // dept IDs
+  const [catFilter,    setCatFilter]    = useState(new Set())  // category strings
+  const [acctFilter,   setAcctFilter]   = useState(new Set())  // account IDs
+  const [grantFilter,  setGrantFilter]  = useState(new Set())  // grant IDs or 'none'
+  const [amtMin,       setAmtMin]       = useState('')
+  const [amtMax,       setAmtMax]       = useState('')
+  const [vendorFilter, setVendorFilter] = useState(new Set())  // multiselect Set
 
-  // Sort
+  // Budget filters
+  const [budgetDeptFilter,     setBudgetDeptFilter]     = useState(new Set())
+  const [budgetCatFilter,      setBudgetCatFilter]      = useState(new Set())
+  const [budgetScenarioFilter, setBudgetScenarioFilter] = useState(new Set())
+  const [budgetStartPeriod,    setBudgetStartPeriod]    = useState(defStart.substring(0, 7))
+  const [budgetEndPeriod,      setBudgetEndPeriod]      = useState(defEnd.substring(0, 7))
+  const [budgetPage,           setBudgetPage]           = useState(1)
+  const [budgetSortCol,        setBudgetSortCol]        = useState('period')
+  const [budgetSortDir,        setBudgetSortDir]        = useState('asc')
+
+  // Sort (actuals)
   const [sortCol, setSortCol] = useState('date')
   const [sortDir, setSortDir] = useState('desc')
   function toggleSort(col) {
@@ -486,11 +590,11 @@ export default function MasterTransactionsEditor({ orgSettings }) {
     return (deptFilter.size > 0 ? 1 : 0) + (catFilter.size > 0 ? 1 : 0) +
            (acctFilter.size > 0 ? 1 : 0) + (grantFilter.size > 0 ? 1 : 0) +
            (amtMin !== '' ? 1 : 0) + (amtMax !== '' ? 1 : 0) +
-           (vendorSearch ? 1 : 0)
+           (vendorFilter.size > 0 ? 1 : 0)
   }
   function clearAllFilters() {
     setDeptFilter(new Set()); setCatFilter(new Set()); setAcctFilter(new Set())
-    setGrantFilter(new Set()); setAmtMin(''); setAmtMax(''); setVendorSearch('')
+    setGrantFilter(new Set()); setAmtMin(''); setAmtMax(''); setVendorFilter(new Set())
     setSearch('')
   }
 
@@ -506,7 +610,11 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       supabase.from('chart_of_accounts').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('account_code'),
       supabase.from('grants').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('grant_code'),
       supabase.from('teams').select('id, team_name').eq('org_id', ORG_ID).eq('deleted', false).order('team_name'),
-    ]).then(([{ data: d }, { data: a }, { data: g }, { data: t }]) => {
+    ]).then(([{ data: d, error: dErr }, { data: a, error: aErr }, { data: g, error: gErr }, { data: t, error: tErr }]) => {
+      if (dErr || aErr || gErr || tErr) {
+        setRegError('Failed to load required data — please refresh and try again')
+        return
+      }
       setDepartments(d || [])
       setAccounts(a || [])
       setGrants(g || [])
@@ -569,16 +677,23 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   useEffect(() => { if (showDeleted) loadDeleted() }, [showDeleted, loadDeleted])
 
   // ── Enriched rows (client-side join) ────────────────────────────────────────
-  const enriched = useMemo(() => rows.map(r => ({
-    ...r,
-    dept_name:    deptMap.get(r.department_id)?.dept_name    || '',
-    dept_code:    deptMap.get(r.department_id)?.dept_code    || '',
-    account_name: acctMap.get(r.account_id)?.account_name   || '',
-    account_code: acctMap.get(r.account_id)?.account_code   || '',
-    category:     acctMap.get(r.account_id)?.category        || '',
-    record_type:  acctMap.get(r.account_id)?.record_type     || '',
-    grant_name:   grantMap.get(r.grant_id)?.grant_name       || '',
-  })), [rows, deptMap, acctMap, grantMap])
+  const enriched = useMemo(() => rows.map(r => {
+    const _warnings = []
+    if (r.account_id && !acctMap.has(r.account_id)) _warnings.push('no_account')
+    if (r.department_id && !deptMap.has(r.department_id)) _warnings.push('no_dept')
+    else if (r.department_id && deptMap.has(r.department_id) && !deptMap.get(r.department_id)?.team_id) _warnings.push('no_team')
+    return {
+      ...r,
+      dept_name:    deptMap.get(r.department_id)?.dept_name    || '',
+      dept_code:    deptMap.get(r.department_id)?.dept_code    || '',
+      account_name: acctMap.get(r.account_id)?.account_name   || '',
+      account_code: acctMap.get(r.account_id)?.account_code   || '',
+      category:     acctMap.get(r.account_id)?.category        || '',
+      record_type:  acctMap.get(r.account_id)?.record_type     || '',
+      grant_name:   grantMap.get(r.grant_id)?.grant_name       || '',
+      _warnings,
+    }
+  }), [rows, deptMap, acctMap, grantMap])
 
   // ── Client-side filters + sort ───────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -596,10 +711,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       if (grantFilter.has('none')) return !r.grant_id || grantFilter.has(r.grant_id)
       return grantFilter.has(r.grant_id)
     })
-    if (vendorSearch) {
-      const vs = vendorSearch.toLowerCase()
-      result = result.filter(r => (r.vendor || '').toLowerCase().includes(vs))
-    }
+    if (vendorFilter.size > 0) result = result.filter(r => vendorFilter.has(r.vendor || ''))
     if (amtMin !== '') result = result.filter(r => Math.abs(r.amount || 0) >= parseFloat(amtMin))
     if (amtMax !== '') result = result.filter(r => Math.abs(r.amount || 0) <= parseFloat(amtMax))
 
@@ -615,7 +727,127 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       return 0
     })
     return result
-  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorSearch, amtMin, amtMax, sortCol, sortDir])
+  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax, sortCol, sortDir])
+
+  // ── Dynamic cascade options — each shows only values present after all OTHER filters ──
+  const fs = { search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax }
+
+  const dynamicDeptGroups = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'dept', fs)
+    const teamMapping = new Map(teams.map(t => [t.id, t.team_name]))
+    const byTeam = {}
+    const seen = new Set()
+    for (const r of pool) {
+      if (!r.department_id || seen.has(r.department_id)) continue
+      seen.add(r.department_id)
+      const dept = deptMap.get(r.department_id)
+      const tName = dept ? (teamMapping.get(dept.team_id) || 'Unassigned') : 'Unassigned'
+      if (!byTeam[tName]) byTeam[tName] = []
+      byTeam[tName].push({ value: r.department_id, label: r.dept_name || r.dept_code || r.department_id })
+    }
+    return Object.entries(byTeam).sort(([a],[b]) => a.localeCompare(b))
+      .map(([label, items]) => ({ label, items: items.sort((a,b) => a.label.localeCompare(b.label)) }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax, teams, deptMap])
+
+  const dynamicCatOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'cat', fs)
+    const seen = new Set()
+    for (const r of pool) if (r.category) seen.add(r.category)
+    return [...seen].sort().map(c => ({ value: c, label: c }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax])
+
+  const dynamicAcctOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'acct', fs)
+    const seen = new Map()
+    for (const r of pool) if (r.account_id && !seen.has(r.account_id)) seen.set(r.account_id, r.account_name || r.account_code || r.account_id)
+    return [...seen.entries()].sort(([,a],[,b]) => a.localeCompare(b)).map(([id, label]) => ({ value: id, label }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, catFilter, grantFilter, vendorFilter, amtMin, amtMax])
+
+  const dynamicVendorOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'vendor', fs)
+    const seen = new Set()
+    for (const r of pool) if (r.vendor) seen.add(r.vendor)
+    return [...seen].sort().map(v => ({ value: v, label: v }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, amtMin, amtMax])
+
+  const dynamicGrantOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'grant', fs)
+    const seen = new Map()
+    for (const r of pool) if (r.grant_id) seen.set(r.grant_id, r.grant_name || r.grant_id)
+    const hasNone = pool.some(r => !r.grant_id)
+    const opts = hasNone ? [{ value: 'none', label: 'No grant (N/A)' }] : []
+    for (const [id, label] of [...seen.entries()].sort(([,a],[,b]) => a.localeCompare(b))) opts.push({ value: id, label })
+    return opts
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, amtMin, amtMax])
+
+  // Base amounts for histogram — all filters except amount applied
+  const baseAmounts = useMemo(() =>
+    applyActualsFilters(enriched, 'amount', fs).map(r => Math.abs(r.amount || 0))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  , [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter])
+
+  // Unresolved warning map — aggregate across all filtered rows
+  const unresolvedMap = useMemo(() => {
+    const map = {}
+    for (const r of filtered) {
+      for (const w of (r._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(r.amount || 0)
+        map[w].count++
+      }
+    }
+    return map
+  }, [filtered])
+
+  // ── Budget filter state and filtered rows ───────────────────────────────────
+  const budgetFilterState = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
+
+  const filteredBudget = useMemo(() => {
+    let rows = applyBudgetFilters(budgetFlat || [], null, budgetFilterState)
+    rows = [...rows].sort((a, b) => {
+      let av, bv
+      if (budgetSortCol === 'period')   { av = a.period||''; bv = b.period||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'dept')     { av = a.dept_name||a.department||''; bv = b.dept_name||b.department||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'cat')      { av = a.category||''; bv = b.category||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'scenario') { av = a.scenario||''; bv = b.scenario||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'amount')   { av = a.amount||0; bv = b.amount||0; return budgetSortDir==='asc'?av-bv:bv-av }
+      return 0
+    })
+    return rows
+  }, [budgetFlat, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
+
+  const filteredBudgetTotal = useMemo(() => filteredBudget.reduce((s, b) => s + (b.amount||0), 0), [filteredBudget])
+
+  // Budget cascade options
+  const budgetDeptOptions = useMemo(() => {
+    const pool = applyBudgetFilters(budgetFlat || [], 'dept', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) { const n = b.dept_name || b.department; if (n) seen.add(n) }
+    return [...seen].sort().map(n => ({ value: n, label: n }))
+  }, [budgetFlat, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+
+  const budgetCatOptions = useMemo(() => {
+    const pool = applyBudgetFilters(budgetFlat || [], 'cat', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) if (b.category) seen.add(b.category)
+    return [...seen].sort().map(c => ({ value: c, label: c }))
+  }, [budgetFlat, budgetDeptFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+
+  const budgetScenarioOptions = useMemo(() => {
+    const pool = applyBudgetFilters(budgetFlat || [], 'scenario', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) if (b.scenario) seen.add(b.scenario)
+    return [...seen].sort().map(s => ({ value: s, label: s }))
+  }, [budgetFlat, budgetDeptFilter, budgetCatFilter, budgetStartPeriod, budgetEndPeriod])
+
+  const BUDGET_PAGE_SIZE = 100
+  const budgetTotalPages = Math.max(1, Math.ceil(filteredBudget.length / BUDGET_PAGE_SIZE))
+  const budgetPageRows   = filteredBudget.slice((budgetPage - 1) * BUDGET_PAGE_SIZE, budgetPage * BUDGET_PAGE_SIZE)
 
   // Running total of filtered rows
   const filteredTotal = useMemo(() => filtered.reduce((s,r) => s + Math.abs(r.amount||0), 0), [filtered])
@@ -719,6 +951,17 @@ export default function MasterTransactionsEditor({ orgSettings }) {
 
   // ── Export ──────────────────────────────────────────────────────────────────
   function handleExport() {
+    if (viewMode === 'budget') {
+      downloadCSV(`budget-${budgetStartPeriod}-to-${budgetEndPeriod}.csv`, filteredBudget, [
+        { key: 'period',      label: 'period'      },
+        { key: 'department',  label: 'department'  },
+        { key: 'category',    label: 'category'    },
+        { key: 'scenario',    label: 'scenario'    },
+        { key: 'amount',      label: 'amount'      },
+        { key: 'period_type', label: 'period_type' },
+      ])
+      return
+    }
     downloadCSV(`transactions-${startDate}-to-${endDate}.csv`, filtered, [
       { key: 'date',         label: 'date'         },
       { key: 'fiscal_period',label: 'fiscal_period' },
@@ -751,51 +994,92 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         </div>
       )}
 
+      {/* Registry load error */}
+      {regError && (
+        <div className="flex items-center gap-2 px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700">
+          <AlertTriangle size={14} className="shrink-0"/>
+          {regError}
+        </div>
+      )}
+
       {/* History panel */}
       {historyId && <HistoryPanel txId={historyId} onClose={() => setHistoryId(null)}/>}
 
-      {/* ── Toolbar row 1: date range + quick presets + type toggle + actions ── */}
+      {/* ── Toolbar row 1: date range + quick presets + type toggle + view toggle + actions ── */}
       <div className="flex items-center gap-2 flex-wrap px-6 py-3 border-b border-gray-100 bg-gray-50">
-        {/* Date pickers */}
-        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-        <span className="text-xs text-gray-400">to</span>
-        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-        {/* Quick presets */}
-        {quickPresets().map(p => (
-          <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end) }}
-            className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
-            {p.label}
-          </button>
-        ))}
-        <div className="w-px h-5 bg-gray-200"/>
-        {/* Record type */}
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {[['all','All'],['expense','Expense'],['income','Income']].map(([val, lbl]) => (
-            <button key={val} onClick={() => setRecordType(val)}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+        {viewMode === 'actuals' ? (
+          <>
+            {/* Date pickers */}
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+            <span className="text-xs text-gray-400">to</span>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+            {/* Quick presets */}
+            {quickPresets().map(p => (
+              <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end) }}
+                className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
+                {p.label}
+              </button>
+            ))}
+            <div className="w-px h-5 bg-gray-200"/>
+            {/* Record type */}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {[['all','All'],['expense','Expense'],['income','Income']].map(([val, lbl]) => (
+                <button key={val} onClick={() => setRecordType(val)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${recordType === val ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          /* Budget period range (month inputs) */
+          <>
+            <span className="text-xs text-gray-500 font-medium">Period:</span>
+            <input type="month" value={budgetStartPeriod} onChange={e => { setBudgetStartPeriod(e.target.value); setBudgetPage(1) }}
+              className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+            <span className="text-xs text-gray-400">to</span>
+            <input type="month" value={budgetEndPeriod} onChange={e => { setBudgetEndPeriod(e.target.value); setBudgetPage(1) }}
+              className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+          </>
+        )}
+
+        {/* Actuals / Budget toggle */}
+        <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
+          {[['actuals','Actuals'],['budget','Budget']].map(([id, lbl]) => (
+            <button key={id} onClick={() => setViewMode(id)}
+              className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}>
               {lbl}
             </button>
           ))}
         </div>
+
         <div className="flex-1"/>
-        {/* Show deleted */}
-        <button onClick={() => setShowDeleted(p => !p)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg transition-colors ${showDeleted ? 'bg-red-50 border-red-300 text-red-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-          {showDeleted ? <EyeOff size={12}/> : <Eye size={12}/>}
-          Deleted ({deletedRows.length || '?'})
-        </button>
+        {/* Show deleted — only in actuals mode */}
+        {viewMode === 'actuals' && (
+          <button onClick={() => setShowDeleted(p => !p)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg transition-colors ${showDeleted ? 'bg-red-50 border-red-300 text-red-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+            {showDeleted ? <EyeOff size={12}/> : <Eye size={12}/>}
+            Deleted ({deletedRows.length || '?'})
+          </button>
+        )}
         <button onClick={handleExport}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
           <Download size={12}/> Export
         </button>
-        <button onClick={() => setShowAdd(p => !p)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
-          <Plus size={12}/> Add
-        </button>
+        {viewMode === 'actuals' && (
+          <button onClick={() => setShowAdd(p => !p)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+            <Plus size={12}/> Add
+          </button>
+        )}
       </div>
+
       {/* ── Toolbar row 2: column filters + search ── */}
+      {viewMode === 'actuals' ? (
       <div className="flex items-center gap-2 flex-wrap px-6 py-2.5 border-b border-gray-200 bg-white">
         <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
         {/* Search */}
@@ -804,62 +1088,37 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
         </div>
-        {/* Vendor search */}
-        <div className="relative min-w-[140px]">
-          <input value={vendorSearch} onChange={e => setVendorSearch(e.target.value)} placeholder="Vendor…"
-            className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
-        </div>
-        {/* Department multiselect grouped by team */}
-        {(() => {
-          const teamMap = new Map(teams.map(t => [t.id, t.team_name]))
-          const groups = []
-          const byTeam = {}
-          for (const d of departments) {
-            const tName = teamMap.get(d.team_id) || 'Unassigned'
-            if (!byTeam[tName]) byTeam[tName] = []
-            byTeam[tName].push({ value: d.id, label: d.dept_name || d.dept_code })
-          }
-          for (const [tName, items] of Object.entries(byTeam)) groups.push({ label: tName, items })
-          return (
-            <MultiCheckFilter label="Department" selected={deptFilter}
-              options={departments.map(d => ({ value: d.id, label: d.dept_name || d.dept_code }))}
-              groups={groups.length > 0 ? groups : null}
-              onToggle={id => setDeptFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
-              onClear={() => setDeptFilter(new Set())}/>
-          )
-        })()}
-        {/* Category */}
-        {(() => {
-          const cats = [...new Set(accounts.map(a => a.category).filter(Boolean))].sort()
-          return (
-            <MultiCheckFilter label="Category" selected={catFilter}
-              options={cats.map(c => ({ value: c, label: c }))}
-              onToggle={c => setCatFilter(p => { const n = new Set(p); n.has(c) ? n.delete(c) : n.add(c); return n })}
-              onClear={() => setCatFilter(new Set())}/>
-          )
-        })()}
-        {/* Account */}
+        {/* Vendor — dynamic: only values present after other filters */}
+        <MultiCheckFilter label="Vendor" selected={vendorFilter}
+          options={dynamicVendorOptions}
+          onToggle={v => setVendorFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n })}
+          onClear={() => setVendorFilter(new Set())}/>
+        {/* Department — dynamic, grouped by team */}
+        <MultiCheckFilter label="Department" selected={deptFilter}
+          options={dynamicDeptGroups.flatMap(g => g.items)}
+          groups={dynamicDeptGroups.length > 0 ? dynamicDeptGroups : null}
+          onToggle={id => setDeptFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+          onClear={() => setDeptFilter(new Set())}/>
+        {/* Category — dynamic */}
+        <MultiCheckFilter label="Category" selected={catFilter}
+          options={dynamicCatOptions}
+          onToggle={c => setCatFilter(p => { const n = new Set(p); n.has(c) ? n.delete(c) : n.add(c); return n })}
+          onClear={() => setCatFilter(new Set())}/>
+        {/* Account — dynamic */}
         <MultiCheckFilter label="Account" selected={acctFilter}
-          options={accounts.map(a => ({ value: a.id, label: a.account_name || a.account_code }))}
+          options={dynamicAcctOptions}
           onToggle={id => setAcctFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
           onClear={() => setAcctFilter(new Set())}/>
-        {/* Grant */}
-        {(() => {
-          const grantOpts = [
-            { value: 'none', label: 'No grant (N/A)' },
-            ...grants.map(g => ({ value: g.id, label: g.grant_name || g.grant_code }))
-          ]
-          return (
-            <MultiCheckFilter label="Grant" selected={grantFilter}
-              options={grantOpts}
-              onToggle={id => setGrantFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
-              onClear={() => setGrantFilter(new Set())}/>
-          )
-        })()}
-        {/* Amount range */}
+        {/* Grant — dynamic */}
+        <MultiCheckFilter label="Grant" selected={grantFilter}
+          options={dynamicGrantOptions}
+          onToggle={id => setGrantFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+          onClear={() => setGrantFilter(new Set())}/>
+        {/* Amount range with histogram */}
         <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
           onMin={setAmtMin} onMax={setAmtMax}
-          onClear={() => { setAmtMin(''); setAmtMax('') }}/>
+          onClear={() => { setAmtMin(''); setAmtMax('') }}
+          baseAmounts={baseAmounts}/>
         {/* Filter badge + clear */}
         {activeFilterCount() > 0 && (
           <>
@@ -872,6 +1131,35 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           </>
         )}
       </div>
+      ) : (
+      /* Budget filter row */
+      <div className="flex items-center gap-2 flex-wrap px-6 py-2.5 border-b border-gray-200 bg-white">
+        <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+        <MultiCheckFilter label="Department" selected={budgetDeptFilter}
+          options={budgetDeptOptions}
+          onToggle={v => { setBudgetDeptFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+          onClear={() => { setBudgetDeptFilter(new Set()); setBudgetPage(1) }}/>
+        <MultiCheckFilter label="Category" selected={budgetCatFilter}
+          options={budgetCatOptions}
+          onToggle={v => { setBudgetCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+          onClear={() => { setBudgetCatFilter(new Set()); setBudgetPage(1) }}/>
+        <MultiCheckFilter label="Scenario" selected={budgetScenarioFilter}
+          options={budgetScenarioOptions}
+          onToggle={v => { setBudgetScenarioFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+          onClear={() => { setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}/>
+        {(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) > 0 && (
+          <>
+            <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+              {budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size} filter{(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) !== 1 ? 's' : ''}
+            </span>
+            <button onClick={() => { setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set()); setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}
+              className="text-xs text-red-600 hover:underline font-medium">
+              Clear all
+            </button>
+          </>
+        )}
+      </div>
+      )}
 
       {/* ── Add form ── */}
       {showAdd && (
@@ -890,163 +1178,263 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       <div className="flex-1 overflow-auto">
         {/* Stats bar */}
         <div className="flex items-center gap-4 px-6 py-2 bg-white border-b border-gray-100 text-xs text-gray-400">
-          <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
-          {filtered.length < totalCount && <span className="text-gray-400">of {totalCount.toLocaleString()} in range</span>}
-          <span className="font-semibold text-gray-700">{formatCurrency(filteredTotal)}</span>
-          <span className="flex-1"/>
-          <span>{totalPages > 1 && `Page ${page + 1} of ${totalPages}`}</span>
+          {viewMode === 'actuals' ? (
+            <>
+              <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
+              {filtered.length < totalCount && <span className="text-gray-400">of {totalCount.toLocaleString()} in range</span>}
+              <span className="font-semibold text-gray-700">{formatCurrency(filteredTotal)}</span>
+              <span className="flex-1"/>
+              <span>{totalPages > 1 && `Page ${page + 1} of ${totalPages}`}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-gray-600">{filteredBudget.length.toLocaleString()} budget line{filteredBudget.length !== 1 ? 's' : ''}</span>
+              <span className="font-semibold text-gray-700">{formatCurrency(filteredBudgetTotal)} total budgeted</span>
+              <span className="flex-1"/>
+              <span>{budgetTotalPages > 1 && `Page ${budgetPage} of ${budgetTotalPages}`}</span>
+            </>
+          )}
         </div>
 
-        {loading && (
-          <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
-            <Loader2 size={20} className="animate-spin"/> Loading transactions…
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center gap-2 px-6 py-4 text-sm text-red-600 bg-red-50">
-            <AlertTriangle size={14}/> {error}
-          </div>
-        )}
+        {/* ── Actuals table ── */}
+        {viewMode === 'actuals' && (
+          <>
+            {loading && (
+              <div className="flex items-center justify-center py-16 gap-3 text-gray-400">
+                <Loader2 size={20} className="animate-spin"/> Loading transactions…
+              </div>
+            )}
+            {error && (
+              <div className="flex items-center gap-2 px-6 py-4 text-sm text-red-600 bg-red-50">
+                <AlertTriangle size={14}/> {error}
+              </div>
+            )}
 
-        {!loading && !error && (
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10">
-              {(() => {
-                function SH({ col, right, className: cls, children }) {
-                  const active = sortCol === col
-                  return (
-                    <th onClick={() => toggleSort(col)}
-                      className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none
-                        ${right ? 'text-right' : 'text-left'} ${active ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-600'} ${cls||''}`}>
-                      <span className={`inline-flex items-center gap-1 ${right?'justify-end':''}`}>
-                        {children}
-                        {active ? (sortDir==='asc'?<ArrowUp size={8}/>:<ArrowDown size={8}/>) : <ArrowUpDown size={8} className="opacity-30"/>}
-                      </span>
-                    </th>
-                  )
-                }
-                return (
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <SH col="date">Date</SH>
-                    <SH col="acct">Account</SH>
-                    <SH col="cat">Category</SH>
-                    <SH col="dept">Department</SH>
-                    <SH col="vendor">Vendor</SH>
-                    <SH col="amount" right>Amount</SH>
-                    <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Description</th>
-                    <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-20">Actions</th>
-                  </tr>
-                )
-              })()}
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
-                  {search || recordType !== 'all' ? 'No transactions match your filters.' : 'No transactions in this date range.'}
-                </td></tr>
-              )}
-
-              {filtered.map(row => {
-                const isEdited = editedIds.has(row.id)
-                const isManual = row.source === 'manual'
-                return (
-                  <tr key={row.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
-                    {/* Date */}
-                    <td className="px-3 py-1.5">
-                      <EditCell value={row.date} type="date"
-                        displayValue={<span className="text-xs">{formatDate(row.date)}</span>}
-                        onChange={v => handleEdit(row, 'date', v)}/>
-                    </td>
-
-                    {/* Account */}
-                    <td className="px-3 py-1.5">
-                      <EditCell value={row.account_id || ''}
-                        displayValue={<span className="text-xs">{row.account_name || <span className="text-gray-300">—</span>}</span>}
-                        type="select" options={acctOpts}
-                        onChange={v => handleEdit(row, 'account_id', v || null)}/>
-                    </td>
-
-                    {/* Category (read-only — change in Chart of Accounts) */}
-                    <td className="px-4 py-1.5">
-                      <span className="text-xs text-gray-500">{row.category || '—'}</span>
-                    </td>
-
-                    {/* Department */}
-                    <td className="px-3 py-1.5">
-                      <EditCell value={row.department_id || ''}
-                        displayValue={<span className="text-xs">{row.dept_name || <span className="text-gray-300">—</span>}</span>}
-                        type="select" options={deptOpts}
-                        onChange={v => handleEdit(row, 'department_id', v || null)}/>
-                    </td>
-
-                    {/* Vendor */}
-                    <td className="px-3 py-1.5">
-                      <EditCell value={row.vendor || ''} placeholder="—"
-                        displayValue={<span className="text-xs">{row.vendor || <span className="text-gray-300">—</span>}</span>}
-                        onChange={v => handleEdit(row, 'vendor', v)}/>
-                    </td>
-
-                    {/* Amount */}
-                    <td className="px-3 py-1.5 text-right">
-                      <EditCell value={row.amount} numeric
-                        displayValue={
-                          <span className={`text-xs font-medium tabular-nums ${row.amount < 0 ? 'text-emerald-600' : 'text-gray-800'}`}>
-                            {formatCurrency(row.amount)}
+            {!loading && !error && (
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 z-10">
+                  {(() => {
+                    function SH({ col, right, className: cls, children }) {
+                      const active = sortCol === col
+                      return (
+                        <th onClick={() => toggleSort(col)}
+                          className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none
+                            ${right ? 'text-right' : 'text-left'} ${active ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-600'} ${cls||''}`}>
+                          <span className={`inline-flex items-center gap-1 ${right?'justify-end':''}`}>
+                            {children}
+                            {active ? (sortDir==='asc'?<ArrowUp size={8}/>:<ArrowDown size={8}/>) : <ArrowUpDown size={8} className="opacity-30"/>}
                           </span>
-                        }
-                        onChange={v => handleEdit(row, 'amount', parseFloat(v) || 0)}/>
-                    </td>
+                        </th>
+                      )
+                    }
+                    return (
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <SH col="date">Date</SH>
+                        <SH col="acct">Account</SH>
+                        <SH col="cat">Category</SH>
+                        <SH col="dept">Department</SH>
+                        <SH col="vendor">Vendor</SH>
+                        <SH col="amount" right>Amount</SH>
+                        <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Description</th>
+                        <th className="text-right px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400 w-20">Actions</th>
+                      </tr>
+                    )
+                  })()}
+                </thead>
+                <tbody>
+                  {filtered.length === 0 && (
+                    <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
+                      {search || recordType !== 'all' ? 'No transactions match your filters.' : 'No transactions in this date range.'}
+                    </td></tr>
+                  )}
 
-                    {/* Description */}
-                    <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <EditCell value={row.description || ''} placeholder="—"
-                          displayValue={<span className="text-xs text-gray-500 truncate max-w-[160px]">{row.description || <span className="text-gray-300">—</span>}</span>}
-                          onChange={v => handleEdit(row, 'description', v)}/>
-                        {/* Badges */}
-                        {isManual && (
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">manual</span>
-                        )}
-                        {isEdited && !isManual && (
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">edited</span>
-                        )}
-                      </div>
-                    </td>
+                  {filtered.map(row => {
+                    const isEdited = editedIds.has(row.id)
+                    const isManual = row.source === 'manual'
+                    return (
+                      <tr key={row.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
+                        {/* Date */}
+                        <td className="px-3 py-1.5">
+                          <EditCell value={row.date} type="date"
+                            displayValue={<span className="text-xs">{formatDate(row.date)}</span>}
+                            onChange={v => handleEdit(row, 'date', v)}/>
+                        </td>
 
-                    {/* Actions */}
-                    <td className="px-3 py-1.5">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {saving[row.id] && <span className="text-[10px] text-teal-500">Saving…</span>}
-                        <button onClick={() => setHistoryId(row.id)} title="Change history"
-                          className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
-                          <Clock size={13}/>
-                        </button>
-                        <button onClick={() => handleDelete(row)} title="Archive"
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                          <Trash2 size={13}/>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                        {/* Account */}
+                        <td className="px-3 py-1.5">
+                          <EditCell value={row.account_id || ''}
+                            displayValue={<span className="text-xs">{row.account_name || <span className="text-gray-300">—</span>}</span>}
+                            type="select" options={acctOpts}
+                            onChange={v => handleEdit(row, 'account_id', v || null)}/>
+                        </td>
+
+                        {/* Category (read-only — change in Chart of Accounts) */}
+                        <td className="px-4 py-1.5">
+                          <span className="text-xs text-gray-500">{row.category || '—'}</span>
+                        </td>
+
+                        {/* Department */}
+                        <td className="px-3 py-1.5">
+                          <EditCell value={row.department_id || ''}
+                            displayValue={<span className="text-xs">{row.dept_name || <span className="text-gray-300">—</span>}</span>}
+                            type="select" options={deptOpts}
+                            onChange={v => handleEdit(row, 'department_id', v || null)}/>
+                        </td>
+
+                        {/* Vendor */}
+                        <td className="px-3 py-1.5">
+                          <EditCell value={row.vendor || ''} placeholder="—"
+                            displayValue={<span className="text-xs">{row.vendor || <span className="text-gray-300">—</span>}</span>}
+                            onChange={v => handleEdit(row, 'vendor', v)}/>
+                        </td>
+
+                        {/* Amount */}
+                        <td className="px-3 py-1.5 text-right">
+                          <EditCell value={row.amount} numeric
+                            displayValue={
+                              <span className={`text-xs font-medium tabular-nums ${row.amount < 0 ? 'text-emerald-600' : 'text-gray-800'}`}>
+                                {formatCurrency(row.amount)}
+                              </span>
+                            }
+                            onChange={v => handleEdit(row, 'amount', parseFloat(v) || 0)}/>
+                        </td>
+
+                        {/* Description */}
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <EditCell value={row.description || ''} placeholder="—"
+                              displayValue={<span className="text-xs text-gray-500 truncate max-w-[160px]">{row.description || <span className="text-gray-300">—</span>}</span>}
+                              onChange={v => handleEdit(row, 'description', v)}/>
+                            {/* Badges */}
+                            {isManual && (
+                              <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">manual</span>
+                            )}
+                            {isEdited && !isManual && (
+                              <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">edited</span>
+                            )}
+                            {/* Warning chips */}
+                            {(row._warnings || []).map(w => (
+                              <UnresolvedChip key={w} warnType={w} />
+                            ))}
+                          </div>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {saving[row.id] && <span className="text-[10px] text-teal-500">Saving…</span>}
+                            <button onClick={() => setHistoryId(row.id)} title="Change history"
+                              className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
+                              <Clock size={13}/>
+                            </button>
+                            <button onClick={() => handleDelete(row)} title="Archive"
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                              <Trash2 size={13}/>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+
+            {/* Pagination (Actuals) */}
+            {!loading && totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 py-4 border-t border-gray-100">
+                <button disabled={page === 0} onClick={() => loadRows(page - 1)}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                  <ChevronLeft size={14}/>
+                </button>
+                <span className="text-xs text-gray-500">Page {page + 1} of {totalPages}</span>
+                <button disabled={page >= totalPages - 1} onClick={() => loadRows(page + 1)}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                  <ChevronRight size={14}/>
+                </button>
+              </div>
+            )}
+
+            {/* Unresolved warnings summary */}
+            {!loading && Object.keys(unresolvedMap).length > 0 && (
+              <div className="px-4 pb-4 pt-2">
+                <UnresolvedSection warnMap={unresolvedMap} />
+              </div>
+            )}
+          </>
         )}
 
-        {/* Pagination */}
-        {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-3 py-4 border-t border-gray-100">
-            <button disabled={page === 0} onClick={() => loadRows(page - 1)}
-              className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
-              <ChevronLeft size={14}/>
-            </button>
-            <span className="text-xs text-gray-500">Page {page + 1} of {totalPages}</span>
-            <button disabled={page >= totalPages - 1} onClick={() => loadRows(page + 1)}
-              className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
-              <ChevronRight size={14}/>
-            </button>
-          </div>
+        {/* ── Budget table ── */}
+        {viewMode === 'budget' && (
+          <>
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10">
+                {(() => {
+                  function BH({ col, right, children }) {
+                    const active = budgetSortCol === col
+                    return (
+                      <th onClick={() => { setBudgetSortCol(col); setBudgetSortDir(d => budgetSortCol === col ? (d === 'asc' ? 'desc' : 'asc') : 'asc'); setBudgetPage(1) }}
+                        className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none
+                          ${right ? 'text-right' : 'text-left'} ${active ? 'text-gray-900 bg-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>
+                        <span className={`inline-flex items-center gap-1 ${right?'justify-end':''}`}>
+                          {children}
+                          {active ? (budgetSortDir==='asc'?<ArrowUp size={8}/>:<ArrowDown size={8}/>) : <ArrowUpDown size={8} className="opacity-30"/>}
+                        </span>
+                      </th>
+                    )
+                  }
+                  return (
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <BH col="period">Period</BH>
+                      <BH col="dept">Department</BH>
+                      <BH col="cat">Category</BH>
+                      <BH col="scenario">Scenario</BH>
+                      <BH col="amount" right>Amount</BH>
+                      <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Period Type</th>
+                    </tr>
+                  )
+                })()}
+              </thead>
+              <tbody>
+                {budgetPageRows.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">
+                    No budget lines match your filters.
+                  </td></tr>
+                )}
+                {budgetPageRows.map((row, i) => (
+                  <tr key={i} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    <td className="px-4 py-1.5 font-mono text-xs text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
+                    <td className="px-4 py-1.5 text-xs text-gray-700">{row.dept_name || row.department || '—'}</td>
+                    <td className="px-4 py-1.5 text-xs text-gray-700">{row.category || '—'}</td>
+                    <td className="px-4 py-1.5 text-xs">
+                      <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700">
+                        {row.scenario || '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-1.5 text-right font-mono text-xs font-semibold text-gray-800 tabular-nums whitespace-nowrap">
+                      {formatCurrency(row.amount || 0)}
+                    </td>
+                    <td className="px-4 py-1.5 text-xs text-gray-500">{row.period_type || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Pagination (Budget) */}
+            {budgetTotalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 py-4 border-t border-gray-100">
+                <button disabled={budgetPage === 1} onClick={() => setBudgetPage(p => Math.max(1, p-1))}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                  <ChevronLeft size={14}/>
+                </button>
+                <span className="text-xs text-gray-500">Page {budgetPage} of {budgetTotalPages}</span>
+                <button disabled={budgetPage >= budgetTotalPages} onClick={() => setBudgetPage(p => Math.min(budgetTotalPages, p+1))}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                  <ChevronRight size={14}/>
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {/* ── Deleted rows ── */}
