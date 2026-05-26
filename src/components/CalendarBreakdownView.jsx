@@ -365,10 +365,14 @@ export default function CalendarBreakdownView({
   function expandAll()   { setExpanded(getAllExpandableKeys(transactions, drillOrder)) }
   function collapseAll() { setExpanded(new Set()); setOpenLeaves(new Set()) }
 
-  const get      = (key, mk) => lu[key]?.[mk] || 0
-  const yearTot  = (key, yr) => (yearGroups[yr] || []).reduce((s, m) => s + get(key, m.key), 0)
-  const rowTotal = (key)     => months.reduce((s, m) => s + get(key, m.key), 0)
-  const rowLabel = (row)     => row?.field === 'department' ? (deptNames[row.label] || row.label) : (row?.label ?? '')
+  const get           = (key, mk) => lu[key]?.[mk] || 0
+  const yearTot       = (key, yr) => (yearGroups[yr] || []).reduce((s, m) => s + get(key, m.key), 0)
+  const rowTotal      = (key)     => months.reduce((s, m) => s + get(key, m.key), 0)
+  const rowLabel      = (row)     => row?.field === 'department' ? (deptNames[row.label] || row.label) : (row?.label ?? '')
+  // Budget helpers — always read from budgetLu regardless of mode
+  const getBgt        = (key, mk) => budgetLu[key]?.[mk] || 0
+  const budgetRowTot  = (key)     => months.reduce((s, m) => s + getBgt(key, m.key), 0)
+  const hasBudgetData = Object.keys(budgetLu).length > 0
 
   const cc  = 'px-2.5 py-2 text-right tabular-nums text-xs whitespace-nowrap'
   const cct = 'px-2.5 py-1.5 text-right tabular-nums text-xs whitespace-nowrap'
@@ -584,6 +588,10 @@ export default function CalendarBreakdownView({
                   )
                 })}
                 <th className={`${ch} text-right border-l border-b border-gray-200 bg-gray-50`}>Total</th>
+                {hasBudgetData && <>
+                  <th className={`${ch} text-right border-l border-b border-gray-200 bg-gray-50`}>Budget</th>
+                  <th className={`${ch} text-right border-l border-b border-gray-200 bg-gray-50`}>Variance</th>
+                </>}
               </tr>
 
               {/* Month row */}
@@ -600,6 +608,10 @@ export default function CalendarBreakdownView({
                   ))
                 )}
                 <th className={`${ch} border-l border-b border-gray-200`}/>
+                {hasBudgetData && <>
+                  <th className={`${ch} border-l border-b border-gray-200`}/>
+                  <th className={`${ch} border-l border-b border-gray-200`}/>
+                </>}
               </tr>
             </thead>
 
@@ -680,6 +692,22 @@ export default function CalendarBreakdownView({
                     }`}>
                       {tot ? formatCurrency(tot, { compact: true }) : <span className="text-gray-300">—</span>}
                     </td>
+                    {hasBudgetData && (() => {
+                      const bgt = budgetRowTot(row.key)
+                      const variance = tot - bgt
+                      const varColor = variance > 0 ? '#C0392B' : variance < 0 ? '#3D9970' : '#6B7384'
+                      const fwCls = isTop ? 'font-bold' : isMid ? 'font-semibold' : 'font-medium'
+                      return <>
+                        <td className={`${cc} border-l border-gray-200 ${fwCls} text-gray-600`}>
+                          {bgt ? formatCurrency(bgt, { compact: true }) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className={`${cc} border-l border-gray-200 ${fwCls}`} style={{color: bgt ? varColor : '#D1D5DB'}}>
+                          {bgt
+                            ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, { compact: true })}`
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </>
+                    })()}
                   </tr>
                 )
 
@@ -728,6 +756,10 @@ export default function CalendarBreakdownView({
                       <td className={`${cct} border-l border-gray-200 text-gray-600`}>
                         {formatCurrency(t.amount, { compact: true })}
                       </td>
+                      {hasBudgetData && <>
+                        <td className={`${cct} border-l border-gray-200`}/>
+                        <td className={`${cct} border-l border-gray-200`}/>
+                      </>}
                     </tr>
                   )
                 })
