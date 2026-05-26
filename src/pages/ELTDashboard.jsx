@@ -2927,6 +2927,29 @@ const DEFAULT_TREND_CHARTS = [
   { id:'giving-vs-budget', chartType:'line' },
 ]
 
+// ── Layout persistence helpers (localStorage, per-browser = per-user) ─────────
+const LAYOUT_KEY = 'elt_dashboard_layout'
+
+function loadLayout() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+function saveLayout(layout) {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch {}
+}
+
+function getSection(layout, section, defaults) {
+  if (!layout[section]) return defaults
+  const hidden = new Set(layout[section])
+  return defaults.filter(item => {
+    const id = typeof item === 'string' ? item : item.id
+    return !hidden.has(id)
+  })
+}
+
 function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
   const { budgetFlat, availableScenarios } = useApp()
   // activeBudget is a scenario string from AppContext.availableScenarios
@@ -2940,9 +2963,11 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   const [editKPI,            setEditKPI]            = useState(false)
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
   const [editCharts,         setEditCharts]         = useState(false)
-  const [kpiCards,           setKpiCards]           = useState(DEFAULT_KPI_CARDS)
-  const [patronMetricCards,  setPatronMetricCards]  = useState(DEFAULT_PATRON_METRICS)
-  const [trendCharts,        setTrendCharts]        = useState(DEFAULT_TREND_CHARTS)
+
+  // Initialize from localStorage so removals persist across refreshes
+  const [kpiCards,           setKpiCards]           = useState(() => getSection(loadLayout(), 'kpi',          DEFAULT_KPI_CARDS))
+  const [patronMetricCards,  setPatronMetricCards]  = useState(() => getSection(loadLayout(), 'patron',       DEFAULT_PATRON_METRICS))
+  const [trendCharts,        setTrendCharts]        = useState(() => getSection(loadLayout(), 'charts',       DEFAULT_TREND_CHARTS))
   const [showAddKPI,         setShowAddKPI]         = useState(false)
   const [showAddPatronMetric,setShowAddPatronMetric]= useState(false)
   const [showAddChart,       setShowAddChart]       = useState(false)
@@ -2960,6 +2985,36 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       setPatronData(patron || [])
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist layout changes to localStorage whenever cards/charts change
+  useEffect(() => {
+    const layout = loadLayout()
+    const hiddenKpi = DEFAULT_KPI_CARDS.filter(id => !kpiCards.includes(id))
+    if (hiddenKpi.length) layout.kpi = hiddenKpi; else delete layout.kpi
+    saveLayout(layout)
+  }, [kpiCards])
+
+  useEffect(() => {
+    const layout = loadLayout()
+    const hiddenPatron = DEFAULT_PATRON_METRICS.filter(id => !patronMetricCards.includes(id))
+    if (hiddenPatron.length) layout.patron = hiddenPatron; else delete layout.patron
+    saveLayout(layout)
+  }, [patronMetricCards])
+
+  useEffect(() => {
+    const layout = loadLayout()
+    const defaultIds = DEFAULT_TREND_CHARTS.map(c => c.id)
+    const hiddenCharts = defaultIds.filter(id => !trendCharts.find(c => c.id === id))
+    if (hiddenCharts.length) layout.charts = hiddenCharts; else delete layout.charts
+    saveLayout(layout)
+  }, [trendCharts])
+
+  function resetLayout() {
+    localStorage.removeItem(LAYOUT_KEY)
+    setKpiCards(DEFAULT_KPI_CARDS)
+    setPatronMetricCards(DEFAULT_PATRON_METRICS)
+    setTrendCharts(DEFAULT_TREND_CHARTS)
+  }
 
   const d = useMemo(
     () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData) || EMPTY_ELT,
@@ -3204,6 +3259,14 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
             </button>
           )}
         </div>
+        {(editKPI || editPatronMetrics || editCharts) && (
+          <div className="mt-4 flex justify-end">
+            <button onClick={resetLayout}
+              className="text-xs text-gray-400 hover:text-red-500 underline underline-offset-2 transition-colors">
+              Reset all sections to default
+            </button>
+          </div>
+        )}
       </section>
 
       {/* P&L */}
