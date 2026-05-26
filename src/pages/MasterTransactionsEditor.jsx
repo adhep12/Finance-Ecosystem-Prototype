@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { supabase, ORG_ID, dbUpdate, dbSoftDelete } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
+import { UnresolvedChip, UnresolvedSection } from '../components/UnresolvedWarning'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -669,16 +670,23 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   useEffect(() => { if (showDeleted) loadDeleted() }, [showDeleted, loadDeleted])
 
   // ── Enriched rows (client-side join) ────────────────────────────────────────
-  const enriched = useMemo(() => rows.map(r => ({
-    ...r,
-    dept_name:    deptMap.get(r.department_id)?.dept_name    || '',
-    dept_code:    deptMap.get(r.department_id)?.dept_code    || '',
-    account_name: acctMap.get(r.account_id)?.account_name   || '',
-    account_code: acctMap.get(r.account_id)?.account_code   || '',
-    category:     acctMap.get(r.account_id)?.category        || '',
-    record_type:  acctMap.get(r.account_id)?.record_type     || '',
-    grant_name:   grantMap.get(r.grant_id)?.grant_name       || '',
-  })), [rows, deptMap, acctMap, grantMap])
+  const enriched = useMemo(() => rows.map(r => {
+    const _warnings = []
+    if (r.account_id && !acctMap.has(r.account_id)) _warnings.push('no_account')
+    if (r.department_id && !deptMap.has(r.department_id)) _warnings.push('no_dept')
+    else if (r.department_id && deptMap.has(r.department_id) && !deptMap.get(r.department_id)?.team_id) _warnings.push('no_team')
+    return {
+      ...r,
+      dept_name:    deptMap.get(r.department_id)?.dept_name    || '',
+      dept_code:    deptMap.get(r.department_id)?.dept_code    || '',
+      account_name: acctMap.get(r.account_id)?.account_name   || '',
+      account_code: acctMap.get(r.account_id)?.account_code   || '',
+      category:     acctMap.get(r.account_id)?.category        || '',
+      record_type:  acctMap.get(r.account_id)?.record_type     || '',
+      grant_name:   grantMap.get(r.grant_id)?.grant_name       || '',
+      _warnings,
+    }
+  }), [rows, deptMap, acctMap, grantMap])
 
   // ── Client-side filters + sort ───────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -775,6 +783,19 @@ export default function MasterTransactionsEditor({ orgSettings }) {
     applyActualsFilters(enriched, 'amount', fs).map(r => Math.abs(r.amount || 0))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   , [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter])
+
+  // Unresolved warning map — aggregate across all filtered rows
+  const unresolvedMap = useMemo(() => {
+    const map = {}
+    for (const r of filtered) {
+      for (const w of (r._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(r.amount || 0)
+        map[w].count++
+      }
+    }
+    return map
+  }, [filtered])
 
   // ── Budget filter state and filtered rows ───────────────────────────────────
   const budgetFilterState = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
@@ -1265,7 +1286,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
 
                         {/* Description */}
                         <td className="px-3 py-1.5">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <EditCell value={row.description || ''} placeholder="—"
                               displayValue={<span className="text-xs text-gray-500 truncate max-w-[160px]">{row.description || <span className="text-gray-300">—</span>}</span>}
                               onChange={v => handleEdit(row, 'description', v)}/>
@@ -1276,6 +1297,10 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                             {isEdited && !isManual && (
                               <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">edited</span>
                             )}
+                            {/* Warning chips */}
+                            {(row._warnings || []).map(w => (
+                              <UnresolvedChip key={w} warnType={w} />
+                            ))}
                           </div>
                         </td>
 
@@ -1312,6 +1337,13 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                   className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
                   <ChevronRight size={14}/>
                 </button>
+              </div>
+            )}
+
+            {/* Unresolved warnings summary */}
+            {!loading && Object.keys(unresolvedMap).length > 0 && (
+              <div className="px-4 pb-4 pt-2">
+                <UnresolvedSection warnMap={unresolvedMap} />
               </div>
             )}
           </>

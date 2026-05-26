@@ -2438,6 +2438,21 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
     return m
   }, [budgetFlat, scenario, startP, endP])
 
+  // ── Unresolved warning map — transactions in range with _warnings ─────────
+  const unresolvedMap = useMemo(() => {
+    const map = {}
+    for (const t of actuals) {
+      const p = t.period || (t.date ? t.date.slice(0, 7) : null)
+      if (!p || p < startP || p > endP) continue
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
+    }
+    return map
+  }, [actuals, startP, endP])
+
   // ── Per-team per-category breakdown (for Top Issue + hover) ───────────────
   const teamCatMap = useMemo(() => {
     const result = {}
@@ -2617,6 +2632,11 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
       </div>
 
       <div className="p-6 space-y-6">
+        {/* ── Unresolved warnings ──────────────────────────────────────── */}
+        {Object.keys(unresolvedMap).length > 0 && (
+          <UnresolvedSection warnMap={unresolvedMap} />
+        )}
+
         {/* ── Main table ───────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
           <table className="w-full text-sm">
