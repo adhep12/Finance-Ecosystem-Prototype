@@ -18,6 +18,7 @@ import CommentPinFAB from '../components/CommentPinFAB'
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useLocation } from 'react-router-dom'
+import { DATA_COLORS, STATUS_COLORS } from '../constants/colors'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -34,11 +35,11 @@ const FIELD_LABELS = {
 }
 
 const FIELD_COLORS = {
-  category:   '#0EA5A0',
-  account:    '#8B5CF6',
-  grant:      '#F59E0B',
-  vendor:     '#6B7280',
-  department: '#EC4899',
+  category:   DATA_COLORS[1],
+  account:    DATA_COLORS[3],
+  grant:      DATA_COLORS[2],
+  vendor:     DATA_COLORS[7],
+  department: DATA_COLORS[5],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

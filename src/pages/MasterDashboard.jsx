@@ -33,17 +33,15 @@ import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { supabase, ORG_ID } from '../lib/supabase'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
+import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, TEAM_COLORS, getTeamColor } from '../constants/colors'
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEPT_COLORS  = { '101':'#0EA5A0','102':'#C05A2F','103':'#E8A838' }
-// Colour rotation for team spend stacked bar
-const TEAM_PALETTE = ['#0EA5A0','#C05A2F','#E8A838','#4A2E5A','#6366F1','#10B981','#EC4899','#9BA8B5']
 const FIELD_COLORS = {
-  category:'#C05A2F', account:'#E8A838', team:'#0EA5A0', dept:'#6366F1', vendor:'#9BA8B5',
+  category:DATA_COLORS[1], account:DATA_COLORS[3], team:DATA_COLORS[0], dept:DATA_COLORS[4], vendor:DATA_COLORS[7],
   // legacy keys kept for backward compat with OverviewTab drill
-  department:'#0EA5A0', grant:'#4A2E5A',
+  department:DATA_COLORS[0], grant:DATA_COLORS[2],
 }
 const FIELD_LABELS = {
   category:'Category', account:'Account', team:'Team', dept:'Department', vendor:'Vendor',
@@ -250,7 +248,7 @@ function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
       <div className="border-t border-gray-100 my-1"/>
       {allDepts.map(code=>{
         const active = !activeDepts || activeDepts.has(code)
-        const color  = DEPT_COLORS[code] || '#9BA8B5'
+        const color  = DATA_COLORS[allDepts.indexOf(code) % DATA_COLORS.length] || DATA_COLORS[7]
         return (
           <button key={code} onClick={()=>onToggle(code)}
             className="w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors">
@@ -624,26 +622,27 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
     )
   }
 
-  const isDark = id === 'net-position'
+  let valueColor = '#111827'
+  if (id === 'net-position') {
+    const netValue = totalGiving - totalExpenses
+    valueColor = netValue >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative
+  }
 
   return (
-    <div className={`relative rounded-2xl p-5 ${isDark ? '' : 'bg-white border border-gray-100'}`}
+    <div className="relative rounded-2xl p-5 bg-white border border-gray-100"
       style={{
-        ...(isDark ? {backgroundColor:'var(--ink-900)',border:'1px solid var(--ink-800)'} : {}),
         boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
       }}>
       {editMode && (
         <button onClick={onRemove}
           className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
-          style={isDark
-            ? {backgroundColor:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.4)'}
-            : {backgroundColor:'#F3F4F6',color:'#9CA3AF'}}>
+          style={{backgroundColor:'#F3F4F6',color:'#9CA3AF'}}>
           <X size={11}/>
         </button>
       )}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1"
-        style={{color: isDark ? 'rgba(255,255,255,0.45)' : 'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
-      <div className="text-3xl font-bold mb-3" style={{color: isDark ? '#FFFFFF' : '#111827'}}>{mainValue}</div>
+        style={{color: 'var(--neutral-60)'}}>{catalogDef?.label || id}</div>
+      <div className="text-3xl font-bold mb-3" style={{color: valueColor}}>{mainValue}</div>
       {(cmp1 || cmp2) && (
         <div className="space-y-2.5">
           <CmpRow cmp={cmp1}/>
@@ -651,7 +650,7 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
         </div>
       )}
       {subNote && (
-        <div className="text-xs mt-2" style={{color: isDark ? 'rgba(255,255,255,0.45)' : (isInverse && id==='teams-over-budget' ? '#EF4444' : '#9CA3AF')}}>
+        <div className="text-xs mt-2" style={{color: isInverse && id==='teams-over-budget' ? '#EF4444' : '#9CA3AF'}}>
           {subNote}
         </div>
       )}
@@ -848,8 +847,8 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
               <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
-                <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+                <Line type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -895,9 +894,9 @@ const NetPositionCard = React.memo(function NetPositionCard({ actuals, incomeMon
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
-                <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="0" label={{ value:'$0', position:'insideLeft', fontSize:9, fill:'#9CA3AF', dy:-6 }}/>
+                <ReferenceLine y={0} stroke={STATUS_COLORS.neutral} strokeWidth={1} strokeDasharray="4 4" label={{ value:'$0', position:'insideLeft', fontSize:9, fill:STATUS_COLORS.neutral, dy:-6 }}/>
                 <Bar dataKey="net" radius={[3,3,0,0]}>
-                  {chartData.map((d,i)=><Cell key={i} fill={d.net>=0?'#10B981':'#EF4444'}/>)}
+                  {chartData.map((d,i)=><Cell key={i} fill={d.net>=0?STATUS_COLORS.positive:STATUS_COLORS.negative}/>)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -934,8 +933,8 @@ const CashPositionCard = React.memo(function CashPositionCard({ cashFlowData, da
               <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
                 {grid}{xa}{ya}{tip}
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke="var(--color-primary)" strokeWidth={2} dot={false} activeDot={{r:4}}/>
-                <Line type="monotone" dataKey="floor" name="Reserve Floor"  stroke="#EF4444" strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
+                <Line type="monotone" dataKey="cash"  name="Cash Balance"   stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                <Line type="monotone" dataKey="floor" name="Reserve Floor"  stroke={STATUS_COLORS.negative} strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -986,7 +985,7 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
                 <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
                 {teams.map((t,i)=>(
                   <Bar key={t} dataKey={t} name={t} stackId="a"
-                    fill={TEAM_PALETTE[i%TEAM_PALETTE.length]} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
+                    fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -1025,10 +1024,10 @@ const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat,
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
             <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
-              <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor:pct>=100?'#EF4444':pct>=90?'#F97316':'#F59E0B'}}/>
+              <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`, backgroundColor:pct>=100?STATUS_COLORS.negative:pct>=90?'#F97316':STATUS_COLORS.warning}}/>
             </div>
           </div>
-          <div className="text-xs font-semibold flex-shrink-0" style={{color:pct>=100?'#EF4444':pct>=90?'#F97316':'#F59E0B'}}>{Math.round(pct)}%</div>
+          <div className="text-xs font-semibold flex-shrink-0" style={{color:pct>=100?STATUS_COLORS.negative:pct>=90?'#F97316':STATUS_COLORS.warning}}>{Math.round(pct)}%</div>
         </div>
       ))}
     </div>
@@ -1149,15 +1148,6 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
   const { orgConfig } = useApp()
-  // v2 key — resets any saved 15-card layout to the new 9-card default
-  const [visibleKPIs, setVisibleKPIs] = useLocalStorage('finance-kpi-v2-ids', DEFAULT_FINANCE_KPI_IDS)
-  const [editKPI,     setEditKPI]     = useState(false)
-  const [showAddKPI,  setShowAddKPI]  = useState(false)
-  const [editWatch,   setEditWatch]   = useState(false)
-
-  // Drag-to-reorder state
-  const [dragIdx, setDragIdx] = useState(null)
-  const [dropIdx, setDropIdx] = useState(null)
 
   // Remote data fetches (once on mount)
   const [cashFlowData, setCashFlowData] = useState([])
@@ -1175,103 +1165,54 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Drag handlers
-  function handleDragStart(i){ setDragIdx(i) }
-  function handleDragOver(e, i){ e.preventDefault(); setDropIdx(i) }
-  function handleDrop(i){
-    if(dragIdx===null || dragIdx===i){ setDragIdx(null); setDropIdx(null); return }
-    const next = [...visibleKPIs]
-    const [moved] = next.splice(dragIdx, 1)
-    next.splice(i, 0, moved)
-    setVisibleKPIs(next)
-    setDragIdx(null); setDropIdx(null)
-  }
-
   const kpiProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
 
-  // Split visibleKPIs into two display rows by group membership
-  // Row 1 = financial health cards; Row 2 = supporter health cards; overflow → Row 1
-  const row1Ids = visibleKPIs.filter(id => !SUPPORTER_KPI_IDS.includes(id) || FINANCIAL_KPI_IDS.includes(id))
-    .filter(id => !SUPPORTER_KPI_IDS.includes(id))
-  const row2Ids = visibleKPIs.filter(id => SUPPORTER_KPI_IDS.includes(id))
-  // any extra ids (non-standard) go into row1
-  const extraIds = visibleKPIs.filter(id => !FINANCIAL_KPI_IDS.includes(id) && !SUPPORTER_KPI_IDS.includes(id))
-  const allRow1 = [...row1Ids, ...extraIds]
-
-  function KPIRow({ ids, rowStartIndex }) {
-    if (ids.length === 0) return null
-    return (
-      <div className="grid gap-4" style={{gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))'}}>
-        {ids.map((id) => {
-          const i = visibleKPIs.indexOf(id)
-          return (
-            <div key={id}
-              draggable={editKPI}
-              onDragStart={()=>handleDragStart(i)}
-              onDragOver={e=>handleDragOver(e,i)}
-              onDrop={()=>handleDrop(i)}
-              onDragEnd={()=>{ setDragIdx(null); setDropIdx(null) }}
-              className={`relative transition-opacity ${editKPI?'cursor-grab active:cursor-grabbing':''} ${dragIdx===i?'opacity-40':''}`}>
-              {editKPI && dropIdx===i && dragIdx!==null && dragIdx!==i && (
-                <div className="absolute -top-1 left-0 right-0 h-0.5 bg-gray-900 rounded-full z-10"/>
-              )}
-              {editKPI && (
-                <div className="absolute top-3 left-3 z-10 opacity-30 pointer-events-none">
-                  <GripVertical size={13} className="text-gray-600"/>
-                </div>
-              )}
-              <FinanceKPICard id={id} {...kpiProps} editMode={editKPI}
-                onRemove={()=>setVisibleKPIs(p=>p.filter(v=>v!==id))}/>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
+  // Fixed 3-tier layout KPI IDs
+  const tier1Ids = ['net-position']
+  const tier2Ids = ['total-giving', 'total-expenses']
+  const tier3Ids = ['cash-position', 'cash-above-floor', 'teams-over-budget']
+  const supporterIds = ['total-supporters', 'new-supporters', 'avg-gift']
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-8" style={{backgroundColor:'var(--color-primary-bg)'}}>
 
-      {/* ── KPI Section ── */}
+      {/* ── TIER 1: NET POSITION HERO ── */}
       <section>
-        <div className="flex items-center justify-between mb-5">
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Key Metrics</span>
-          <div className="flex items-center gap-2">
-            {editKPI && (
-              <button onClick={()=>setShowAddKPI(true)}
-                className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
-                <Plus size={11}/> Add Card
-              </button>
-            )}
-            <button onClick={()=>setEditKPI(p=>!p)}
-              className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors ${editKPI?'bg-gray-900 border-gray-900 text-white':'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
-              <Edit2 size={11}/> {editKPI?'Done':'Edit'}
-            </button>
-          </div>
+        <div className="grid gap-4">
+          {tier1Ids.map((id) => (
+            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
+          ))}
         </div>
+      </section>
 
-        {visibleKPIs.length === 0 ? (
-          <div className="text-sm text-gray-400 text-center py-10 bg-white rounded-2xl border border-gray-100">
-            No cards visible. Click <strong>Edit → Add Card</strong> to add some.
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {/* Row 1 — Financial Health */}
-            {allRow1.length > 0 && (
-              <div>
-                <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">Financial Health</div>
-                <KPIRow ids={allRow1} rowStartIndex={0}/>
-              </div>
-            )}
-            {/* Row 2 — Supporter Health */}
-            {row2Ids.length > 0 && (
-              <div>
-                <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">Supporter Health</div>
-                <KPIRow ids={row2Ids} rowStartIndex={allRow1.length}/>
-              </div>
-            )}
-          </div>
-        )}
+      {/* ── TIER 2: DRIVERS (2 COLS) ── */}
+      <section>
+        <div className="grid grid-cols-2 gap-4">
+          {tier2Ids.map((id) => (
+            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
+          ))}
+        </div>
+      </section>
+
+      {/* ── TIER 3: SUPPORTING CONTEXT (3 COLS) ── */}
+      <section>
+        <div className="grid grid-cols-3 gap-4">
+          {tier3Ids.map((id) => (
+            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
+          ))}
+        </div>
+      </section>
+
+      {/* ── SUPPORTER HEALTH (3 COLS) — SEPARATE SECTION ── */}
+      <section>
+        <div className="mb-4">
+          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Supporter Health</span>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          {supporterIds.map((id) => (
+            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
+          ))}
+        </div>
       </section>
 
       {/* ── Charts Section ── */}
@@ -1345,7 +1286,7 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
   return (
     <div className="flex gap-3 px-5 py-3 border-b border-gray-100 overflow-x-auto">
       {cards.map(({code,actual,budget,pct,delta})=>{
-        const color = DEPT_COLORS[code]||'#9BA8B5'
+        const color = DATA_COLORS[allDepts.indexOf(code) % DATA_COLORS.length] || DATA_COLORS[7]
         const over  = delta>0
         return (
           <div key={code} className="flex-shrink-0 bg-white rounded-2xl border border-gray-100 px-4 py-3 min-w-[170px]"
@@ -1356,9 +1297,9 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
             {pct!==null && (
               <div className="flex items-center gap-1 mt-1">
                 <div className="flex-1 bg-gray-100 rounded-full h-1">
-                  <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?'#EF4444':color}}/>
+                  <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?STATUS_COLORS.negative:STATUS_COLORS.positive}}/>
                 </div>
-                <span className="text-[10px] font-semibold" style={{color:over?'#EF4444':'#10B981'}}>{pct}%</span>
+                <span className="text-[10px] font-semibold" style={{color:over?STATUS_COLORS.negative:STATUS_COLORS.positive}}>{pct}%</span>
               </div>
             )}
           </div>
@@ -2307,7 +2248,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
                 <td className="px-4 py-2 text-gray-500 tabular-nums">{t.date}</td>
                 <td className="px-4 py-2 font-medium text-gray-800 max-w-[180px] truncate">{t.vendor}</td>
                 <td className="px-4 py-2"><span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{backgroundColor:(DEPT_COLORS[t.department]||'#9BA8B5')+'20',color:DEPT_COLORS[t.department]||'#9BA8B5'}}>
+                  style={{backgroundColor:(DATA_COLORS[allDepts.indexOf(t.department) % DATA_COLORS.length] || DATA_COLORS[7])+'20',color:DATA_COLORS[allDepts.indexOf(t.department) % DATA_COLORS.length] || DATA_COLORS[7]}}>
                   {deptNames[t.department]||t.department}</span></td>
                 <td className="px-4 py-2 text-gray-600">{t.category}</td>
                 <td className="px-4 py-2 text-gray-400 text-xs">{t.account}</td>

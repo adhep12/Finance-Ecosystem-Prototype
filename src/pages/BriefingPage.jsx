@@ -25,14 +25,10 @@ import {
   calcOverUnderPct,
   daysBetween,
 } from '../utils/formatters'
+import { DATA_COLORS, ORG_COLORS, getTeamColor } from '../constants/colors'
 
-// Deterministic color per team name — same palette + hash as FloatingNav
-// so the icon color matches the nav badge exactly.
 function teamColor(name = '') {
-  const COLORS = ['#0EA5A0','#6366F1','#F97316','#10B981','#8B5CF6','#EC4899','#C05A2F','#E8A838']
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff
-  return COLORS[h % COLORS.length]
+  return getTeamColor(name)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -562,16 +558,16 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
           <Line
             type="monotone"
             dataKey="actual"
-            stroke="var(--ill-1)"
+            stroke={ORG_COLORS.primary}
             strokeWidth={2.5}
-            dot={{ r: 3, fill: 'var(--ill-1)', strokeWidth: 0 }}
+            dot={{ r: 3, fill: ORG_COLORS.primary, strokeWidth: 0 }}
             activeDot={{ r: 5 }}
             name="Spend"
           />
           <Line
             type="monotone"
             dataKey="budget"
-            stroke="var(--ill-3)"
+            stroke={DATA_COLORS[1]}
             strokeWidth={2}
             strokeDasharray="6 3"
             dot={false}
@@ -584,11 +580,11 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
       {/* Legend */}
       <div className="flex items-center gap-6 mt-2 justify-center">
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <div className="w-5 h-0.5 rounded" style={{ backgroundColor: 'var(--ill-1)' }} />
+          <div className="w-5 h-0.5 rounded" style={{ backgroundColor: ORG_COLORS.primary }} />
           Spend
         </div>
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <div className="w-5 border-t-2 border-dashed" style={{ borderColor: 'var(--ill-3)' }} />
+          <div className="w-5 border-t-2 border-dashed" style={{ borderColor: DATA_COLORS[1] }} />
           {scenario} {cumulative ? '(cumulative)' : ''}
         </div>
       </div>
