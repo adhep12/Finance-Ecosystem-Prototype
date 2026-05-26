@@ -2842,7 +2842,10 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const d = filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData)
+  const d = useMemo(
+    () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData),
+    [dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData]
+  )
   const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
   const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
   const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
@@ -2898,16 +2901,20 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   }, [actuals, budgetFlat, scenario, dateRange])
 
   // Account-level rows for P&L expand — groups actuals by account within each category bucket
-  const plAccounts = computePLAccounts(actuals, {
-    contributions: d.budget.contributions,
-    merch:         d.budget.merchandiseRevenue,
-    'other-inc':   d.budget.otherIncome,
-    staff:         d.budget.staff,
-    contract:      d.budget.contract,
-    technology:    d.budget.technology,
-    travel:        d.budget.travel,
-    'other-exp':   Math.max(0, d.budget.otherGenAdmin),
-  }, dateRange)
+  const plAccounts = useMemo(
+    () => computePLAccounts(actuals, {
+      contributions: d.budget.contributions,
+      merch:         d.budget.merchandiseRevenue,
+      'other-inc':   d.budget.otherIncome,
+      staff:         d.budget.staff,
+      contract:      d.budget.contract,
+      technology:    d.budget.technology,
+      travel:        d.budget.travel,
+      'other-exp':   Math.max(0, d.budget.otherGenAdmin),
+    }, dateRange),
+    [actuals, d.budget.contributions, d.budget.merchandiseRevenue, d.budget.otherIncome,
+     d.budget.staff, d.budget.contract, d.budget.technology, d.budget.travel, d.budget.otherGenAdmin, dateRange]
+  )
 
   function renderKPICard(cardId) {
     if(cardId==='giving') {

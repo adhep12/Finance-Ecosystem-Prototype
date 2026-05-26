@@ -377,7 +377,9 @@ export default function TransactionsPage() {
   const [viewMode, setViewMode] = useState('actuals')
 
   // ── Actuals filters ──
-  const [search,       setSearch]       = useState('')
+  const [search,          setSearch]          = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const searchDebounceRef = useRef(null)
   const [recordType,   setRecordType]   = useState('all')
   const [deptFilter,   setDeptFilter]   = useState(new Set())
   const [catFilter,    setCatFilter]    = useState(new Set())
@@ -427,7 +429,7 @@ export default function TransactionsPage() {
   , [actuals, startDate, endDate])
 
   // Build filter state object for helpers
-  const actualsFilterState = { search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax }
+  const actualsFilterState = { search: debouncedSearch, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax }
   const budgetFilterState  = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
 
   // ── Dynamic cascade options — each computed from all OTHER active filters ──
@@ -440,14 +442,14 @@ export default function TransactionsPage() {
       if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [inRange, search, recordType, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax])
+  }, [inRange, debouncedSearch, recordType, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax])
 
   const catOptions = useMemo(() => {
     const pool = applyActualsFilters(inRange, 'cat', actualsFilterState)
     const seen = new Set()
     for (const r of pool) if (r.category) seen.add(r.category)
     return [...seen].sort().map(c => ({ value: c, label: c }))
-  }, [inRange, search, recordType, deptFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax])
+  }, [inRange, debouncedSearch, recordType, deptFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax])
 
   const acctOptions = useMemo(() => {
     const pool = applyActualsFilters(inRange, 'acct', actualsFilterState)
@@ -457,26 +459,26 @@ export default function TransactionsPage() {
       if (name && !seen.has(name)) seen.set(name, { value: name, label: name })
     }
     return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [inRange, search, recordType, deptFilter, catFilter, vendorFilter, grantFilter, amtMin, amtMax])
+  }, [inRange, debouncedSearch, recordType, deptFilter, catFilter, vendorFilter, grantFilter, amtMin, amtMax])
 
   const vendorOptions = useMemo(() => {
     const pool = applyActualsFilters(inRange, 'vendor', actualsFilterState)
     const seen = new Set()
     for (const r of pool) if (r.vendor) seen.add(r.vendor)
     return [...seen].sort().map(v => ({ value: v, label: v }))
-  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, amtMin, amtMax])
+  }, [inRange, debouncedSearch, recordType, deptFilter, catFilter, acctFilter, grantFilter, amtMin, amtMax])
 
   const grantOptions = useMemo(() => {
     const pool = applyActualsFilters(inRange, 'grant', actualsFilterState)
     const seen = new Set()
     for (const r of pool) seen.add(r.grant || 'No grant (N/A)')
     return [...seen].sort().map(g => ({ value: g, label: g }))
-  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, amtMin, amtMax])
+  }, [inRange, debouncedSearch, recordType, deptFilter, catFilter, acctFilter, vendorFilter, amtMin, amtMax])
 
   // Base amounts for histogram (all filters except amount applied)
   const baseAmounts = useMemo(() =>
     applyActualsFilters(inRange, 'amt', actualsFilterState).map(r => Math.abs(r.amount||0))
-  , [inRange, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter])
+  , [inRange, debouncedSearch, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter])
 
   // ── Filtered + sorted actuals rows ──
   const filtered = useMemo(() => {
@@ -493,7 +495,7 @@ export default function TransactionsPage() {
       return 0
     })
     return rows
-  }, [inRange, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax, sortCol, sortDir])
+  }, [inRange, debouncedSearch, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax, sortCol, sortDir])
 
   const filteredTotal = useMemo(() => filtered.reduce((s, r) => s + Math.abs(r.amount || 0), 0), [filtered])
 
@@ -543,7 +545,7 @@ export default function TransactionsPage() {
   // ── Active filter count ──
   function activeFilterCount() {
     return [
-      search.trim() ? 1 : 0,
+      debouncedSearch.trim() ? 1 : 0,
       recordType !== 'all' ? 1 : 0,
       deptFilter.size,
       catFilter.size,
@@ -555,7 +557,7 @@ export default function TransactionsPage() {
   }
 
   function clearAllFilters() {
-    setSearch(''); setRecordType('all')
+    setSearch(''); setDebouncedSearch(''); setRecordType('all')
     setDeptFilter(new Set()); setCatFilter(new Set()); setAcctFilter(new Set())
     setVendorFilter(new Set()); setGrantFilter(new Set())
     setAmtMin(''); setAmtMax('')
@@ -692,7 +694,13 @@ export default function TransactionsPage() {
             {/* Global search */}
             <div className="relative min-w-[180px]">
               <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
-              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search…"
+              <input value={search} onChange={e => {
+                const v = e.target.value
+                setSearch(v)
+                setPage(1)
+                if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+                searchDebounceRef.current = setTimeout(() => setDebouncedSearch(v), 200)
+              }} placeholder="Search…"
                 className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
             </div>
             {/* Department */}

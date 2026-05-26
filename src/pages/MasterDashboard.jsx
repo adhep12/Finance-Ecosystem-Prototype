@@ -393,7 +393,7 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
 // Finance KPI Card — 15 data-wired cards
 // ─────────────────────────────────────────────────────────────────────────────
 
-function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
+const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
   cashFlowData, patronData, dateRange, orgConfig, editMode, onRemove }){
   const { deptNames, comments } = useApp()
   const { startDate, endDate } = dateRange
@@ -656,7 +656,7 @@ function FinanceKPICard({ id, actuals, budgetFlat, scenario, incomeMonths,
       )}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Add Finance KPI Panel — catalog browser
@@ -729,7 +729,7 @@ const axisStyle = { fontSize:10, fill:'#9CA3AF' }
 // Chart Panel wrapper
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChartPanel({ title, subtitle, editMode, onRemove, children }){
+const ChartPanel = React.memo(function ChartPanel({ title, subtitle, editMode, onRemove, children }){
   return (
     <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       {editMode && onRemove && (
@@ -744,7 +744,7 @@ function ChartPanel({ title, subtitle, editMode, onRemove, children }){
       {children}
     </div>
   )
-}
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Finance Overview — 4 preset chart components
@@ -858,7 +858,7 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
 }
 
 // Chart 2: Net Position by Month — bar chart, green/red conditional coloring
-function NetPositionCard({ actuals, incomeMonths, dateRange }){
+const NetPositionCard = React.memo(function NetPositionCard({ actuals, incomeMonths, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -904,10 +904,10 @@ function NetPositionCard({ actuals, incomeMonths, dateRange }){
       }
     </div>
   )
-}
+})
 
 // Chart 3: Cash Position Over Time — line chart, cash_balance + reserve_floor
-function CashPositionCard({ cashFlowData, dateRange }){
+const CashPositionCard = React.memo(function CashPositionCard({ cashFlowData, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -941,10 +941,10 @@ function CashPositionCard({ cashFlowData, dateRange }){
       }
     </div>
   )
-}
+})
 
 // Chart 4: Team Spend Comparison — stacked bar chart, one segment per team
-function TeamSpendCard({ actuals, dateRange }){
+const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -1583,7 +1583,9 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Drill order: any of category/account/team/dept/vendor in any order
   const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','vendor'])
   const [viewMode,   setViewMode]   = useState('summary')
-  const [searchQ,    setSearchQ]    = useState('')
+  const [searchQ,         setSearchQ]         = useState('')
+  const [debouncedSearchQ, setDebouncedSearchQ] = useState('')
+  const searchDebounceRef = useRef(null)
   const [deptFilter, setDeptFilter] = useState(null)  // null = all
   const [selectedTx, setSelectedTx] = useState(null)
 
@@ -1621,10 +1623,10 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const navFiltered  = useMemo(() => activeDepts ? dateFiltered.filter(t => activeDepts.has(t.department)) : dateFiltered, [dateFiltered, activeDepts])
   const deptFiltered = useMemo(() => deptFilter ? navFiltered.filter(t => deptFilter.has(t.department)) : navFiltered, [navFiltered, deptFilter])
   const searched     = useMemo(() => {
-    const q = searchQ.trim().toLowerCase()
+    const q = debouncedSearchQ.trim().toLowerCase()
     if (!q) return deptFiltered
     return deptFiltered.filter(t => [t.vendor, t.description, t.category, t.account, t.grant].some(v => v?.toLowerCase().includes(q)))
-  }, [deptFiltered, searchQ])
+  }, [deptFiltered, debouncedSearchQ])
 
   // Enrich searched rows with team/dept aliases for drill-order grouping
   const enrichedSearched = useMemo(() => searched.map(t => ({
@@ -1852,9 +1854,14 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         {/* Search */}
         <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 w-48 flex-shrink-0">
           <Search size={12} className="text-gray-400"/>
-          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Search…"
+          <input value={searchQ} onChange={e => {
+            const v = e.target.value
+            setSearchQ(v)
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+            searchDebounceRef.current = setTimeout(() => setDebouncedSearchQ(v), 200)
+          }} placeholder="Search…"
             className="text-sm bg-transparent outline-none w-full text-gray-700 placeholder-gray-400"/>
-          {searchQ&&<button onClick={()=>setSearchQ('')}><X size={10} className="text-gray-400"/></button>}
+          {searchQ&&<button onClick={()=>{ setSearchQ(''); setDebouncedSearchQ('') }}><X size={10} className="text-gray-400"/></button>}
         </div>
 
         {/* Department filter dropdown */}
