@@ -34,6 +34,8 @@ import { useLocalStorage } from '../hooks/useLocalStorage'
 import { supabase, ORG_ID } from '../lib/supabase'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, TEAM_COLORS, getTeamColor } from '../constants/colors'
+import { PRESET_CARDS, getPresetsForSection } from '../constants/presetCards'
+import PresetCard from '../components/PresetCard'
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1251,109 +1253,304 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
   const { orgConfig } = useApp()
 
-  // Remote data fetches (once on mount)
+  // ── Remote data ─────────────────────────────────────────────────────────
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
 
+  // ── Edit layout state ────────────────────────────────────────────────────
+  const [editMode,     setEditMode]     = useState(false)
+  // addedCards: rows from org_dashboard_layout for this org + dashboard
+  const [addedCards,   setAddedCards]   = useState([]) // { id, section, card_key, display_order }
+  const [showPicker,   setShowPicker]   = useState(null) // { section: 'financial_health' }
+  const [confirmRemove, setConfirmRemove] = useState(null) // { cardKey, section }
+
+  // ── Load all data on mount ───────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
       supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
       supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-    ]).then(([cashRes, patronRes]) => {
-      if (!cashRes.error) setCashFlowData(cashRes.data || [])
+      supabase.from('org_dashboard_layout').select('*')
+        .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview'),
+    ]).then(([cashRes, patronRes, layoutRes]) => {
+      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
       if (!patronRes.error) setPatronData(patronRes.data || [])
-    }).catch(err => {
-      console.error('[MasterDashboard] Dashboard data load error:', err)
-    })
+      if (!layoutRes.error) setAddedCards(layoutRes.data || [])
+    }).catch(err => console.error('[OverviewTab] data load error:', err))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const kpiProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
+  // ── Add / remove handlers (save to Supabase instantly) ──────────────────
+  async function handleAddCard(section, cardKey) {
+    const display_order = addedCards.filter(c => c.section === section).length
+    const { data, error } = await supabase.from('org_dashboard_layout').insert({
+      org_id: ORG_ID,
+      dashboard: 'admin_overview',
+      section,
+      card_key: cardKey,
+      display_order,
+    }).select().single()
+    if (!error && data) setAddedCards(prev => [...prev, data])
+    setShowPicker(null)
+  }
 
-  // Fixed 3-tier layout KPI IDs
-  const tier1Ids = ['net-position']
-  const tier2Ids = ['total-giving', 'total-expenses']
-  const tier3Ids = ['cash-position', 'cash-above-floor', 'teams-over-budget']
+  async function handleRemoveCard(cardKey) {
+    const { error } = await supabase.from('org_dashboard_layout')
+      .delete()
+      .eq('org_id', ORG_ID)
+      .eq('dashboard', 'admin_overview')
+      .eq('card_key', cardKey)
+    if (!error) setAddedCards(prev => prev.filter(c => c.card_key !== cardKey))
+    setConfirmRemove(null)
+  }
+
+  const addedForSection = (section) =>
+    addedCards.filter(c => c.section === section).sort((a, b) => a.display_order - b.display_order)
+
+  // ── Shared props for cards ───────────────────────────────────────────────
+  const kpiProps    = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange, orgConfig }
+  const presetProps = { actuals, budgetFlat, scenario, incomeMonths, cashFlowData, patronData, dateRange }
+
+  // ── Fixed KPI IDs ────────────────────────────────────────────────────────
+  const tier1Ids    = ['net-position']
+  const tier2Ids    = ['total-giving', 'total-expenses']
+  const tier3Ids    = ['cash-position', 'cash-above-floor', 'teams-over-budget']
   const supporterIds = ['total-supporters', 'new-supporters', 'avg-gift']
 
-  // Section header component with divider
-  const SectionHeader = ({ label }) => (
+  // ── Section header (with optional + Add Card button) ────────────────────
+  const SectionHeader = ({ label, section }) => (
     <div className="flex items-center gap-3 mt-8 mb-4">
       <h2 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 whitespace-nowrap">{label}</h2>
       <div className="flex-1 h-px" style={{backgroundColor: 'rgba(0,0,0,0.08)'}}/>
+      {editMode && section && (
+        <button
+          onClick={() => setShowPicker({ section })}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-dashed transition-colors whitespace-nowrap"
+          style={{ borderColor: orgConfig?.primaryColor || ORG_COLORS.primary, color: orgConfig?.primaryColor || ORG_COLORS.primary }}
+        >
+          <Plus size={11}/> Add Card
+        </button>
+      )}
     </div>
   )
 
   return (
     <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'#F4F5F7'}}>
 
-      {/* ── TIER 1: NET POSITION HERO ── */}
-      <section className="space-y-4">
-        <SectionHeader label="Financial Health"/>
-        <div className="grid gap-4">
-          {tier1Ids.map((id) => (
-            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
-          ))}
+      {/* ── Edit mode banner ────────────────────────────────────────────── */}
+      {editMode && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl text-sm font-medium"
+          style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid rgba(59,130,246,0.2)' }}>
+          <Edit2 size={13}/>
+          Layout edit mode — changes save automatically
         </div>
-      </section>
+      )}
 
-      {/* ── TIER 2: DRIVERS (2 COLS) ── */}
-      <section className="space-y-4">
-        <SectionHeader label="Drivers"/>
-        <div className="grid grid-cols-2 gap-4">
-          {tier2Ids.map((id) => (
-            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
-          ))}
-        </div>
-      </section>
+      {/* ── Page header — Edit Layout toggle ───────────────────────────── */}
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={() => setEditMode(e => !e)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors"
+          style={editMode
+            ? { backgroundColor: orgConfig?.primaryColor || ORG_COLORS.primary, color: '#fff', borderColor: 'transparent' }
+            : { backgroundColor: '#fff', color: '#374151', borderColor: 'rgba(0,0,0,0.1)' }
+          }
+        >
+          <Settings size={12}/>
+          {editMode ? 'Done' : 'Edit Layout'}
+        </button>
+      </div>
 
-      {/* ── TIER 3: SUPPORTING CONTEXT (3 COLS) ── */}
-      <section className="space-y-4">
-        <SectionHeader label="Supporting Context"/>
-        <div className="grid grid-cols-3 gap-4">
-          {tier3Ids.map((id) => (
-            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
-          ))}
-        </div>
-      </section>
+      {/* ══ FINANCIAL HEALTH ════════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader label="Financial Health" section="financial_health"/>
 
-      {/* ── SUPPORTER HEALTH (3 COLS) — SEPARATE SECTION ── */}
-      <section className="space-y-4">
-        <SectionHeader label="Supporter Health"/>
-        <div className="grid grid-cols-3 gap-4">
-          {supporterIds.map((id) => (
-            <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>
-          ))}
+        {/* Tier 1 — Net Position hero */}
+        <div className="grid gap-4 mb-4">
+          {tier1Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
-      </section>
 
-      {/* ── Charts Section ── */}
-      <section className="space-y-4">
-        <SectionHeader label="Charts"/>
-        {/* Chart 1: full-width spend vs planned */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow: '0 1px 3px rgba(0,0,0,0.06)'}}>
-          <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+        {/* Tier 2 — Drivers */}
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Drivers</div>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          {tier2Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
-        {/* Charts 2 & 3: side-by-side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow: '0 1px 3px rgba(0,0,0,0.06)'}}>
-            <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
+
+        {/* Tier 3 — Supporting Context */}
+        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Supporting Context</div>
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          {tier3Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
+        </div>
+
+        {/* Added preset cards for financial_health */}
+        {addedForSection('financial_health').length > 0 && (
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {addedForSection('financial_health').map(c => (
+              <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
+                editMode={editMode}
+                onRemove={() => setConfirmRemove({ cardKey: c.card_key, section: 'financial_health' })}
+              />
+            ))}
           </div>
-          <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow: '0 1px 3px rgba(0,0,0,0.06)'}}>
-            <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
-          </div>
-        </div>
-        {/* Team Spend chart moved to Teams tab */}
+        )}
       </section>
 
-      {/* ── Watch Areas Section ── */}
-      <section className="space-y-4">
-        <SectionHeader label="Watch Areas"/>
+      {/* ══ SUPPORTER HEALTH ════════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader label="Supporter Health" section="supporter_health"/>
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          {supporterIds.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
+        </div>
+
+        {/* Added preset cards for supporter_health */}
+        {addedForSection('supporter_health').length > 0 && (
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {addedForSection('supporter_health').map(c => (
+              <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
+                editMode={editMode}
+                onRemove={() => setConfirmRemove({ cardKey: c.card_key, section: 'supporter_health' })}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ══ CHARTS ══════════════════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader label="Charts" section="charts"/>
+
+        {/* Default charts */}
+        <div className="space-y-4 mb-4">
+          <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+            <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <CashPositionCard cashFlowData={cashFlowData} dateRange={dateRange}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Added preset cards for charts */}
+        {addedForSection('charts').length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            {addedForSection('charts').map(c => (
+              <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
+                editMode={editMode}
+                onRemove={() => setConfirmRemove({ cardKey: c.card_key, section: 'charts' })}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ══ WATCH AREAS ═════════════════════════════════════════════════════ */}
+      <section>
+        <SectionHeader label="Watch Areas" section={null}/>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-2xl">
           <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={false} onRemove={()=>{}}/>
           <PatronWatchAreaPanel patronData={patronData} dateRange={dateRange}/>
         </div>
       </section>
 
+      {/* ══ ADD CARD PICKER MODAL ════════════════════════════════════════════ */}
+      {showPicker && (
+        <AddCardPicker
+          section={showPicker.section}
+          addedKeys={addedCards.map(c => c.card_key)}
+          onAdd={(cardKey) => handleAddCard(showPicker.section, cardKey)}
+          onClose={() => setShowPicker(null)}
+        />
+      )}
+
+      {/* ══ REMOVE CONFIRMATION ══════════════════════════════════════════════ */}
+      {confirmRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
+          onClick={() => setConfirmRemove(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-6 w-80"
+            onClick={e => e.stopPropagation()}>
+            <div className="text-sm font-semibold text-gray-900 mb-1">Remove this card?</div>
+            <div className="text-xs text-gray-500 mb-5">The card will be removed from your layout. You can add it back at any time.</div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmRemove(null)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 border border-gray-200 transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => handleRemoveCard(confirmRemove.cardKey)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors"
+                style={{ backgroundColor: STATUS_COLORS.negative }}>
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Add Card Picker — modal panel for selecting optional preset cards
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SECTION_LABELS = {
+  financial_health: 'Financial Health',
+  supporter_health: 'Supporter Health',
+  charts:           'Charts',
+}
+
+function AddCardPicker({ section, addedKeys, onAdd, onClose }) {
+  const available = getPresetsForSection(section)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/20 backdrop-blur-sm"
+      onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full sm:w-[420px] max-h-[80vh] flex flex-col"
+        onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Add to {SECTION_LABELS[section]}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Select a card to add to this section</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={16}/></button>
+        </div>
+
+        {/* Card list */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {available.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-8">No preset cards available for this section.</p>
+          )}
+          {available.map(card => {
+            const alreadyAdded = addedKeys.includes(card.key)
+            return (
+              <button
+                key={card.key}
+                onClick={() => !alreadyAdded && onAdd(card.key)}
+                disabled={alreadyAdded}
+                className={`w-full flex items-start gap-3 p-3.5 rounded-xl border text-left transition-colors ${
+                  alreadyAdded
+                    ? 'border-gray-100 bg-gray-50 opacity-60 cursor-default'
+                    : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-gray-800">{card.label}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{card.description}</div>
+                </div>
+                {alreadyAdded
+                  ? <Check size={15} className="flex-shrink-0 mt-0.5 text-green-500"/>
+                  : <Plus  size={15} className="flex-shrink-0 mt-0.5 text-gray-400"/>
+                }
+              </button>
+            )
+          })}
+        </div>
+
+      </div>
     </div>
   )
 }
