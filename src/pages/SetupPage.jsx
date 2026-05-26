@@ -848,22 +848,22 @@ function AccountsRegistry() {
   const [txCounts, setTxCounts] = useState({}) // account_code → count
 
   useEffect(() => {
-    // Gather category suggestions from existing accounts
-    supabase.from('chart_of_accounts').select('category').eq('org_id', ORG_ID).eq('deleted', false)
-      .then(({ data }) => {
-        const cats = [...new Set((data || []).map(r => r.category).filter(Boolean))]
-        setCategoryHints(cats.sort())
-      })
+    // Fetch category hints + transaction counts in parallel
+    Promise.all([
+      supabase.from('chart_of_accounts').select('category').eq('org_id', ORG_ID).eq('deleted', false),
+      supabase.from('transactions').select('account_id').eq('org_id', ORG_ID).eq('deleted', false),
+    ]).then(([{ data: acctData }, { data: txData }]) => {
+      // Gather category suggestions from existing accounts
+      const cats = [...new Set((acctData || []).map(r => r.category).filter(Boolean))]
+      setCategoryHints(cats.sort())
 
-    // Transaction counts per account_id (the FK stored on the transaction row)
-    supabase.from('transactions').select('account_id').eq('org_id', ORG_ID).eq('deleted', false)
-      .then(({ data }) => {
-        const counts = {}
-        for (const r of (data || [])) {
-          if (r.account_id) counts[r.account_id] = (counts[r.account_id] || 0) + 1
-        }
-        setTxCounts(counts)
-      })
+      // Transaction counts per account_id (the FK stored on the transaction row)
+      const counts = {}
+      for (const r of (txData || [])) {
+        if (r.account_id) counts[r.account_id] = (counts[r.account_id] || 0) + 1
+      }
+      setTxCounts(counts)
+    })
   }, [])
 
   const {

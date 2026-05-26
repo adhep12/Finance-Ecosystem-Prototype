@@ -486,16 +486,14 @@ export default function TransactionImportFlow() {
         { data: tms,      error: tmsErr },
         { data: grs,      error: grsErr },
         { data: maps,     error: mapsErr },
-        { data: settings, error: settingsErr },
       ] = await Promise.all([
         supabase.from('chart_of_accounts').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('departments').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('teams').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('grants').select('*').eq('org_id', ORG_ID).eq('deleted', false),
         supabase.from('field_mappings').select('*').eq('org_id', ORG_ID).eq('deleted', false).eq('import_type', 'transactions'),
-        supabase.from('org_settings').select('*').limit(1).single(),
       ])
-      if (accErr || deptErr || tmsErr || grsErr || mapsErr || settingsErr) {
+      if (accErr || deptErr || tmsErr || grsErr || mapsErr) {
         setRegError('Failed to load required data — please refresh and try again')
         setRegLoading(false)
         return
@@ -505,13 +503,12 @@ export default function TransactionImportFlow() {
       setTeams(tms || [])
       setGrants(grs || [])
       setSavedMappings(maps || [])
-      setOrgSettings(settings || null)
       setRegLoading(false)
     }
     load()
   }, [])
 
-  const fyStartMonth = orgSettings?.fiscal_year_start_month || 10
+  const fyStartMonth = orgConfig.fiscalYearStartMonth || 10
 
   // ── File handling ───────────────────────────────────────────────────────────
   function handleFileChange(e) {

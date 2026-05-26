@@ -534,6 +534,9 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const acctOpts  = accounts.map(a =>   ({ value: a.id,   label: `${a.account_code} — ${a.account_name}` }))
   const grantOpts = grants.map(g =>     ({ value: g.id,   label: `${g.grant_code} — ${g.grant_name}` }))
 
+  // ── Registry error ──────────────────────────────────────────────────────────
+  const [regError, setRegError] = useState(null)
+
   // ── Transactions state ──────────────────────────────────────────────────────
   const [rows,        setRows]        = useState([])
   const [deletedRows, setDeletedRows] = useState([])
@@ -607,7 +610,11 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       supabase.from('chart_of_accounts').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('account_code'),
       supabase.from('grants').select('*').eq('org_id', ORG_ID).eq('deleted', false).order('grant_code'),
       supabase.from('teams').select('id, team_name').eq('org_id', ORG_ID).eq('deleted', false).order('team_name'),
-    ]).then(([{ data: d }, { data: a }, { data: g }, { data: t }]) => {
+    ]).then(([{ data: d, error: dErr }, { data: a, error: aErr }, { data: g, error: gErr }, { data: t, error: tErr }]) => {
+      if (dErr || aErr || gErr || tErr) {
+        setRegError('Failed to load required data — please refresh and try again')
+        return
+      }
       setDepartments(d || [])
       setAccounts(a || [])
       setGrants(g || [])
@@ -984,6 +991,14 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           {toast.type === 'error' ? <AlertTriangle size={14}/> : <Check size={14}/>}
           {toast.msg}
           <button onClick={() => setToast(null)} className="ml-1 opacity-60 hover:opacity-100"><X size={12}/></button>
+        </div>
+      )}
+
+      {/* Registry load error */}
+      {regError && (
+        <div className="flex items-center gap-2 px-6 py-3 bg-red-50 border-b border-red-200 text-sm text-red-700">
+          <AlertTriangle size={14} className="shrink-0"/>
+          {regError}
         </div>
       )}
 

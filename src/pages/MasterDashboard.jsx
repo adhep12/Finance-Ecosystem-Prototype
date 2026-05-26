@@ -1167,8 +1167,10 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
       supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
     ]).then(([cashRes, patronRes]) => {
-      setCashFlowData(cashRes.data || [])
-      setPatronData(patronRes.data || [])
+      if (!cashRes.error) setCashFlowData(cashRes.data || [])
+      if (!patronRes.error) setPatronData(patronRes.data || [])
+    }).catch(err => {
+      console.error('[MasterDashboard] Dashboard data load error:', err)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1602,6 +1604,8 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     ]).then(([cf, pd]) => {
       if (!cf.error) setCashFlowData(cf.data || [])
       if (!pd.error) setPatronData(pd.data || [])
+    }).catch(err => {
+      console.error('[MasterDashboard] Dashboard data load error:', err)
     })
   }, [])
 
