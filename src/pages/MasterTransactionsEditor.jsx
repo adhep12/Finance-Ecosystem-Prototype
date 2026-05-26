@@ -253,6 +253,31 @@ function applyBudgetFilters(rows, except, { budgetDeptFilter, budgetCatFilter, b
   return r
 }
 
+// Apply all actuals filters except the named one — used to compute each
+// dropdown's available options from the live dataset (cascading/dynamic filters).
+function applyActualsFilters(rows, except, { search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax }) {
+  let r = rows
+  const q = (search || '').trim().toLowerCase()
+  if (q && except !== 'search') {
+    r = r.filter(row => [row.vendor, row.description, row.account_name, row.dept_name, row.category, row.grant_name, row.account_code, row.dept_code]
+      .some(v => String(v || '').toLowerCase().includes(q)))
+  }
+  if (recordType !== 'all' && except !== 'recordType') r = r.filter(row => row.record_type === recordType)
+  if (except !== 'dept'   && deptFilter.size   > 0) r = r.filter(row => deptFilter.has(row.department_id))
+  if (except !== 'cat'    && catFilter.size    > 0) r = r.filter(row => catFilter.has(row.category))
+  if (except !== 'acct'   && acctFilter.size   > 0) r = r.filter(row => acctFilter.has(row.account_id))
+  if (except !== 'grant'  && grantFilter.size  > 0) r = r.filter(row => {
+    if (grantFilter.has('none')) return !row.grant_id || grantFilter.has(row.grant_id)
+    return grantFilter.has(row.grant_id)
+  })
+  if (except !== 'vendor' && vendorFilter.size > 0) r = r.filter(row => vendorFilter.has(row.vendor || ''))
+  if (except !== 'amount') {
+    if (amtMin !== '') r = r.filter(row => Math.abs(row.amount || 0) >= parseFloat(amtMin))
+    if (amtMax !== '') r = r.filter(row => Math.abs(row.amount || 0) <= parseFloat(amtMax))
+  }
+  return r
+}
+
 /** Compute default date range: current fiscal year start → today */
 function defaultDateRange(fyStartMonth) {
   const today = new Date()
@@ -689,28 +714,67 @@ export default function MasterTransactionsEditor({ orgSettings }) {
     return result
   }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax, sortCol, sortDir])
 
-  // Base amounts for histogram (all filters except amount)
-  const baseAmounts = useMemo(() => {
-    let result = enriched
-    if (recordType !== 'all') result = result.filter(r => r.record_type === recordType)
-    const q = search.trim().toLowerCase()
-    if (q) result = result.filter(r =>
-      [r.vendor, r.description, r.account_name, r.dept_name, r.category, r.grant_name]
-        .some(v => String(v || '').toLowerCase().includes(q))
-    )
-    if (deptFilter.size > 0)  result = result.filter(r => deptFilter.has(r.department_id))
-    if (catFilter.size > 0)   result = result.filter(r => catFilter.has(r.category))
-    if (acctFilter.size > 0)  result = result.filter(r => acctFilter.has(r.account_id))
-    if (vendorFilter.size > 0) result = result.filter(r => vendorFilter.has(r.vendor || ''))
-    return result.map(r => Math.abs(r.amount || 0))
-  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter])
+  // ── Dynamic cascade options — each shows only values present after all OTHER filters ──
+  const fs = { search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax }
 
-  // ── Vendor options (dynamic from enriched) ──────────────────────────────────
-  const vendorOptions = useMemo(() => {
+  const dynamicDeptGroups = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'dept', fs)
+    const teamMapping = new Map(teams.map(t => [t.id, t.team_name]))
+    const byTeam = {}
     const seen = new Set()
-    for (const r of enriched) if (r.vendor) seen.add(r.vendor)
+    for (const r of pool) {
+      if (!r.department_id || seen.has(r.department_id)) continue
+      seen.add(r.department_id)
+      const dept = deptMap.get(r.department_id)
+      const tName = dept ? (teamMapping.get(dept.team_id) || 'Unassigned') : 'Unassigned'
+      if (!byTeam[tName]) byTeam[tName] = []
+      byTeam[tName].push({ value: r.department_id, label: r.dept_name || r.dept_code || r.department_id })
+    }
+    return Object.entries(byTeam).sort(([a],[b]) => a.localeCompare(b))
+      .map(([label, items]) => ({ label, items: items.sort((a,b) => a.label.localeCompare(b.label)) }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, catFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax, teams, deptMap])
+
+  const dynamicCatOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'cat', fs)
+    const seen = new Set()
+    for (const r of pool) if (r.category) seen.add(r.category)
+    return [...seen].sort().map(c => ({ value: c, label: c }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, acctFilter, grantFilter, vendorFilter, amtMin, amtMax])
+
+  const dynamicAcctOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'acct', fs)
+    const seen = new Map()
+    for (const r of pool) if (r.account_id && !seen.has(r.account_id)) seen.set(r.account_id, r.account_name || r.account_code || r.account_id)
+    return [...seen.entries()].sort(([,a],[,b]) => a.localeCompare(b)).map(([id, label]) => ({ value: id, label }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, catFilter, grantFilter, vendorFilter, amtMin, amtMax])
+
+  const dynamicVendorOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'vendor', fs)
+    const seen = new Set()
+    for (const r of pool) if (r.vendor) seen.add(r.vendor)
     return [...seen].sort().map(v => ({ value: v, label: v }))
-  }, [enriched])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, amtMin, amtMax])
+
+  const dynamicGrantOptions = useMemo(() => {
+    const pool = applyActualsFilters(enriched, 'grant', fs)
+    const seen = new Map()
+    for (const r of pool) if (r.grant_id) seen.set(r.grant_id, r.grant_name || r.grant_id)
+    const hasNone = pool.some(r => !r.grant_id)
+    const opts = hasNone ? [{ value: 'none', label: 'No grant (N/A)' }] : []
+    for (const [id, label] of [...seen.entries()].sort(([,a],[,b]) => a.localeCompare(b))) opts.push({ value: id, label })
+    return opts
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, search, recordType, deptFilter, catFilter, acctFilter, vendorFilter, amtMin, amtMax])
+
+  // Base amounts for histogram — all filters except amount applied
+  const baseAmounts = useMemo(() =>
+    applyActualsFilters(enriched, 'amount', fs).map(r => Math.abs(r.amount || 0))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  , [enriched, search, recordType, deptFilter, catFilter, acctFilter, grantFilter, vendorFilter])
 
   // ── Budget filter state and filtered rows ───────────────────────────────────
   const budgetFilterState = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
@@ -988,58 +1052,32 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
         </div>
-        {/* Vendor — now multiselect dropdown */}
+        {/* Vendor — dynamic: only values present after other filters */}
         <MultiCheckFilter label="Vendor" selected={vendorFilter}
-          options={vendorOptions}
+          options={dynamicVendorOptions}
           onToggle={v => setVendorFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n })}
           onClear={() => setVendorFilter(new Set())}/>
-        {/* Department multiselect grouped by team */}
-        {(() => {
-          const teamMap = new Map(teams.map(t => [t.id, t.team_name]))
-          const groups = []
-          const byTeam = {}
-          for (const d of departments) {
-            const tName = teamMap.get(d.team_id) || 'Unassigned'
-            if (!byTeam[tName]) byTeam[tName] = []
-            byTeam[tName].push({ value: d.id, label: d.dept_name || d.dept_code })
-          }
-          for (const [tName, items] of Object.entries(byTeam)) groups.push({ label: tName, items })
-          return (
-            <MultiCheckFilter label="Department" selected={deptFilter}
-              options={departments.map(d => ({ value: d.id, label: d.dept_name || d.dept_code }))}
-              groups={groups.length > 0 ? groups : null}
-              onToggle={id => setDeptFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
-              onClear={() => setDeptFilter(new Set())}/>
-          )
-        })()}
-        {/* Category */}
-        {(() => {
-          const cats = [...new Set(accounts.map(a => a.category).filter(Boolean))].sort()
-          return (
-            <MultiCheckFilter label="Category" selected={catFilter}
-              options={cats.map(c => ({ value: c, label: c }))}
-              onToggle={c => setCatFilter(p => { const n = new Set(p); n.has(c) ? n.delete(c) : n.add(c); return n })}
-              onClear={() => setCatFilter(new Set())}/>
-          )
-        })()}
-        {/* Account */}
+        {/* Department — dynamic, grouped by team */}
+        <MultiCheckFilter label="Department" selected={deptFilter}
+          options={dynamicDeptGroups.flatMap(g => g.items)}
+          groups={dynamicDeptGroups.length > 0 ? dynamicDeptGroups : null}
+          onToggle={id => setDeptFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+          onClear={() => setDeptFilter(new Set())}/>
+        {/* Category — dynamic */}
+        <MultiCheckFilter label="Category" selected={catFilter}
+          options={dynamicCatOptions}
+          onToggle={c => setCatFilter(p => { const n = new Set(p); n.has(c) ? n.delete(c) : n.add(c); return n })}
+          onClear={() => setCatFilter(new Set())}/>
+        {/* Account — dynamic */}
         <MultiCheckFilter label="Account" selected={acctFilter}
-          options={accounts.map(a => ({ value: a.id, label: a.account_name || a.account_code }))}
+          options={dynamicAcctOptions}
           onToggle={id => setAcctFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
           onClear={() => setAcctFilter(new Set())}/>
-        {/* Grant */}
-        {(() => {
-          const grantOpts = [
-            { value: 'none', label: 'No grant (N/A)' },
-            ...grants.map(g => ({ value: g.id, label: g.grant_name || g.grant_code }))
-          ]
-          return (
-            <MultiCheckFilter label="Grant" selected={grantFilter}
-              options={grantOpts}
-              onToggle={id => setGrantFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
-              onClear={() => setGrantFilter(new Set())}/>
-          )
-        })()}
+        {/* Grant — dynamic */}
+        <MultiCheckFilter label="Grant" selected={grantFilter}
+          options={dynamicGrantOptions}
+          onToggle={id => setGrantFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
+          onClear={() => setGrantFilter(new Set())}/>
         {/* Amount range with histogram */}
         <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
           onMin={setAmtMin} onMax={setAmtMax}
