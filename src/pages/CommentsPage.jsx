@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeamOptional } from '../context/TeamContext'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { formatCurrency } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,16 +101,32 @@ function AnchorLine({ comment }) {
 // Add Comment Form (modal)
 // ─────────────────────────────────────────────────────────────────────────────
 
+function deriveCommentSource(pathname) {
+  if (pathname.startsWith('/elt'))    return { source_dashboard: 'Executive', source_page: 'Dashboard' }
+  if (pathname.startsWith('/master')) return { source_dashboard: 'Admin',     source_page: 'Overview' }
+  if (pathname.includes('/comments')) {
+    if (pathname.startsWith('/team')) return { source_dashboard: 'Content Team', source_page: 'Comments' }
+    return { source_dashboard: 'Admin', source_page: 'Comments' }
+  }
+  if (pathname.includes('/briefing'))    return { source_dashboard: 'Content Team', source_page: 'Briefing' }
+  if (pathname.includes('/breakdown'))   return { source_dashboard: 'Content Team', source_page: 'Breakdown' }
+  if (pathname.includes('/transactions'))return { source_dashboard: 'Content Team', source_page: 'Transactions' }
+  return { source_dashboard: null, source_page: null }
+}
+
 function AddCommentModal({ initialType = 'question', onClose }) {
   const { addComment } = useApp()
+  const { pathname }   = useLocation()
   const [type,   setType]   = useState(initialType)
   const [text,   setText]   = useState('')
   const [author, setAuthor] = useState('')
   const [page,   setPage]   = useState('briefing')
 
+  const { source_dashboard, source_page } = deriveCommentSource(pathname)
+
   function handleSave() {
     if (!text.trim() || !author.trim()) return
-    addComment({ author, avatar: author.charAt(0).toUpperCase(), type, text, page, category: null, anchor: null, status: 'open' })
+    addComment({ author, avatar: author.charAt(0).toUpperCase(), type, text, page, source_dashboard, source_page, category: null, anchor: null, status: 'open' })
     onClose()
   }
 
@@ -307,6 +323,15 @@ function CommentDetailPanel({ comment, onClose }) {
 // Kanban Card
 // ─────────────────────────────────────────────────────────────────────────────
 
+function SourceLabel({ comment }) {
+  const { source_dashboard, source_page } = comment
+  if (!source_dashboard && !source_page) return null
+  const label = [source_dashboard, source_page].filter(Boolean).join(' · ')
+  return (
+    <div className="text-[11px] mb-1.5" style={{ color: '#9CA3AF' }}>{label}</div>
+  )
+}
+
 function KanbanCard({ comment, colColor, onSelect, onDragStart }) {
   const status = getStatus(comment)
   return (
@@ -317,6 +342,7 @@ function KanbanCard({ comment, colColor, onSelect, onDragStart }) {
       className="bg-white rounded-xl p-3 shadow-sm border-l-4 cursor-pointer hover:shadow-md transition-shadow"
       style={{ borderLeftColor: colColor }}
     >
+      <SourceLabel comment={comment} />
       <div className="flex items-start justify-between gap-2 mb-2">
         <AnchorLine comment={comment} />
         <StatusBadge status={status} />
@@ -422,6 +448,7 @@ function ListView({ comments, onSelect }) {
       {comments.map(c => {
         const ref = txRef(c)
         const anchor = ref ? `· Txn · ${ref.department || '—'} · Staff` : (c.page ? `· ${c.page.charAt(0).toUpperCase() + c.page.slice(1)}` : '')
+        const sourceLabel = [c.source_dashboard, c.source_page].filter(Boolean).join(' · ')
         return (
           <div
             key={c.id}
@@ -429,9 +456,12 @@ function ListView({ comments, onSelect }) {
             className="grid grid-cols-[160px_1fr_120px_100px_80px] gap-3 px-5 py-3.5 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors last:border-0"
           >
             <div><TypeBadge type={c.type} /></div>
-            <div className="text-sm text-gray-800 truncate">
-              {anchor && <span className="text-gray-400 mr-2">{anchor}</span>}
-              {c.text}
+            <div className="min-w-0">
+              {sourceLabel && <div className="text-[11px] mb-0.5" style={{color:'#9CA3AF'}}>{sourceLabel}</div>}
+              <div className="text-sm text-gray-800 truncate">
+                {anchor && <span className="text-gray-400 mr-2">{anchor}</span>}
+                {c.text}
+              </div>
             </div>
             <div className="text-sm text-gray-700 font-medium truncate">{c.author}</div>
             <div><StatusBadge status={getStatus(c)} /></div>

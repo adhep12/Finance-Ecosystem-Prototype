@@ -708,7 +708,7 @@ export default function BriefingPage() {
           selectedCategory={selectedCategory}
         />
       </div>
-      <CommentPinFAB page="briefing" rightClassName="right-6" />
+      <CommentPinFAB page="briefing" sourceDashboard="Content Team" sourcePage="Briefing" rightClassName="right-6" />
     </>
   )
 }

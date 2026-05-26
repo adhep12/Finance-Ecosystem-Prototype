@@ -285,12 +285,14 @@ function TxCommentModal({ transaction: t, onClose }) {
     if (!text.trim() || !author.trim()) return
     addComment({
       author,
-      avatar:   author.charAt(0).toUpperCase(),
+      avatar:            author.charAt(0).toUpperCase(),
       type,
-      page:     'breakdown',
+      page:              'breakdown',
+      source_dashboard:  'Content Team',
+      source_page:       'Transactions',
       text,
-      category: t.category,
-      status:   'open',
+      category:          t.category,
+      status:            'open',
       anchor: {
         type: 'tx',
         txRef: {

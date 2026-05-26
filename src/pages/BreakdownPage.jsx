@@ -885,7 +885,7 @@ export default function BreakdownPage() {
       )}
 
       {/* Comment pin FAB */}
-      <CommentPinFAB page="breakdown" rightClassName={viewMode === 'summary' ? 'right-[296px]' : 'right-4'} />
+      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName={viewMode === 'summary' ? 'right-[296px]' : 'right-4'} />
 
       {/* Transaction modal */}
       {selectedTx && (
@@ -893,7 +893,7 @@ export default function BreakdownPage() {
           transaction={selectedTx}
           onClose={() => setSelectedTx(null)}
           onAddComment={data => {
-            addComment(data)
+            addComment({ ...data, source_dashboard: 'Content Team', source_page: 'Breakdown' })
             // leave modal open so user can see "Saved!" message
           }}
         />

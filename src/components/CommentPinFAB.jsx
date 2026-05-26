@@ -42,7 +42,10 @@ function PinHoverCard({ pin, onResolve, onDelete, onOpenComments, style }) {
         >
           {pin.avatar || (pin.author || 'A')[0].toUpperCase()}
         </div>
-        <span className="text-xs font-semibold text-gray-700 flex-1 truncate uppercase tracking-wide">{pin.page?.toUpperCase() || 'PAGE'}</span>
+        {pin.source_dashboard || pin.source_page
+          ? <span className="text-[11px] text-gray-400 flex-1 truncate">{[pin.source_dashboard, pin.source_page].filter(Boolean).join(' · ')}</span>
+          : <span className="text-xs font-semibold text-gray-700 flex-1 truncate uppercase tracking-wide">{pin.page?.toUpperCase() || 'PAGE'}</span>
+        }
       </div>
 
       {/* Meta row */}
@@ -145,7 +148,7 @@ function PinCircle({ pin }) {
 }
 
 // ─── Comment post modal ───────────────────────────────────────────────────────
-function CommentPinModal({ page, pinPosition, onClose }) {
+function CommentPinModal({ page, sourceDashboard, sourcePage, pinPosition, onClose }) {
   const { addComment } = useApp()
   const [selectedType, setSelectedType] = useState('question')
   const [text,   setText]   = useState('')
@@ -162,6 +165,8 @@ function CommentPinModal({ page, pinPosition, onClose }) {
       type:   selectedType,
       text,
       page,
+      source_dashboard: sourceDashboard || null,
+      source_page:      sourcePage      || null,
       category: null,
       anchor:   null,
       status:   'open',
@@ -254,7 +259,7 @@ function CommentPinModal({ page, pinPosition, onClose }) {
 }
 
 // ─── Main FAB export ──────────────────────────────────────────────────────────
-export default function CommentPinFAB({ page, rightClassName = 'right-6' }) {
+export default function CommentPinFAB({ page, sourceDashboard, sourcePage, rightClassName = 'right-6' }) {
   const { comments, updateCommentStatus, deleteComment } = useApp()
   const [showPins,   setShowPins]   = useState(true)
   const [placing,    setPlacing]    = useState(false)   // placement mode
@@ -342,6 +347,8 @@ export default function CommentPinFAB({ page, rightClassName = 'right-6' }) {
       {showModal && (
         <CommentPinModal
           page={page}
+          sourceDashboard={sourceDashboard}
+          sourcePage={sourcePage}
           pinPosition={pinPos}
           onClose={handleCloseModal}
         />
