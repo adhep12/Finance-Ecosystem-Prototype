@@ -637,16 +637,20 @@ export default function CashFlowImportFlow() {
               <button
                 key={m.id}
                 onClick={() => setImportMode(m.id)}
-                className={`flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
+                className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
                   importMode === m.id
-                    ? m.danger ? 'border-red-400 bg-red-50' : 'border-teal-500 bg-teal-50'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? m.danger ? 'border-amber-500 bg-amber-50' : 'border-teal-500 bg-teal-50'
+                    : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                <span className="text-2xl leading-none mt-0.5">{m.icon}</span>
-                <div>
-                  <div className={`font-medium text-sm ${m.danger && importMode===m.id ? 'text-red-700' : 'text-gray-900'}`}>{m.label}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{m.description}</div>
+                <span className="text-2xl leading-none mt-0.5 flex-shrink-0">{m.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`font-semibold text-sm ${m.danger && importMode===m.id ? 'text-amber-800' : importMode===m.id ? 'text-teal-800' : 'text-gray-800'}`}>{m.label}</div>
+                    {m.danger && <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Destructive</span>}
+                    {importMode === m.id && <Check size={14} className={`ml-auto ${m.danger ? 'text-amber-600' : 'text-teal-600'}`}/>}
+                  </div>
+                  <div className="text-xs text-gray-500">{m.description}</div>
                 </div>
               </button>
             ))}

@@ -34,22 +34,26 @@ const MODES = [
   {
     id: 'append',
     label: 'Append',
+    icon: '＋',
     desc: 'Add budget rows on top of existing data. Duplicate period/scenario/dept combinations are left as-is.',
   },
   {
     id: 'replace_full',
-    label: 'Replace — Full',
+    label: 'Replace — All',
+    icon: '↻',
     desc: 'Wipes ALL budget data for every scenario and loads only what\'s in this file.',
     warn: true,
   },
   {
     id: 'replace_period',
     label: 'Replace — Period',
+    icon: '⊘',
     desc: 'Wipes budget rows for one specific calendar month and replaces with this file. Use after mid-year revisions.',
   },
   {
     id: 'replace_scenario',
     label: 'Replace — Scenario',
+    icon: '↺',
     desc: 'Wipes all rows for one named scenario and replaces with this file. Safe way to update a single budget version.',
   },
 ]
@@ -747,14 +751,17 @@ export default function BudgetImportFlow() {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Import Mode</label>
             {MODES.map(m => (
               <button key={m.id} onClick={() => setMode(m.id)}
-                className={`w-full text-left p-4 border-2 rounded-xl transition-colors
+                className={`w-full text-left p-4 border-2 rounded-xl transition-colors flex items-start gap-3
                   ${mode === m.id ? (m.warn ? 'border-amber-500 bg-amber-50' : 'border-teal-500 bg-teal-50') : 'border-gray-200 hover:border-gray-300'}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-sm font-semibold ${mode === m.id ? (m.warn ? 'text-amber-800' : 'text-teal-800') : 'text-gray-800'}`}>{m.label}</span>
-                  {m.warn && <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Destructive</span>}
-                  {mode === m.id && <Check size={14} className="ml-auto text-teal-600"/>}
+                <span className="text-2xl leading-none mt-0.5 flex-shrink-0">{m.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-sm font-semibold ${mode === m.id ? (m.warn ? 'text-amber-800' : 'text-teal-800') : 'text-gray-800'}`}>{m.label}</span>
+                    {m.warn && <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Destructive</span>}
+                    {mode === m.id && <Check size={14} className={`ml-auto ${m.warn ? 'text-amber-600' : 'text-teal-600'}`}/>}
+                  </div>
+                  <p className="text-xs text-gray-500">{m.desc}</p>
                 </div>
-                <p className="text-xs text-gray-500">{m.desc}</p>
               </button>
             ))}
           </div>
