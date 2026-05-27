@@ -917,7 +917,9 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         borderLeftColor: borderColor,
         boxShadow: `0 4px 20px ${shadowColor}`,
         padding: '28px 32px',
-      }}>
+      }}
+      onMouseEnter={()=>setShowBreakdown(true)}
+      onMouseLeave={()=>setShowBreakdown(false)}>
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
           style={{backgroundColor:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.4)'}}>
@@ -925,8 +927,50 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         </button>
       )}
 
-      {/* Hover zone: header + big value — shows breakdown popup */}
-      <div className="relative cursor-default" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
+      {/* Breakdown popup — anchored top-right of card, does not extend below */}
+      {showBreakdown && (() => {
+        const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
+        const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
+        const expenses    = breakdown.lines.find(l => l.isSubtract)
+        return (
+          <div className="absolute top-8 right-12 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
+            {/* Income section */}
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
+            <div className="space-y-1 mb-2">
+              {incomeLines.map((l,i) => (
+                <div key={i} className="flex justify-between">
+                  <span className="text-xs text-gray-500">{l.label}</span>
+                  <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
+                </div>
+              ))}
+            </div>
+            {totalIncome && (
+              <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
+                <span className="text-xs font-semibold text-gray-800">Total Income</span>
+                <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
+              </div>
+            )}
+            {/* Expenses section */}
+            {expenses && (
+              <>
+                <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
+                <div className="flex justify-between mb-3">
+                  <span className="text-xs text-gray-500">Total Expenses</span>
+                  <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
+                </div>
+              </>
+            )}
+            {/* Net Position result */}
+            <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
+              <span className="text-xs font-bold text-gray-900">= Net Position</span>
+              <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Header + big value */}
+      <div className="cursor-default">
         {/* Header row */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -941,48 +985,6 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
 
         {/* Big value */}
         <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
-
-        {/* Breakdown popup — appears on hover over the entire header+value block */}
-        {showBreakdown && (() => {
-          const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
-          const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
-          const expenses    = breakdown.lines.find(l => l.isSubtract)
-          return (
-            <div className="absolute left-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
-              {/* Income section */}
-              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
-              <div className="space-y-1 mb-2">
-                {incomeLines.map((l,i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="text-xs text-gray-500">{l.label}</span>
-                    <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
-                  </div>
-                ))}
-              </div>
-              {totalIncome && (
-                <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
-                  <span className="text-xs font-semibold text-gray-800">Total Income</span>
-                  <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
-                </div>
-              )}
-              {/* Expenses section */}
-              {expenses && (
-                <>
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
-                  <div className="flex justify-between mb-3">
-                    <span className="text-xs text-gray-500">Total Expenses</span>
-                    <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
-                  </div>
-                </>
-              )}
-              {/* Net Position result */}
-              <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
-                <span className="text-xs font-bold text-gray-900">= Net Position</span>
-                <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
-              </div>
-            </div>
-          )
-        })()}
       </div>
 
       {/* Comparisons */}
@@ -1629,7 +1631,7 @@ function NewPatronChartCard({ patronData, dateRange, editMode=false, onRemove })
             }
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-new-patrons-yoy"/>
+      <ContextNote noteId="exec-chart-new-patrons-yoy" editMode={editMode}/>
     </div>
   )
 }
@@ -1679,7 +1681,7 @@ function PatronBaseChartCard({ patronData, dateRange, editMode=false, onRemove }
             }
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-patron-base"/>
+      <ContextNote noteId="exec-chart-patron-base" editMode={editMode}/>
     </div>
   )
 }
@@ -1780,7 +1782,7 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, e
             }
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-giving-vs-budget"/>
+      <ContextNote noteId="exec-chart-giving-vs-budget" editMode={editMode}/>
     </div>
   )
 }
@@ -3065,7 +3067,7 @@ function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false
             </BarChart>
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-net-position-by-month"/>
+      <ContextNote noteId="exec-chart-net-position-by-month" editMode={editMode}/>
     </div>
   )
 }
@@ -3098,7 +3100,7 @@ function ExecCashPositionChart({ cashData, dateRange, editMode=false, onRemove }
             </LineChart>
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-cash-position"/>
+      <ContextNote noteId="exec-chart-cash-position" editMode={editMode}/>
     </div>
   )
 }
@@ -3129,7 +3131,7 @@ function ExecCashAboveFloorChart({ cashData, dateRange, editMode=false, onRemove
             </BarChart>
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-cash-above-floor"/>
+      <ContextNote noteId="exec-chart-cash-above-floor" editMode={editMode}/>
     </div>
   )
 }
@@ -3182,7 +3184,7 @@ function ExecTeamSpendChart({ actuals, dateRange, editMode=false, onRemove }) {
             }
           </ResponsiveContainer>
       }
-      <ContextNote noteId="exec-chart-team-spend"/>
+      <ContextNote noteId="exec-chart-team-spend" editMode={editMode}/>
     </div>
   )
 }
@@ -3220,7 +3222,7 @@ function ExecBudgetWatchChart({ actuals, budgetFlat, scenario, dateRange, editMo
             )
           })
       }
-      <ContextNote noteId="exec-chart-budget-watch"/>
+      <ContextNote noteId="exec-chart-budget-watch" editMode={editMode}/>
     </div>
   )
 }
@@ -3265,7 +3267,7 @@ function ExecPatronWatchChart({ patronData, dateRange, editMode=false, onRemove 
               </div>
             ))
       }
-      <ContextNote noteId="exec-chart-patron-watch"/>
+      <ContextNote noteId="exec-chart-patron-watch" editMode={editMode}/>
     </div>
   )
 }
@@ -3578,7 +3580,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
                   {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
                 ]}}
                 editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!=='net-position'))}/>
-              <ContextNote noteId="exec-kpi-net-position"/>
+              <ContextNote noteId="exec-kpi-net-position" editMode={editKPI}/>
             </div>
           )
         })()}
@@ -3591,7 +3593,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
             return (
               <div key={id} className="flex flex-col flex-1 min-w-[180px]">
                 {card}
-                <ContextNote noteId={`exec-kpi-${id}`}/>
+                <ContextNote noteId={`exec-kpi-${id}`} editMode={editKPI}/>
               </div>
             )
           })}
@@ -3603,7 +3605,16 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       <section>
         <SectionHeader title="Supporter Metrics" editMode={editPatronMetrics} onToggleEdit={()=>setEditPatronMetrics(v=>!v)} onAdd={()=>setShowAddPatronMetric(true)}/>
         <div className="flex gap-4 flex-wrap">
-          {patronMetricCards.map(id=>renderPatronMetricCard(id))}
+          {patronMetricCards.map(id => {
+            const card = renderPatronMetricCard(id)
+            if (!card) return null
+            return (
+              <div key={id} className="flex flex-col flex-1 min-w-[220px]">
+                {card}
+                <ContextNote noteId={`exec-patron-${id}`} editMode={editPatronMetrics}/>
+              </div>
+            )
+          })}
           {editPatronMetrics&&(
             <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500">
               <Plus size={20}/><span className="text-xs font-medium">Add metric</span>
@@ -3674,7 +3685,10 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/></section>
+      <section>
+        <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
+        <ContextNote noteId="exec-pl-section" editMode={editCharts}/>
+      </section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}

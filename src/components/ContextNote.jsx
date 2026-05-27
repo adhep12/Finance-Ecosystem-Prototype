@@ -24,7 +24,7 @@ function persist(id, text) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all))
 }
 
-export default function ContextNote({ noteId, dark = false }) {
+export default function ContextNote({ noteId, dark = false, editMode = true }) {
   const [text, setText]       = useState(() => loadAll()[noteId] || '')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState('')
@@ -101,6 +101,8 @@ export default function ContextNote({ noteId, dark = false }) {
       </div>
     )
   }
+
+  if (!editMode) return null
 
   return (
     <div className="mt-2 px-1">
