@@ -3756,7 +3756,11 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
     let unassigned = 0
     const deptCodes = new Set()
     for (const t of actuals) {
-      if (!t.date || t.date < startDate || t.date > endDate) continue
+      // Use period (YYYY-MM) for range check — same logic as filterActualsByRange — so
+      // transactions with a period but no date are not silently dropped, keeping this
+      // total consistent with the P&L and Admin views.
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!p || p < startM || p > endM) continue
       if (t.record_type === 'income') continue
       if (!t.team_name) {
         unassigned += Math.abs(t.amount || 0)
@@ -3769,7 +3773,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       if (t.team_id && !idMap[name]) idMap[name] = t.team_id
     }
     return { teamActualMap: actualMap, teamIdMap: idMap, unassignedActual: unassigned, unassignedDeptCodes: deptCodes }
-  }, [actuals, startDate, endDate])
+  }, [actuals, startM, endM])
 
   // Build per-team budget (selected scenario, in date range).
   // Budget rows without a team_name are tallied as unassigned budget.

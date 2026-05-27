@@ -408,9 +408,14 @@ function GroupRow({ row, onToggle, onHide, totalExpenses }) {
         {formatCurrency(row.actual)}
       </div>
 
-      {/* Budget — show when budget > 0, dash otherwise (data-driven, not type-hardcoded) */}
+      {/* Budget — show when budget > 0; "Unbudgeted" when category has no budget rows at all;
+             dash for proportionally-allocated zeros at lower drill levels */}
       <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
-        {row.budget > 0 ? formatCurrency(row.budget) : <span className="text-gray-300">—</span>}
+        {row.budget > 0
+          ? formatCurrency(row.budget)
+          : row.budgetMissing
+            ? <span className="text-gray-300 italic text-[11px]" title="No budget rows imported for this category">Unbudgeted</span>
+            : <span className="text-gray-300">—</span>}
       </div>
 
       {/* Over/Under — only meaningful when budget > 0 */}

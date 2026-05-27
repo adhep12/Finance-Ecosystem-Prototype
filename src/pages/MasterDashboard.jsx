@@ -499,24 +499,20 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
       break
     }
     case 'teams-over-budget': {
-      // Build dept-code → team-name from budgetFlat (rows carry team_name from mapBudgetFlatDirect)
-      const deptToTeam = {}
-      for (const b of budgetFlat) {
-        if (b.department && b.team_name) deptToTeam[b.department] = b.team_name
-      }
       // All teams that have expense budget entries in the selected scenario+range
       const relevantBudget = budgetFlat.filter(b =>
         b.scenario===scenario && b.record_type!=='income' &&
         b.period && b.period>=startM && b.period<=endM && b.team_name
       )
       const allTeams = [...new Set(relevantBudget.map(b => b.team_name))]
-      // Sum budget and actual per team
+      // Sum budget per team
       const budByTeam = {}
       for (const b of relevantBudget) budByTeam[b.team_name] = (budByTeam[b.team_name]||0) + (b.amount||0)
+      // Sum actuals per team using t.team_name directly (same source as the Teams tab)
+      // so both views agree on which teams are over budget.
       const actByTeam = {}
       for (const t of expInRange) {
-        const tn = deptToTeam[t.department]
-        if (tn) actByTeam[tn] = (actByTeam[tn]||0) + Math.abs(t.amount||0)
+        if (t.team_name) actByTeam[t.team_name] = (actByTeam[t.team_name]||0) + Math.abs(t.amount||0)
       }
       const overCount = allTeams.filter(tn => (actByTeam[tn]||0) > (budByTeam[tn]||0)).length
       mainValue = `${overCount} of ${allTeams.length}`
@@ -2045,7 +2041,11 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
           {formatCurrency(actual, {compact:false})}
         </td>
         <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">
-          {budget > 0 ? formatCurrency(budget, {compact:false}) : <span className="text-gray-300">—</span>}
+          {budget > 0
+            ? formatCurrency(budget, {compact:false})
+            : row.budgetMissing
+              ? <span className="text-gray-300 italic text-xs" title="No budget rows imported for this category">Unbudgeted</span>
+              : <span className="text-gray-300">—</span>}
         </td>
         <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${variance !== null ? varCls : 'text-gray-300'}`}>
           {variance !== null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, {compact:false})}` : '—'}
