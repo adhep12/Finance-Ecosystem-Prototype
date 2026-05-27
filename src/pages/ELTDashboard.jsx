@@ -933,7 +933,7 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
         const expenses    = breakdown.lines.find(l => l.isSubtract)
         return (
-          <div className="absolute top-8 right-12 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
+          <div className="absolute bottom-0 right-12 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
             {/* Income section */}
             <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
             <div className="space-y-1 mb-2">
@@ -3049,7 +3049,7 @@ function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false
   }, [actuals, incomeMonths, startDate, endDate, startP, endP])
   const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
-  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52} domain={[dataMin => Math.min(0, dataMin), 'auto']}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52} domain={[dataMin => Math.min(0, dataMin), dataMax => Math.max(0, dataMax)]}/>
   const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Net']}/>
   return (
     <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
