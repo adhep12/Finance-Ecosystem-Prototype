@@ -72,27 +72,36 @@ function buildActualsLookup(transactions, drillOrder) {
   return lu
 }
 
-function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts) {
+function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts, deptNames = {}) {
   if (!drillOrder.length) return {}
   const lu = {}
   const add = (k, mo, amt) => { if (!lu[k]) lu[k] = {}; lu[k][mo] = (lu[k][mo] || 0) + amt }
   const monthSet = new Set(months.map(m => m.key))
-  const f0 = drillOrder[0]
-  const f1 = drillOrder[1]
+
+  function getVal(e, field) {
+    if (field === 'category')   return e.category   || 'N/A'
+    if (field === 'dept')       return e.dept_name  || deptNames[e.department] || e.department || 'Unknown Dept'
+    if (field === 'department') return e.department || 'Unknown'
+    if (field === 'team')       return e.team_name  || 'Unknown Team'
+    if (field === 'account')    return e.account_name || e.account || 'N/A'
+    if (field === 'vendor')     return e.vendor || 'N/A'
+    return null
+  }
+
   for (const e of (budgetFlat || [])) {
     if (e.scenario !== scenario) continue
     const mo = e.period ? String(e.period).slice(0, 7) : null
-    if (!mo || !monthSet.has(mo)) continue   // only include months in the selected range
-    const d   = e.department || 'Unknown'
-    const cat = e.category   || 'N/A'
-    const amt = Math.abs(e.amount || 0)      // use e.amount — monthlyAmount does not exist
-    if (activeDepts && !activeDepts.has(d)) continue
-    if (f0 === 'department') {
-      add(d, mo, amt)
-      if (f1 === 'category') add(`${d}|${cat}`, mo, amt)
-    } else if (f0 === 'category') {
-      add(cat, mo, amt)
-      if (f1 === 'department') add(`${cat}|${d}`, mo, amt)
+    if (!mo || !monthSet.has(mo)) continue
+    if (activeDepts && !activeDepts.has(e.department)) continue
+    const amt = Math.abs(e.amount || 0)
+
+    const v0 = getVal(e, drillOrder[0])
+    if (!v0) continue
+    add(v0, mo, amt)
+
+    if (drillOrder[1]) {
+      const v1 = getVal(e, drillOrder[1])
+      if (v1) add(`${v0}|${v1}`, mo, amt)
     }
   }
   return lu
@@ -343,8 +352,8 @@ export default function CalendarBreakdownView({
   const actualsLu = useMemo(
     () => buildActualsLookup(transactions, drillOrder), [transactions, drillOrder])
   const budgetLu  = useMemo(
-    () => buildBudgetLookup(budgetFlat, selectedScenario, months, drillOrder, activeDepts),
-    [budgetFlat, selectedScenario, months, drillOrder, activeDepts])
+    () => buildBudgetLookup(budgetFlat, selectedScenario, months, drillOrder, activeDepts, deptNames),
+    [budgetFlat, selectedScenario, months, drillOrder, activeDepts, deptNames])
   const lu   = mode === 'actuals' ? actualsLu : budgetLu
   const rows = useMemo(() => buildRows(transactions, drillOrder, expanded), [transactions, drillOrder, expanded])
 
