@@ -4672,9 +4672,9 @@ function DocumentsTab({ orgConfig }) {
   const fileInputRef = useRef(null)
 
   const [docs, setDocs] = useState([
-    { id:1, displayName:'Statement of Activity – April 2026', fileType:'pdf', type:'Statement of Activity', month:'April', year:2026, size:'245 KB', uploadedAt:'2026-04-22' },
-    { id:2, displayName:'Balance Sheet – Q2 FY2026',          fileType:'pdf', type:'Balance Sheet',         month:'March', year:2026, size:'189 KB', uploadedAt:'2026-03-21' },
-    { id:3, displayName:'Cash Flow Statement – YTD',          fileType:'xlsx',type:'Cash Flow Statement',   month:'April', year:2026, size:'312 KB', uploadedAt:'2026-04-30' },
+    { id:1, displayName:'Statement of Activity – April 2026', fileType:'pdf', type:'Statement of Activity', month:'April', year:2026, size:'245 KB', uploadedAt:'2026-04-22', file_url: null },
+    { id:2, displayName:'Balance Sheet – Q2 FY2026',          fileType:'pdf', type:'Balance Sheet',         month:'March', year:2026, size:'189 KB', uploadedAt:'2026-03-21', file_url: null },
+    { id:3, displayName:'Cash Flow Statement – YTD',          fileType:'xlsx',type:'Cash Flow Statement',   month:'April', year:2026, size:'312 KB', uploadedAt:'2026-04-30', file_url: null },
   ])
 
   // Upload modal state
@@ -4741,6 +4741,7 @@ function DocumentsTab({ orgConfig }) {
       year: Number(upYear),
       size: upFileName ? `${Math.round(Math.random()*400+50)} KB` : 'Unknown',
       uploadedAt: new Date().toISOString().slice(0,10),
+      file_url: null,
     }
     setDocs(prev => [newDoc, ...prev])
     setShowUpload(false)
@@ -4802,8 +4803,11 @@ function DocumentsTab({ orgConfig }) {
           {filteredDocs.map((doc, i) => {
             const ic = docIcon(doc.fileType)
             return (
-              <div key={doc.id}
-                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''}`}>
+              <a key={doc.id}
+                href={doc.file_url || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''} ${doc.file_url ? 'cursor-pointer' : 'cursor-default'}`}>
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ic.bg}`}>
                   <FileText size={15} className={ic.fg}/>
                 </div>
@@ -4816,12 +4820,12 @@ function DocumentsTab({ orgConfig }) {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploadedAt}</span>
-                  <button onClick={() => removeDoc(doc.id)}
+                  <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeDoc(doc.id) }}
                     className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all">
                     <Trash2 size={13}/>
                   </button>
                 </div>
-              </div>
+              </a>
             )
           })}
         </div>

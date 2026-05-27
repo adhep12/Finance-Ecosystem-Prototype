@@ -2113,7 +2113,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               </span>
             )}
             <span className={`truncate ${isTop ? 'text-sm font-medium text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
-              {row.value}
+              {row.field === 'department' ? (deptNames[row.value] || row.value) : row.value}
             </span>
           </div>
         </td>
