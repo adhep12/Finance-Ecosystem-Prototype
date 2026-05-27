@@ -1903,6 +1903,10 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Drill order: any of category/account/team/dept/vendor in any order
   const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','vendor'])
   const [viewMode,   setViewMode]   = useState('summary')
+  const [drillDragIdx, setDrillDragIdx] = useState(null)
+  const [drillDropIdx, setDrillDropIdx] = useState(null)
+  const [addFieldOpen, setAddFieldOpen] = useState(false)
+  const addFieldRef = useRef(null)
   const [searchQ,         setSearchQ]         = useState('')
   const [debouncedSearchQ, setDebouncedSearchQ] = useState('')
   const searchDebounceRef = useRef(null)
@@ -1918,6 +1922,12 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const [showAddPanel, setShowAddPanel] = useState(false)
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
+
+  useEffect(() => {
+    function handleOutside(e) { if (addFieldRef.current && !addFieldRef.current.contains(e.target)) setAddFieldOpen(false) }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -2198,43 +2208,52 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
 
         {/* Draggable pills — reorder to change top-level P&L grouping */}
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {drillOrder.map((field) => (
-            <div key={field}
+          {drillOrder.map((field, idx) => (
+            <div key={field} className="relative"
               draggable
-              onDragStart={e => { e.dataTransfer.setData('text/plain', field); e.dataTransfer.effectAllowed = 'move' }}
-              onDragOver={e => e.preventDefault()}
+              onDragStart={e => { setDrillDragIdx(idx); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={e => { e.preventDefault(); setDrillDropIdx(idx) }}
               onDrop={e => {
                 e.preventDefault()
-                const from = e.dataTransfer.getData('text/plain')
-                if (!from || from === field) return
+                if (drillDragIdx === null || drillDragIdx === idx) { setDrillDragIdx(null); setDrillDropIdx(null); return }
                 const next = [...drillOrder]
-                const fi = next.indexOf(from), ti = next.indexOf(field)
-                if (fi < 0 || ti < 0) return
-                next.splice(fi, 1); next.splice(ti, 0, from)
+                const [moved] = next.splice(drillDragIdx, 1)
+                next.splice(idx, 0, moved)
                 setDrillOrder(next); setIncOpenPath([]); setExpOpenPath([])
-              }}>
-              <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
+                setDrillDragIdx(null); setDrillDropIdx(null)
+              }}
+              onDragEnd={() => { setDrillDragIdx(null); setDrillDropIdx(null) }}>
+              {drillDropIdx === idx && drillDragIdx !== null && drillDragIdx !== idx && (
+                <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full"/>
+              )}
+              <div className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab active:cursor-grabbing select-none transition-opacity ${drillDragIdx === idx ? 'opacity-40' : 'opacity-100'}`}
                 style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
                 <GripVertical size={10} className="opacity-60"/>
                 {FIELD_LABELS[field]}
-                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
+                <button onMouseDown={e => e.stopPropagation()}
+                  onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
                   className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
               </div>
             </div>
           ))}
-          {/* Add field */}
+          {/* Add field — click-controlled dropdown */}
           {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).length>0 && (
-            <div className="relative group">
-              <button className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-gray-400">
+            <div className="relative" ref={addFieldRef}>
+              <button onClick={() => setAddFieldOpen(v => !v)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
                 <Plus size={10}/> Add
               </button>
-              <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
-                {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
-                  <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
-                    {FIELD_LABELS[f]}
-                  </button>
-                ))}
-              </div>
+              {addFieldOpen && (
+                <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 w-36">
+                  {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
+                    <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]); setAddFieldOpen(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: FIELD_COLORS[f] }}/>
+                      {FIELD_LABELS[f]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <button onClick={()=>{ setDrillOrder(['category','account','vendor']); setIncOpenPath([]); setExpOpenPath([]) }}

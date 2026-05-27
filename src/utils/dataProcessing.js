@@ -344,8 +344,12 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
 
   function getBudget(g, field, parentBudget, parentActual) {
     if (field === 'category') return budgetByCat[g.key] || 0
-    if (parentActual > 0)     return parentBudget * (g.total / parentActual)
-    return 0
+    // Proportional allocation: only valid when there IS a parent budget to proportion from
+    if (parentActual > 0 && parentBudget > 0) return parentBudget * (g.total / parentActual)
+    // No parent budget (e.g. department/vendor/account at depth 0) — sum the category
+    // budgets for every category represented in this group's transactions
+    const cats = new Set((g.items || []).map(t => t.category).filter(Boolean))
+    return [...cats].reduce((s, cat) => s + (budgetByCat[cat] || 0), 0)
   }
 
   function sortGroups(groups, field, parentBudget, parentActual) {
