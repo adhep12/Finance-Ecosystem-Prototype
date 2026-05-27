@@ -2274,7 +2274,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
       {/* Calendar view */}
       {viewMode==='calendar' && (
         <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
-          <CalendarBreakdownView transactions={searched} budgetFlat={budgetFlat} selectedScenario={scenario}
+          <CalendarBreakdownView transactions={enrichedSearched} budgetFlat={budgetFlat} selectedScenario={scenario}
             drillOrder={drillOrder} dateRange={dateRange} deptNames={deptNames} activeDepts={activeDepts} onHide={()=>{}}/>
         </div>
       )}
