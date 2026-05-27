@@ -925,64 +925,65 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         </button>
       )}
 
-      {/* Header row: label left, badge right */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>
-            Net Position YTD
+      {/* Hover zone: header + big value — shows breakdown popup */}
+      <div className="relative cursor-default" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>Net Position YTD</div>
+            <Info size={12} style={{color:'rgba(255,255,255,0.2)'}}/>
           </div>
-          <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
-            <Info size={12} style={{color:'rgba(255,255,255,0.2)'}} className="cursor-help"/>
-            {showBreakdown && (() => {
-              const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
-              const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
-              const expenses    = breakdown.lines.find(l => l.isSubtract)
-              return (
-                <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
-                  {/* Income section */}
-                  <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
-                  <div className="space-y-1 mb-2">
-                    {incomeLines.map((l,i) => (
-                      <div key={i} className="flex justify-between">
-                        <span className="text-xs text-gray-500">{l.label}</span>
-                        <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {totalIncome && (
-                    <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
-                      <span className="text-xs font-semibold text-gray-800">Total Income</span>
-                      <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
-                    </div>
-                  )}
-                  {/* Expenses section */}
-                  {expenses && (
-                    <>
-                      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
-                      <div className="flex justify-between mb-3">
-                        <span className="text-xs text-gray-500">Total Expenses</span>
-                        <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
-                      </div>
-                    </>
-                  )}
-                  {/* Net Position result */}
-                  <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
-                    <span className="text-xs font-bold text-gray-900">= Net Position</span>
-                    <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
-                  </div>
-                </div>
-              )
-            })()}
-          </div>
+          <span className="text-[11px] font-bold px-3 py-1 rounded-full"
+            style={{backgroundColor: badgeBg, color: accentColor, border: `1px solid ${badgeBorder}`}}>
+            {badgeLabel}
+          </span>
         </div>
-        <span className="text-[11px] font-bold px-3 py-1 rounded-full"
-          style={{backgroundColor: badgeBg, color: accentColor, border: `1px solid ${badgeBorder}`}}>
-          {badgeLabel}
-        </span>
-      </div>
 
-      {/* Big value */}
-      <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+        {/* Big value */}
+        <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+
+        {/* Breakdown popup — appears on hover over the entire header+value block */}
+        {showBreakdown && (() => {
+          const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
+          const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
+          const expenses    = breakdown.lines.find(l => l.isSubtract)
+          return (
+            <div className="absolute left-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
+              {/* Income section */}
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
+              <div className="space-y-1 mb-2">
+                {incomeLines.map((l,i) => (
+                  <div key={i} className="flex justify-between">
+                    <span className="text-xs text-gray-500">{l.label}</span>
+                    <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
+                  </div>
+                ))}
+              </div>
+              {totalIncome && (
+                <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
+                  <span className="text-xs font-semibold text-gray-800">Total Income</span>
+                  <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
+                </div>
+              )}
+              {/* Expenses section */}
+              {expenses && (
+                <>
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
+                  <div className="flex justify-between mb-3">
+                    <span className="text-xs text-gray-500">Total Expenses</span>
+                    <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
+                  </div>
+                </>
+              )}
+              {/* Net Position result */}
+              <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
+                <span className="text-xs font-bold text-gray-900">= Net Position</span>
+                <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
+              </div>
+            </div>
+          )
+        })()}
+      </div>
 
       {/* Comparisons */}
       <div className="flex gap-8 flex-wrap">

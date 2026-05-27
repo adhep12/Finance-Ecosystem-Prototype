@@ -103,19 +103,13 @@ export default function ContextNote({ noteId, dark = false }) {
   }
 
   return (
-    <div
-      className="mt-1 px-1 h-5"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      {hovered && (
-        <button
-          onClick={startEdit}
-          className="flex items-center gap-1 text-[10px] text-gray-300 hover:text-gray-500 transition-colors"
-        >
-          <MessageSquare size={10}/> Add context note
-        </button>
-      )}
+    <div className="mt-2 px-1">
+      <button
+        onClick={startEdit}
+        className="flex items-center gap-1.5 text-[10px] text-gray-300 hover:text-gray-500 transition-colors py-0.5"
+      >
+        <MessageSquare size={10}/> Add context note
+      </button>
     </div>
   )
 }

@@ -1042,7 +1042,7 @@ const NetPositionCard = React.memo(function NetPositionCard({ actuals, incomeMon
 
   const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
-  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56} domain={[dataMin => Math.min(0, dataMin), 'auto']}/>
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v),'Net']}/>
 
   return (
