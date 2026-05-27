@@ -17,6 +17,7 @@ import { useChartPreferences } from '../context/ChartPreferencesContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import CommentPinFAB from '../components/CommentPinFAB'
+import ContextNote from '../components/ContextNote'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
@@ -932,21 +933,46 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
           </div>
           <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
             <Info size={12} style={{color:'rgba(255,255,255,0.2)'}} className="cursor-help"/>
-            {showBreakdown && (
-              <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Breakdown</div>
-                {breakdown.lines.map((line,i) => (
-                  <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
-                    <span className="text-xs">{line.label}</span>
-                    <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(line.value)}</span>
+            {showBreakdown && (() => {
+              const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
+              const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
+              const expenses    = breakdown.lines.find(l => l.isSubtract)
+              return (
+                <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
+                  {/* Income section */}
+                  <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
+                  <div className="space-y-1 mb-2">
+                    {incomeLines.map((l,i) => (
+                      <div key={i} className="flex justify-between">
+                        <span className="text-xs text-gray-500">{l.label}</span>
+                        <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-                <div className="flex justify-between py-1.5 border-t-2 border-gray-800 mt-2 pt-2">
-                  <span className="text-xs font-bold text-gray-900">Net Position</span>
-                  <span className="text-xs font-bold text-gray-900 tabular-nums">{formatCurrency(value)}</span>
+                  {totalIncome && (
+                    <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
+                      <span className="text-xs font-semibold text-gray-800">Total Income</span>
+                      <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
+                    </div>
+                  )}
+                  {/* Expenses section */}
+                  {expenses && (
+                    <>
+                      <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
+                      <div className="flex justify-between mb-3">
+                        <span className="text-xs text-gray-500">Total Expenses</span>
+                        <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
+                      </div>
+                    </>
+                  )}
+                  {/* Net Position result */}
+                  <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
+                    <span className="text-xs font-bold text-gray-900">= Net Position</span>
+                    <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         </div>
         <span className="text-[11px] font-bold px-3 py-1 rounded-full"
@@ -1602,6 +1628,7 @@ function NewPatronChartCard({ patronData, dateRange, editMode=false, onRemove })
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-new-patrons-yoy"/>
     </div>
   )
 }
@@ -1651,6 +1678,7 @@ function PatronBaseChartCard({ patronData, dateRange, editMode=false, onRemove }
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-patron-base"/>
     </div>
   )
 }
@@ -1751,6 +1779,7 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, e
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-giving-vs-budget"/>
     </div>
   )
 }
@@ -3017,7 +3046,7 @@ function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false
   }, [actuals, incomeMonths, startDate, endDate, startP, endP])
   const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
-  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52} domain={[dataMin => Math.min(0, dataMin), 'auto']}/>
   const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Net']}/>
   return (
     <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
@@ -3035,6 +3064,7 @@ function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false
             </BarChart>
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-net-position-by-month"/>
     </div>
   )
 }
@@ -3067,6 +3097,7 @@ function ExecCashPositionChart({ cashData, dateRange, editMode=false, onRemove }
             </LineChart>
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-cash-position"/>
     </div>
   )
 }
@@ -3097,6 +3128,7 @@ function ExecCashAboveFloorChart({ cashData, dateRange, editMode=false, onRemove
             </BarChart>
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-cash-above-floor"/>
     </div>
   )
 }
@@ -3149,6 +3181,7 @@ function ExecTeamSpendChart({ actuals, dateRange, editMode=false, onRemove }) {
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-team-spend"/>
     </div>
   )
 }
@@ -3186,6 +3219,7 @@ function ExecBudgetWatchChart({ actuals, budgetFlat, scenario, dateRange, editMo
             )
           })
       }
+      <ContextNote noteId="exec-chart-budget-watch"/>
     </div>
   )
 }
@@ -3230,6 +3264,7 @@ function ExecPatronWatchChart({ patronData, dateRange, editMode=false, onRemove 
               </div>
             ))
       }
+      <ContextNote noteId="exec-chart-patron-watch"/>
     </div>
   )
 }
@@ -3542,13 +3577,23 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
                   {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
                 ]}}
                 editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!=='net-position'))}/>
+              <ContextNote noteId="exec-kpi-net-position"/>
             </div>
           )
         })()}
 
         {/* Driver cards grid (excluding net-position) */}
         <div className="flex gap-4 flex-wrap">
-          {kpiCards.map(id=>renderKPICard(id))}
+          {kpiCards.map(id => {
+            const card = renderKPICard(id)
+            if (!card) return null
+            return (
+              <div key={id} className="flex flex-col flex-1 min-w-[180px]">
+                {card}
+                <ContextNote noteId={`exec-kpi-${id}`}/>
+              </div>
+            )
+          })}
           {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
         </div>
       </section>
