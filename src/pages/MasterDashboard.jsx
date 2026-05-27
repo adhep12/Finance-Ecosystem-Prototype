@@ -500,24 +500,20 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
       break
     }
     case 'teams-over-budget': {
-      // Build dept-code → team-name from budgetFlat (rows carry team_name from mapBudgetFlatDirect)
-      const deptToTeam = {}
-      for (const b of budgetFlat) {
-        if (b.department && b.team_name) deptToTeam[b.department] = b.team_name
-      }
       // All teams that have expense budget entries in the selected scenario+range
       const relevantBudget = budgetFlat.filter(b =>
         b.scenario===scenario && b.record_type!=='income' &&
         b.period && b.period>=startM && b.period<=endM && b.team_name
       )
       const allTeams = [...new Set(relevantBudget.map(b => b.team_name))]
-      // Sum budget and actual per team
+      // Sum budget per team
       const budByTeam = {}
       for (const b of relevantBudget) budByTeam[b.team_name] = (budByTeam[b.team_name]||0) + (b.amount||0)
+      // Sum actuals per team using t.team_name directly (same source as the Teams tab)
+      // so both views agree on which teams are over budget.
       const actByTeam = {}
       for (const t of expInRange) {
-        const tn = deptToTeam[t.department]
-        if (tn) actByTeam[tn] = (actByTeam[tn]||0) + Math.abs(t.amount||0)
+        if (t.team_name) actByTeam[t.team_name] = (actByTeam[t.team_name]||0) + Math.abs(t.amount||0)
       }
       const overCount = allTeams.filter(tn => (actByTeam[tn]||0) > (budByTeam[tn]||0)).length
       mainValue = `${overCount} of ${allTeams.length}`
@@ -1046,7 +1042,7 @@ const NetPositionCard = React.memo(function NetPositionCard({ actuals, incomeMon
 
   const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
-  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56} domain={[dataMin => Math.min(0, dataMin), dataMax => Math.max(0, dataMax)]}/>
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v),'Net']}/>
 
   return (
@@ -1907,6 +1903,10 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Drill order: any of category/account/team/dept/vendor in any order
   const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','vendor'])
   const [viewMode,   setViewMode]   = useState('summary')
+  const [drillDragIdx, setDrillDragIdx] = useState(null)
+  const [drillDropIdx, setDrillDropIdx] = useState(null)
+  const [addFieldOpen, setAddFieldOpen] = useState(false)
+  const addFieldRef = useRef(null)
   const [searchQ,         setSearchQ]         = useState('')
   const [debouncedSearchQ, setDebouncedSearchQ] = useState('')
   const searchDebounceRef = useRef(null)
@@ -1922,6 +1922,12 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const [showAddPanel, setShowAddPanel] = useState(false)
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
+
+  useEffect(() => {
+    function handleOutside(e) { if (addFieldRef.current && !addFieldRef.current.contains(e.target)) setAddFieldOpen(false) }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -2117,7 +2123,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               </span>
             )}
             <span className={`truncate ${isTop ? 'text-sm font-medium text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
-              {row.value}
+              {row.field === 'department' ? (deptNames[row.value] || row.value) : row.value}
             </span>
           </div>
         </td>
@@ -2125,7 +2131,11 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
           {formatCurrency(actual, {compact:false})}
         </td>
         <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">
-          {budget > 0 ? formatCurrency(budget, {compact:false}) : <span className="text-gray-300">—</span>}
+          {budget > 0
+            ? formatCurrency(budget, {compact:false})
+            : row.budgetMissing
+              ? <span className="text-gray-300 italic text-xs" title="No budget rows imported for this category">Unbudgeted</span>
+              : <span className="text-gray-300">—</span>}
         </td>
         <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${variance !== null ? varCls : 'text-gray-300'}`}>
           {variance !== null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, {compact:false})}` : '—'}
@@ -2198,43 +2208,52 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
 
         {/* Draggable pills — reorder to change top-level P&L grouping */}
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {drillOrder.map((field) => (
-            <div key={field}
+          {drillOrder.map((field, idx) => (
+            <div key={field} className="relative"
               draggable
-              onDragStart={e => { e.dataTransfer.setData('text/plain', field); e.dataTransfer.effectAllowed = 'move' }}
-              onDragOver={e => e.preventDefault()}
+              onDragStart={e => { setDrillDragIdx(idx); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={e => { e.preventDefault(); setDrillDropIdx(idx) }}
               onDrop={e => {
                 e.preventDefault()
-                const from = e.dataTransfer.getData('text/plain')
-                if (!from || from === field) return
+                if (drillDragIdx === null || drillDragIdx === idx) { setDrillDragIdx(null); setDrillDropIdx(null); return }
                 const next = [...drillOrder]
-                const fi = next.indexOf(from), ti = next.indexOf(field)
-                if (fi < 0 || ti < 0) return
-                next.splice(fi, 1); next.splice(ti, 0, from)
+                const [moved] = next.splice(drillDragIdx, 1)
+                next.splice(idx, 0, moved)
                 setDrillOrder(next); setIncOpenPath([]); setExpOpenPath([])
-              }}>
-              <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
+                setDrillDragIdx(null); setDrillDropIdx(null)
+              }}
+              onDragEnd={() => { setDrillDragIdx(null); setDrillDropIdx(null) }}>
+              {drillDropIdx === idx && drillDragIdx !== null && drillDragIdx !== idx && (
+                <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full"/>
+              )}
+              <div className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab active:cursor-grabbing select-none transition-opacity ${drillDragIdx === idx ? 'opacity-40' : 'opacity-100'}`}
                 style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
                 <GripVertical size={10} className="opacity-60"/>
                 {FIELD_LABELS[field]}
-                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
+                <button onMouseDown={e => e.stopPropagation()}
+                  onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
                   className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
               </div>
             </div>
           ))}
-          {/* Add field */}
+          {/* Add field — click-controlled dropdown */}
           {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).length>0 && (
-            <div className="relative group">
-              <button className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-gray-400">
+            <div className="relative" ref={addFieldRef}>
+              <button onClick={() => setAddFieldOpen(v => !v)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
                 <Plus size={10}/> Add
               </button>
-              <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
-                {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
-                  <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
-                    {FIELD_LABELS[f]}
-                  </button>
-                ))}
-              </div>
+              {addFieldOpen && (
+                <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 w-36">
+                  {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
+                    <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]); setAddFieldOpen(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: FIELD_COLORS[f] }}/>
+                      {FIELD_LABELS[f]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <button onClick={()=>{ setDrillOrder(['category','account','vendor']); setIncOpenPath([]); setExpOpenPath([]) }}
@@ -2255,7 +2274,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
       {/* Calendar view */}
       {viewMode==='calendar' && (
         <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
-          <CalendarBreakdownView transactions={searched} budgetFlat={budgetFlat} selectedScenario={scenario}
+          <CalendarBreakdownView transactions={enrichedSearched} budgetFlat={budgetFlat} selectedScenario={scenario}
             drillOrder={drillOrder} dateRange={dateRange} deptNames={deptNames} activeDepts={activeDepts} onHide={()=>{}}/>
         </div>
       )}
@@ -2985,7 +3004,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 function MasterImportTab(){
   const [subTab, setSubTab] = useState('transactions')
   const SUB_TABS = [
-    { id:'transactions', label:'Transactions' },
+    { id:'transactions', label:'Actuals'      },
     { id:'budget',       label:'Budget'       },
     { id:'patron',       label:'Patron Data'  },
     { id:'cashflow',     label:'Cash Flow'    },

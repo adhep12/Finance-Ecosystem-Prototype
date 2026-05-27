@@ -17,6 +17,7 @@ import { useChartPreferences } from '../context/ChartPreferencesContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import CommentPinFAB from '../components/CommentPinFAB'
+import ContextNote from '../components/ContextNote'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
@@ -916,7 +917,9 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         borderLeftColor: borderColor,
         boxShadow: `0 4px 20px ${shadowColor}`,
         padding: '28px 32px',
-      }}>
+      }}
+      onMouseEnter={()=>setShowBreakdown(true)}
+      onMouseLeave={()=>setShowBreakdown(false)}>
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
           style={{backgroundColor:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.4)'}}>
@@ -924,39 +927,65 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         </button>
       )}
 
-      {/* Header row: label left, badge right */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>
-            Net Position YTD
-          </div>
-          <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
-            <Info size={12} style={{color:'rgba(255,255,255,0.2)'}} className="cursor-help"/>
-            {showBreakdown && (
-              <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Breakdown</div>
-                {breakdown.lines.map((line,i) => (
-                  <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
-                    <span className="text-xs">{line.label}</span>
-                    <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(line.value)}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between py-1.5 border-t-2 border-gray-800 mt-2 pt-2">
-                  <span className="text-xs font-bold text-gray-900">Net Position</span>
-                  <span className="text-xs font-bold text-gray-900 tabular-nums">{formatCurrency(value)}</span>
+      {/* Breakdown popup — anchored top-right of card, does not extend below */}
+      {showBreakdown && (() => {
+        const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
+        const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
+        const expenses    = breakdown.lines.find(l => l.isSubtract)
+        return (
+          <div className="absolute bottom-0 right-12 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
+            {/* Income section */}
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
+            <div className="space-y-1 mb-2">
+              {incomeLines.map((l,i) => (
+                <div key={i} className="flex justify-between">
+                  <span className="text-xs text-gray-500">{l.label}</span>
+                  <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
                 </div>
+              ))}
+            </div>
+            {totalIncome && (
+              <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
+                <span className="text-xs font-semibold text-gray-800">Total Income</span>
+                <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
               </div>
             )}
+            {/* Expenses section */}
+            {expenses && (
+              <>
+                <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
+                <div className="flex justify-between mb-3">
+                  <span className="text-xs text-gray-500">Total Expenses</span>
+                  <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
+                </div>
+              </>
+            )}
+            {/* Net Position result */}
+            <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
+              <span className="text-xs font-bold text-gray-900">= Net Position</span>
+              <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
+            </div>
           </div>
-        </div>
-        <span className="text-[11px] font-bold px-3 py-1 rounded-full"
-          style={{backgroundColor: badgeBg, color: accentColor, border: `1px solid ${badgeBorder}`}}>
-          {badgeLabel}
-        </span>
-      </div>
+        )
+      })()}
 
-      {/* Big value */}
-      <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+      {/* Header + big value */}
+      <div className="cursor-default">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>Net Position YTD</div>
+            <Info size={12} style={{color:'rgba(255,255,255,0.2)'}}/>
+          </div>
+          <span className="text-[11px] font-bold px-3 py-1 rounded-full"
+            style={{backgroundColor: badgeBg, color: accentColor, border: `1px solid ${badgeBorder}`}}>
+            {badgeLabel}
+          </span>
+        </div>
+
+        {/* Big value */}
+        <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+      </div>
 
       {/* Comparisons */}
       <div className="flex gap-8 flex-wrap">
@@ -1602,6 +1631,7 @@ function NewPatronChartCard({ patronData, dateRange, editMode=false, onRemove })
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-new-patrons-yoy" editMode={editMode}/>
     </div>
   )
 }
@@ -1651,6 +1681,7 @@ function PatronBaseChartCard({ patronData, dateRange, editMode=false, onRemove }
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-patron-base" editMode={editMode}/>
     </div>
   )
 }
@@ -1751,6 +1782,7 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, e
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-giving-vs-budget" editMode={editMode}/>
     </div>
   )
 }
@@ -3017,7 +3049,7 @@ function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false
   }, [actuals, incomeMonths, startDate, endDate, startP, endP])
   const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
-  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52} domain={[dataMin => Math.min(0, dataMin), dataMax => Math.max(0, dataMax)]}/>
   const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Net']}/>
   return (
     <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
@@ -3035,6 +3067,7 @@ function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false
             </BarChart>
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-net-position-by-month" editMode={editMode}/>
     </div>
   )
 }
@@ -3067,6 +3100,7 @@ function ExecCashPositionChart({ cashData, dateRange, editMode=false, onRemove }
             </LineChart>
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-cash-position" editMode={editMode}/>
     </div>
   )
 }
@@ -3097,6 +3131,7 @@ function ExecCashAboveFloorChart({ cashData, dateRange, editMode=false, onRemove
             </BarChart>
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-cash-above-floor" editMode={editMode}/>
     </div>
   )
 }
@@ -3149,6 +3184,7 @@ function ExecTeamSpendChart({ actuals, dateRange, editMode=false, onRemove }) {
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-team-spend" editMode={editMode}/>
     </div>
   )
 }
@@ -3186,6 +3222,7 @@ function ExecBudgetWatchChart({ actuals, budgetFlat, scenario, dateRange, editMo
             )
           })
       }
+      <ContextNote noteId="exec-chart-budget-watch" editMode={editMode}/>
     </div>
   )
 }
@@ -3230,6 +3267,7 @@ function ExecPatronWatchChart({ patronData, dateRange, editMode=false, onRemove 
               </div>
             ))
       }
+      <ContextNote noteId="exec-chart-patron-watch" editMode={editMode}/>
     </div>
   )
 }
@@ -3542,13 +3580,23 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
                   {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
                 ]}}
                 editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!=='net-position'))}/>
+              <ContextNote noteId="exec-kpi-net-position" editMode={editKPI}/>
             </div>
           )
         })()}
 
         {/* Driver cards grid (excluding net-position) */}
         <div className="flex gap-4 flex-wrap">
-          {kpiCards.map(id=>renderKPICard(id))}
+          {kpiCards.map(id => {
+            const card = renderKPICard(id)
+            if (!card) return null
+            return (
+              <div key={id} className="flex flex-col flex-1 min-w-[180px]">
+                {card}
+                <ContextNote noteId={`exec-kpi-${id}`} editMode={editKPI}/>
+              </div>
+            )
+          })}
           {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
         </div>
       </section>
@@ -3557,7 +3605,16 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       <section>
         <SectionHeader title="Supporter Metrics" editMode={editPatronMetrics} onToggleEdit={()=>setEditPatronMetrics(v=>!v)} onAdd={()=>setShowAddPatronMetric(true)}/>
         <div className="flex gap-4 flex-wrap">
-          {patronMetricCards.map(id=>renderPatronMetricCard(id))}
+          {patronMetricCards.map(id => {
+            const card = renderPatronMetricCard(id)
+            if (!card) return null
+            return (
+              <div key={id} className="flex flex-col flex-1 min-w-[220px]">
+                {card}
+                <ContextNote noteId={`exec-patron-${id}`} editMode={editPatronMetrics}/>
+              </div>
+            )
+          })}
           {editPatronMetrics&&(
             <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500">
               <Plus size={20}/><span className="text-xs font-medium">Add metric</span>
@@ -3628,7 +3685,10 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/></section>
+      <section>
+        <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
+        <ContextNote noteId="exec-pl-section" editMode={editCharts}/>
+      </section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
@@ -4261,7 +4321,11 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
     let unassigned = 0
     const deptCodes = new Set()
     for (const t of actuals) {
-      if (!t.date || t.date < startDate || t.date > endDate) continue
+      // Use period (YYYY-MM) for range check — same logic as filterActualsByRange — so
+      // transactions with a period but no date are not silently dropped, keeping this
+      // total consistent with the P&L and Admin views.
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!p || p < startM || p > endM) continue
       if (t.record_type === 'income') continue
       if (!t.team_name) {
         unassigned += Math.abs(t.amount || 0)
@@ -4274,7 +4338,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       if (t.team_id && !idMap[name]) idMap[name] = t.team_id
     }
     return { teamActualMap: actualMap, teamIdMap: idMap, unassignedActual: unassigned, unassignedDeptCodes: deptCodes }
-  }, [actuals, startDate, endDate])
+  }, [actuals, startM, endM])
 
   // Build per-team budget (selected scenario, in date range).
   // Budget rows without a team_name are tallied as unassigned budget.
@@ -4606,7 +4670,8 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
             // Aggregate unassigned actuals by specific warn type
             const map = {}
             for (const t of actuals) {
-              if (!t.date || t.date < startDate || t.date > endDate) continue
+              const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+              if (!p || p < startM || p > endM) continue
               if (t.record_type === 'income') continue
               if (t.team_name) continue  // assigned — skip
               for (const w of (t._warnings || [])) {
@@ -4663,27 +4728,50 @@ function docMonthToDate(month, year) {
 }
 
 function DocumentsTab({ orgConfig }) {
-  const pickerRef = useRef(null)
+  const pickerRef    = useRef(null)
   const fileInputRef = useRef(null)
 
-  const [docs, setDocs] = useState([
-    { id:1, displayName:'Statement of Activity – April 2026', fileType:'pdf', type:'Statement of Activity', month:'April', year:2026, size:'245 KB', uploadedAt:'2026-04-22' },
-    { id:2, displayName:'Balance Sheet – Q2 FY2026',          fileType:'pdf', type:'Balance Sheet',         month:'March', year:2026, size:'189 KB', uploadedAt:'2026-03-21' },
-    { id:3, displayName:'Cash Flow Statement – YTD',          fileType:'xlsx',type:'Cash Flow Statement',   month:'April', year:2026, size:'312 KB', uploadedAt:'2026-04-30' },
-  ])
+  // ── Persistent docs from Supabase ──
+  const [docs,      setDocs]      = useState([])
+  const [docsLoading, setDocsLoading] = useState(true)
 
-  // Upload modal state
-  const [showUpload,  setShowUpload]  = useState(false)
-  const [upName,      setUpName]      = useState('')
-  const [upType,      setUpType]      = useState(DOC_TYPES[0])
-  const [upMonth,     setUpMonth]     = useState('April')
-  const [upYear,      setUpYear]      = useState(new Date().getFullYear())
-  const [upFileType,  setUpFileType]  = useState('pdf')
-  const [upFileName,  setUpFileName]  = useState('')
-  const [isDragOver,  setIsDragOver]  = useState(false)
+  useEffect(() => {
+    async function load() {
+      setDocsLoading(true)
+      const { data } = await supabase
+        .from('financial_documents')
+        .select('*')
+        .eq('org_id', ORG_ID)
+        .order('created_at', { ascending: false })
+      setDocs(data || [])
+      setDocsLoading(false)
+    }
+    load()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Upload modal state ──
+  const [showUpload, setShowUpload] = useState(false)
+  const [upFile,     setUpFile]     = useState(null)   // actual File object
+  const [upName,     setUpName]     = useState('')
+  const [upType,     setUpType]     = useState(DOC_TYPES[0])
+  const [upMonth,    setUpMonth]    = useState(MONTH_NAMES[new Date().getMonth()])
+  const [upYear,     setUpYear]     = useState(new Date().getFullYear())
+  const [upFileType, setUpFileType] = useState('pdf')
+  const [upFileName, setUpFileName] = useState('')
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [uploading,  setUploading]  = useState(false)
+  const [upError,    setUpError]    = useState(null)
+
+  function formatFileSize(bytes) {
+    if (!bytes) return 'Unknown'
+    if (bytes < 1024)        return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
 
   function openWithFile(file) {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf'
+    setUpFile(file)
     setUpFileName(file.name)
     if (DOC_FILE_TYPES.includes(ext)) setUpFileType(ext)
     setUpName(file.name.replace(/\.[^.]+$/, ''))
@@ -4697,7 +4785,76 @@ function DocumentsTab({ orgConfig }) {
     if (file) openWithFile(file)
   }
 
-  // Date range filter (local to documents)
+  function resetUploadForm() {
+    setUpFile(null); setUpName(''); setUpType(DOC_TYPES[0])
+    setUpFileName(''); setUpFileType('pdf'); setUpError(null)
+  }
+
+  async function handleUpload() {
+    if (!upName.trim() || uploading) return
+    setUploading(true)
+    setUpError(null)
+
+    let file_url     = null
+    let storage_path = null
+    let file_size    = 'Unknown'
+
+    if (upFile) {
+      const safe = upFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${ORG_ID}/${Date.now()}-${safe}`
+      const { data: uploaded, error: uploadErr } = await supabase.storage
+        .from('financial-documents')
+        .upload(path, upFile, { upsert: false })
+
+      if (uploadErr) {
+        setUpError(`Upload failed: ${uploadErr.message}`)
+        setUploading(false)
+        return
+      }
+      storage_path = uploaded.path
+      const { data: urlData } = supabase.storage
+        .from('financial-documents')
+        .getPublicUrl(storage_path)
+      file_url  = urlData?.publicUrl || null
+      file_size = formatFileSize(upFile.size)
+    }
+
+    const { data: newDoc, error: dbErr } = await supabase
+      .from('financial_documents')
+      .insert([{
+        org_id:       ORG_ID,
+        display_name: upName.trim(),
+        file_type:    upFileType,
+        doc_type:     upType,
+        month:        upMonth,
+        year:         Number(upYear),
+        file_size,
+        uploaded_at:  new Date().toISOString().slice(0, 10),
+        file_url,
+        storage_path,
+      }])
+      .select()
+      .single()
+
+    setUploading(false)
+    if (dbErr) { setUpError(`Save failed: ${dbErr.message}`); return }
+    if (newDoc) setDocs(prev => [newDoc, ...prev])
+    setShowUpload(false)
+    resetUploadForm()
+  }
+
+  async function removeDoc(id) {
+    const doc = docs.find(d => d.id === id)
+    if (!doc) return
+    if (doc.storage_path) {
+      await supabase.storage.from('financial-documents').remove([doc.storage_path])
+    }
+    await supabase.from('financial_documents').delete()
+      .eq('id', id).eq('org_id', ORG_ID)
+    setDocs(prev => prev.filter(d => d.id !== id))
+  }
+
+  // ── Date range filter ──
   const [showPicker,   setShowPicker]   = useState(false)
   const [filterPreset, setFilterPreset] = useState('all')
   const [filterRange,  setFilterRange]  = useState(null)
@@ -4709,9 +4866,8 @@ function DocumentsTab({ orgConfig }) {
   }, [])
 
   function applyDocPreset(preset) {
-    const range = getELTPresetRange(preset, orgConfig)
     setFilterPreset(preset)
-    setFilterRange(range)
+    setFilterRange(getELTPresetRange(preset, orgConfig))
     setShowPicker(false)
   }
   function applyDocCustom(s, e) {
@@ -4725,27 +4881,6 @@ function DocumentsTab({ orgConfig }) {
     return d >= new Date(filterRange.startDate) && d <= new Date(filterRange.endDate)
   })
 
-  function handleUpload() {
-    if (!upName.trim()) return
-    const newDoc = {
-      id: Date.now(),
-      displayName: upName.trim(),
-      fileType: upFileType,
-      type: upType,
-      month: upMonth,
-      year: Number(upYear),
-      size: upFileName ? `${Math.round(Math.random()*400+50)} KB` : 'Unknown',
-      uploadedAt: new Date().toISOString().slice(0,10),
-    }
-    setDocs(prev => [newDoc, ...prev])
-    setShowUpload(false)
-    setUpName(''); setUpType(DOC_TYPES[0]); setUpFileName('')
-  }
-
-  function removeDoc(id) {
-    setDocs(prev => prev.filter(d => d.id !== id))
-  }
-
   const filterLabel = filterPreset === 'all' ? 'All time' : presetLabel(filterPreset)
 
   return (
@@ -4755,7 +4890,9 @@ function DocumentsTab({ orgConfig }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Financial Documents</p>
-          <p className="text-xs text-gray-400">{filteredDocs.length} of {docs.length} documents{filterPreset!=='all'?' in selected period':''}</p>
+          <p className="text-xs text-gray-400">
+            {docsLoading ? 'Loading…' : `${filteredDocs.length} of ${docs.length} document${docs.length!==1?'s':''}${filterPreset!=='all'?' in selected period':''}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Date range filter */}
@@ -4792,31 +4929,38 @@ function DocumentsTab({ orgConfig }) {
       </div>
 
       {/* Document list */}
-      {filteredDocs.length > 0 ? (
+      {docsLoading ? (
+        <div className="bg-white rounded-xl p-10 text-center mb-4" style={{border:'1px solid rgba(0,0,0,0.06)'}}>
+          <p className="text-sm text-gray-400">Loading documents…</p>
+        </div>
+      ) : filteredDocs.length > 0 ? (
         <div className="bg-white rounded-xl overflow-hidden mb-4" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
           {filteredDocs.map((doc, i) => {
-            const ic = docIcon(doc.fileType)
+            const ic = docIcon(doc.file_type)
             return (
-              <div key={doc.id}
-                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''}`}>
+              <a key={doc.id}
+                href={doc.file_url || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''} ${doc.file_url ? 'cursor-pointer' : 'cursor-default'}`}>
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ic.bg}`}>
                   <FileText size={15} className={ic.fg}/>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">{doc.displayName}</div>
+                  <div className="text-sm font-medium text-gray-800 truncate">{doc.display_name}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {doc.type} · {doc.month} {doc.year} · {doc.size}
-                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.fileType}</span>
+                    {doc.doc_type} · {doc.month} {doc.year} · {doc.file_size}
+                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.file_type}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploadedAt}</span>
-                  <button onClick={() => removeDoc(doc.id)}
+                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploaded_at}</span>
+                  <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeDoc(doc.id) }}
                     className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all">
                     <Trash2 size={13}/>
                   </button>
                 </div>
-              </div>
+              </a>
             )
           })}
         </div>
@@ -4850,17 +4994,17 @@ function DocumentsTab({ orgConfig }) {
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[440px] p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-semibold text-gray-900">Upload Document</h3>
-              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+              <button onClick={() => { setShowUpload(false); resetUploadForm() }} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
             <div className="space-y-4">
-              {/* File picker (cosmetic) */}
+              {/* File picker */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">File</label>
                 <div onClick={() => fileInputRef.current?.click()}
                   className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:border-gray-400 transition-colors">
                   <Upload size={16} className="text-gray-300 flex-shrink-0"/>
-                  <span className="text-sm text-gray-400">{upFileName || 'Click to choose a file…'}</span>
-                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.csv" className="hidden"
+                  <span className="text-sm text-gray-400 truncate">{upFileName || 'Click to choose a file…'}</span>
+                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) openWithFile(f) }}/>
                 </div>
               </div>
@@ -4908,16 +5052,20 @@ function DocumentsTab({ orgConfig }) {
                   ))}
                 </div>
               </div>
+              {/* Error */}
+              {upError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{upError}</div>
+              )}
               {/* Actions */}
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setShowUpload(false)}
-                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+                <button onClick={() => { setShowUpload(false); resetUploadForm() }} disabled={uploading}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50">
                   Cancel
                 </button>
-                <button onClick={handleUpload} disabled={!upName.trim()}
+                <button onClick={handleUpload} disabled={!upName.trim() || uploading}
                   className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
                   style={{backgroundColor:'var(--color-primary)'}}>
-                  Add Document
+                  {uploading ? (upFile ? 'Uploading…' : 'Saving…') : 'Add Document'}
                 </button>
               </div>
             </div>

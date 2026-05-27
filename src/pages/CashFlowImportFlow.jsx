@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { supabase, ORG_ID } from '../lib/supabase'
 import LastImportSummary from '../components/LastImportSummary'
+import PeriodMultiPicker from '../components/PeriodMultiPicker'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -247,7 +248,7 @@ function StepIndicator({ current }) {
       {steps.map((s, i) => (
         <span key={s} className="flex items-center gap-1">
           <span className={`px-2 py-0.5 rounded-full font-medium ${
-            i === current ? 'bg-cyan-100 text-cyan-700' :
+            i === current ? 'bg-teal-100 text-teal-700' :
             i < current  ? 'bg-gray-100 text-gray-500' : 'text-gray-400'
           }`}>{s}</span>
           {i < steps.length - 1 && <ChevronRight size={12} className="text-gray-300"/>}
@@ -272,7 +273,7 @@ function DropZone({ onFile }) {
       onDragLeave={() => setDrag(false)}
       onDrop={e => { e.preventDefault(); setDrag(false); handle(e.dataTransfer.files[0]) }}
       className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
-        drag ? 'border-cyan-400 bg-cyan-50' : 'border-gray-200 hover:border-cyan-300'}`}
+        drag ? 'border-teal-400 bg-teal-50' : 'border-gray-200 hover:border-teal-300'}`}
     >
       <Upload size={28} className="mx-auto mb-3 text-gray-400"/>
       <p className="text-sm font-medium text-gray-700 mb-1">Drop your CSV here or click to browse</p>
@@ -280,14 +281,14 @@ function DropZone({ onFile }) {
       <input type="file" accept=".csv" className="hidden" ref={ref} onChange={e => handle(e.target.files[0])}/>
       <button
         onClick={() => ref.current?.click()}
-        className="px-4 py-2 text-xs font-medium bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 mr-2"
+        className="px-4 py-2 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 mr-2"
       >
         Choose File
       </button>
-      <button onClick={downloadTemplateSafe} className="px-4 py-2 text-xs font-medium border border-cyan-300 text-cyan-600 rounded-lg hover:bg-cyan-50 mr-2">
+      <button onClick={downloadTemplateSafe} className="px-4 py-2 text-xs font-medium border border-teal-300 text-teal-600 rounded-lg hover:bg-teal-50 mr-2">
         Blank Template
       </button>
-      <button onClick={downloadCashFlowSample} className="px-4 py-2 text-xs font-medium border border-cyan-300 text-cyan-600 rounded-lg hover:bg-cyan-50">
+      <button onClick={downloadCashFlowSample} className="px-4 py-2 text-xs font-medium border border-teal-300 text-teal-600 rounded-lg hover:bg-teal-50">
         Sample Data
       </button>
     </div>
@@ -308,6 +309,7 @@ export default function CashFlowImportFlow() {
   const STEPS = { mode:0, upload:1, mapping:2, validate:3, confirm:4, importing:5, done:6, error:7 }
   const [step, setStep]             = useState(STEPS.mode)
   const [importMode, setImportMode] = useState('append')
+  const [replacePeriods, setReplacePeriods] = useState([])
 
   const [fileName, setFileName]     = useState('')
   const [rawHeaders, setRawHeaders] = useState([])
@@ -490,10 +492,11 @@ export default function CashFlowImportFlow() {
           .eq('org_id', ORG_ID)
         if (error) throw error
       } else if (importMode === 'replace_period') {
+        const periodsToDelete = replacePeriods.length > 0 ? replacePeriods : periodsInFile
         const { error } = await supabase.from('cash_flow')
           .delete()
           .eq('org_id', ORG_ID)
-          .in('period', periodsInFile)
+          .in('period', periodsToDelete)
         if (error) throw error
       }
 
@@ -594,6 +597,7 @@ export default function CashFlowImportFlow() {
   function reset() {
     setStep(STEPS.mode)
     setImportMode('append')
+    setReplacePeriods([])
     setFileName('')
     setRawHeaders([])
     setRawRows([])
@@ -613,7 +617,7 @@ export default function CashFlowImportFlow() {
     <div className="max-w-3xl mx-auto p-6 space-y-6">
 
       {/* Last import summary */}
-      <LastImportSummary importType="cashflow" accentColor="indigo"/>
+      <LastImportSummary importType="cashflow" accentColor="teal"/>
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -633,20 +637,32 @@ export default function CashFlowImportFlow() {
               <button
                 key={m.id}
                 onClick={() => setImportMode(m.id)}
-                className={`flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
+                className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
                   importMode === m.id
-                    ? m.danger ? 'border-red-400 bg-red-50' : 'border-cyan-500 bg-cyan-50'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? m.danger ? 'border-amber-500 bg-amber-50' : 'border-teal-500 bg-teal-50'
+                    : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                <span className="text-2xl leading-none mt-0.5">{m.icon}</span>
-                <div>
-                  <div className={`font-medium text-sm ${m.danger && importMode===m.id ? 'text-red-700' : 'text-gray-900'}`}>{m.label}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{m.description}</div>
+                <span className="text-2xl leading-none mt-0.5 flex-shrink-0">{m.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`font-semibold text-sm ${m.danger && importMode===m.id ? 'text-amber-800' : importMode===m.id ? 'text-teal-800' : 'text-gray-800'}`}>{m.label}</div>
+                    {m.danger && <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Destructive</span>}
+                    {importMode === m.id && <Check size={14} className={`ml-auto ${m.danger ? 'text-amber-600' : 'text-teal-600'}`}/>}
+                  </div>
+                  <div className="text-xs text-gray-500">{m.description}</div>
                 </div>
               </button>
             ))}
           </div>
+          {importMode === 'replace_period' && (
+            <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Period(s) to replace <span className="text-red-400">*</span></label>
+              <p className="text-xs text-gray-400">Select one or more months. Existing cash flow rows for those months will be deleted before inserting from the file.</p>
+              <PeriodMultiPicker value={replacePeriods} onChange={setReplacePeriods}/>
+            </div>
+          )}
+
           <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Download Template</p>
             <p className="text-xs text-gray-500 mb-3">
@@ -654,10 +670,10 @@ export default function CashFlowImportFlow() {
               <code className="bg-gray-100 px-1 rounded text-gray-700">cash_balance</code>
             </p>
             <div className="flex items-center gap-2">
-              <button onClick={downloadTemplateSafe} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
+              <button onClick={downloadTemplateSafe} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
                 <Download size={12}/> Blank Template
               </button>
-              <button onClick={downloadCashFlowSample} className="flex items-center gap-1.5 text-xs text-cyan-600 border border-cyan-300 rounded-lg px-3 py-1.5 hover:bg-cyan-50">
+              <button onClick={downloadCashFlowSample} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
                 <Download size={12}/> Sample Data
               </button>
             </div>
@@ -665,7 +681,8 @@ export default function CashFlowImportFlow() {
 
           <button
             onClick={() => setStep(STEPS.upload)}
-            className="px-5 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 flex items-center gap-2"
+            disabled={importMode === 'replace_period' && replacePeriods.length === 0}
+            className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-40 flex items-center gap-2"
           >
             Continue <ChevronRight size={16}/>
           </button>
@@ -698,7 +715,7 @@ export default function CashFlowImportFlow() {
                   <span className="ml-2 text-gray-400">({rawRows.length} rows, {rawHeaders.length} columns)</span>
                 </p>
                 {selectedMapping && (
-                  <p className="text-xs text-cyan-600 mt-0.5">Auto-detected mapping: <strong>{selectedMapping.mapping_name}</strong></p>
+                  <p className="text-xs text-teal-600 mt-0.5">Auto-detected mapping: <strong>{selectedMapping.mapping_name}</strong></p>
                 )}
               </div>
               {savedMappings.length > 0 && (
@@ -766,7 +783,7 @@ export default function CashFlowImportFlow() {
             <button
               onClick={runValidation}
               disabled={!mappingDraft.period || !mappingDraft.cash_balance}
-              className="px-5 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 disabled:opacity-40 flex items-center gap-2"
+              className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-40 flex items-center gap-2"
             >
               Validate <ChevronRight size={16}/>
             </button>
@@ -822,7 +839,7 @@ export default function CashFlowImportFlow() {
                     {validRows.slice(0, 18).map(r => (
                       <tr key={r.period} className="hover:bg-gray-50">
                         <td className="px-3 py-2 font-medium">{r.period}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-cyan-700">{fmt(r._parsedBalance)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-teal-700">{fmt(r._parsedBalance)}</td>
                         <td className="px-3 py-2 text-right text-gray-500">
                           {fmt(r._computedPriorMonth)}
                           {r._computedPriorMonth !== null && r._parsedPriorMonth == null && (
@@ -873,7 +890,7 @@ export default function CashFlowImportFlow() {
             {!hasHardErrors && validRows.length > 0 ? (
               <button
                 onClick={() => setStep(STEPS.confirm)}
-                className="px-5 py-2 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 flex items-center gap-2"
+                className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2"
               >
                 Continue to Import <ChevronRight size={16}/>
               </button>
@@ -892,9 +909,9 @@ export default function CashFlowImportFlow() {
             <ChevronLeft size={12}/> Back
           </button>
 
-          <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-5 space-y-4">
+          <div className="bg-teal-50 border border-teal-200 rounded-xl p-5 space-y-4">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-              <TrendingUp size={16} className="text-cyan-600"/> Confirm Import
+              <TrendingUp size={16} className="text-teal-600"/> Confirm Import
             </h3>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
               <dt className="text-gray-500">Mode</dt>
@@ -915,7 +932,7 @@ export default function CashFlowImportFlow() {
 
           <button
             onClick={handleConfirm}
-            className="px-6 py-2.5 bg-cyan-600 text-white text-sm font-semibold rounded-lg hover:bg-cyan-700 flex items-center gap-2"
+            className="px-6 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 flex items-center gap-2"
           >
             <Check size={16}/> Import Cash Flow Data
           </button>
@@ -925,7 +942,7 @@ export default function CashFlowImportFlow() {
       {/* ── STEP 5: Importing ────────────────────────────────────────────────── */}
       {step === STEPS.importing && (
         <div className="flex flex-col items-center py-16 gap-4">
-          <Loader2 size={32} className="text-cyan-500 animate-spin"/>
+          <Loader2 size={32} className="text-teal-500 animate-spin"/>
           <p className="text-sm text-gray-600">Writing cash flow data to Supabase…</p>
         </div>
       )}
@@ -941,7 +958,7 @@ export default function CashFlowImportFlow() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-cyan-600">{importResult.inserted}</div>
+              <div className="text-2xl font-bold text-teal-600">{importResult.inserted}</div>
               <div className="text-xs text-gray-500 mt-1">Periods inserted</div>
             </div>
             {importResult.skipped > 0 && (

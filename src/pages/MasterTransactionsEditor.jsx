@@ -242,15 +242,25 @@ function formatPeriod(p) {
   return `${MONTH_NAMES[m-1]} ${y}`
 }
 
-function applyBudgetFilters(rows, except, { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }) {
+function applyBudgetFilters(rows, except, { budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod }) {
   let r = rows
   if (except !== 'period') {
     if (budgetStartPeriod) r = r.filter(b => b.period >= budgetStartPeriod)
     if (budgetEndPeriod)   r = r.filter(b => b.period <= budgetEndPeriod)
   }
+  if (except !== 'search' && budgetSearch) {
+    const q = (budgetSearch || '').trim().toLowerCase()
+    if (q) r = r.filter(b => [b.dept_name, b.department, b.category, b.scenario, b.account_name, b.account_code]
+      .some(v => String(v || '').toLowerCase().includes(q)))
+  }
   if (except !== 'dept' && budgetDeptFilter.size > 0) r = r.filter(b => budgetDeptFilter.has(b.dept_name || b.department))
   if (except !== 'cat' && budgetCatFilter.size > 0)   r = r.filter(b => budgetCatFilter.has(b.category))
   if (except !== 'scenario' && budgetScenarioFilter.size > 0) r = r.filter(b => budgetScenarioFilter.has(b.scenario))
+  if (except !== 'acct' && budgetAcctFilter.size > 0) r = r.filter(b => budgetAcctFilter.has(b.account_name || b.account_code || ''))
+  if (except !== 'amount') {
+    if (budgetAmtMin !== '') r = r.filter(b => Math.abs(b.amount || 0) >= parseFloat(budgetAmtMin))
+    if (budgetAmtMax !== '') r = r.filter(b => Math.abs(b.amount || 0) <= parseFloat(budgetAmtMax))
+  }
   return r
 }
 
@@ -569,9 +579,13 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const [vendorFilter, setVendorFilter] = useState(new Set())  // multiselect Set
 
   // Budget filters
+  const [budgetSearch,         setBudgetSearch]         = useState('')
   const [budgetDeptFilter,     setBudgetDeptFilter]     = useState(new Set())
   const [budgetCatFilter,      setBudgetCatFilter]      = useState(new Set())
   const [budgetScenarioFilter, setBudgetScenarioFilter] = useState(new Set())
+  const [budgetAcctFilter,     setBudgetAcctFilter]     = useState(new Set())
+  const [budgetAmtMin,         setBudgetAmtMin]         = useState('')
+  const [budgetAmtMax,         setBudgetAmtMax]         = useState('')
   const [budgetStartPeriod,    setBudgetStartPeriod]    = useState(defStart.substring(0, 7))
   const [budgetEndPeriod,      setBudgetEndPeriod]      = useState(defEnd.substring(0, 7))
   const [budgetPage,           setBudgetPage]           = useState(1)
@@ -805,7 +819,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   }, [filtered])
 
   // ── Budget filter state and filtered rows ───────────────────────────────────
-  const budgetFilterState = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
+  const budgetFilterState = { budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod }
 
   const filteredBudget = useMemo(() => {
     let rows = applyBudgetFilters(budgetFlat || [], null, budgetFilterState)
@@ -814,12 +828,14 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       if (budgetSortCol === 'period')   { av = a.period||''; bv = b.period||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
       if (budgetSortCol === 'dept')     { av = a.dept_name||a.department||''; bv = b.dept_name||b.department||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
       if (budgetSortCol === 'cat')      { av = a.category||''; bv = b.category||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
+      if (budgetSortCol === 'acct')     { av = a.account_name||a.account_code||''; bv = b.account_name||b.account_code||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
       if (budgetSortCol === 'scenario') { av = a.scenario||''; bv = b.scenario||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
       if (budgetSortCol === 'amount')   { av = a.amount||0; bv = b.amount||0; return budgetSortDir==='asc'?av-bv:bv-av }
+      if (budgetSortCol === 'ptype')    { av = a.period_type||''; bv = b.period_type||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
       return 0
     })
     return rows
-  }, [budgetFlat, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
+  }, [budgetFlat, budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
 
   const filteredBudgetTotal = useMemo(() => filteredBudget.reduce((s, b) => s + (b.amount||0), 0), [filteredBudget])
 
@@ -829,21 +845,37 @@ export default function MasterTransactionsEditor({ orgSettings }) {
     const seen = new Set()
     for (const b of pool) { const n = b.dept_name || b.department; if (n) seen.add(n) }
     return [...seen].sort().map(n => ({ value: n, label: n }))
-  }, [budgetFlat, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetFlat, budgetSearch, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod])
 
   const budgetCatOptions = useMemo(() => {
     const pool = applyBudgetFilters(budgetFlat || [], 'cat', budgetFilterState)
     const seen = new Set()
     for (const b of pool) if (b.category) seen.add(b.category)
     return [...seen].sort().map(c => ({ value: c, label: c }))
-  }, [budgetFlat, budgetDeptFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetFlat, budgetSearch, budgetDeptFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod])
 
   const budgetScenarioOptions = useMemo(() => {
     const pool = applyBudgetFilters(budgetFlat || [], 'scenario', budgetFilterState)
     const seen = new Set()
     for (const b of pool) if (b.scenario) seen.add(b.scenario)
     return [...seen].sort().map(s => ({ value: s, label: s }))
-  }, [budgetFlat, budgetDeptFilter, budgetCatFilter, budgetStartPeriod, budgetEndPeriod])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetFlat, budgetSearch, budgetDeptFilter, budgetCatFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod])
+
+  const budgetAcctOptions = useMemo(() => {
+    const pool = applyBudgetFilters(budgetFlat || [], 'acct', budgetFilterState)
+    const seen = new Set()
+    for (const b of pool) { const n = b.account_name || b.account_code; if (n) seen.add(n) }
+    return [...seen].sort().map(n => ({ value: n, label: n }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [budgetFlat, budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod])
+
+  const budgetBaseAmounts = useMemo(() =>
+    applyBudgetFilters(budgetFlat || [], 'amount', budgetFilterState).map(b => Math.abs(b.amount || 0))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  , [budgetFlat, budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetStartPeriod, budgetEndPeriod])
 
   const BUDGET_PAGE_SIZE = 100
   const budgetTotalPages = Math.max(1, Math.ceil(filteredBudget.length / BUDGET_PAGE_SIZE))
@@ -1132,32 +1164,60 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         )}
       </div>
       ) : (
-      /* Budget filter row */
+      /* Budget filter row — matches actuals filter bar layout */
       <div className="flex items-center gap-2 flex-wrap px-6 py-2.5 border-b border-gray-200 bg-white">
         <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+        {/* Search */}
+        <div className="relative min-w-[180px]">
+          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
+          <input value={budgetSearch} onChange={e => { setBudgetSearch(e.target.value); setBudgetPage(1) }} placeholder="Search…"
+            className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
+        </div>
+        {/* Department */}
         <MultiCheckFilter label="Department" selected={budgetDeptFilter}
           options={budgetDeptOptions}
           onToggle={v => { setBudgetDeptFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
           onClear={() => { setBudgetDeptFilter(new Set()); setBudgetPage(1) }}/>
+        {/* Category */}
         <MultiCheckFilter label="Category" selected={budgetCatFilter}
           options={budgetCatOptions}
           onToggle={v => { setBudgetCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
           onClear={() => { setBudgetCatFilter(new Set()); setBudgetPage(1) }}/>
+        {/* Account */}
+        <MultiCheckFilter label="Account" selected={budgetAcctFilter}
+          options={budgetAcctOptions}
+          onToggle={v => { setBudgetAcctFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
+          onClear={() => { setBudgetAcctFilter(new Set()); setBudgetPage(1) }}/>
+        {/* Scenario */}
         <MultiCheckFilter label="Scenario" selected={budgetScenarioFilter}
           options={budgetScenarioOptions}
           onToggle={v => { setBudgetScenarioFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
           onClear={() => { setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}/>
-        {(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) > 0 && (
-          <>
-            <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
-              {budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size} filter{(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) !== 1 ? 's' : ''}
-            </span>
-            <button onClick={() => { setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set()); setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}
-              className="text-xs text-red-600 hover:underline font-medium">
-              Clear all
-            </button>
-          </>
-        )}
+        {/* Amount range */}
+        <AmountRangeFilter amtMin={budgetAmtMin} amtMax={budgetAmtMax}
+          onMin={v => { setBudgetAmtMin(v); setBudgetPage(1) }}
+          onMax={v => { setBudgetAmtMax(v); setBudgetPage(1) }}
+          onClear={() => { setBudgetAmtMin(''); setBudgetAmtMax(''); setBudgetPage(1) }}
+          baseAmounts={budgetBaseAmounts}/>
+        {/* Filter badge + clear */}
+        {(() => {
+          const count = budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size + budgetAcctFilter.size +
+            (budgetAmtMin !== '' ? 1 : 0) + (budgetAmtMax !== '' ? 1 : 0) + (budgetSearch ? 1 : 0)
+          return count > 0 ? (
+            <>
+              <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
+                {count} filter{count !== 1 ? 's' : ''}
+              </span>
+              <button onClick={() => {
+                setBudgetSearch(''); setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set())
+                setBudgetScenarioFilter(new Set()); setBudgetAcctFilter(new Set())
+                setBudgetAmtMin(''); setBudgetAmtMax(''); setBudgetPage(1)
+              }} className="text-xs text-red-600 hover:underline font-medium">
+                Clear all
+              </button>
+            </>
+          ) : null
+        })()}
       </div>
       )}
 
@@ -1388,16 +1448,17 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                       <BH col="period">Period</BH>
                       <BH col="dept">Department</BH>
                       <BH col="cat">Category</BH>
+                      <BH col="acct">Account</BH>
                       <BH col="scenario">Scenario</BH>
                       <BH col="amount" right>Amount</BH>
-                      <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Period Type</th>
+                      <BH col="ptype">Period Type</BH>
                     </tr>
                   )
                 })()}
               </thead>
               <tbody>
                 {budgetPageRows.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">
+                  <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">
                     No budget lines match your filters.
                   </td></tr>
                 )}
@@ -1406,6 +1467,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                     <td className="px-4 py-1.5 font-mono text-xs text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
                     <td className="px-4 py-1.5 text-xs text-gray-700">{row.dept_name || row.department || '—'}</td>
                     <td className="px-4 py-1.5 text-xs text-gray-700">{row.category || '—'}</td>
+                    <td className="px-4 py-1.5 text-xs text-gray-500">{row.account_name || row.account_code || '—'}</td>
                     <td className="px-4 py-1.5 text-xs">
                       <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700">
                         {row.scenario || '—'}
