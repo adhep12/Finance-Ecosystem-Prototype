@@ -1082,9 +1082,7 @@ function GrantsRegistry() {
     { key: 'grant_code',  label: 'Grant Code',  width: 'w-32' },
     { key: 'grant_name',  label: 'Grant Name',  width: 'flex-1' },
     { key: 'description', label: 'Description', width: 'flex-1', placeholder: 'Optional' },
-    { key: 'active',      label: 'Active', type: 'select',
-      options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }],
-      width: 'w-24' },
+    { key: 'active', label: 'Active', type: 'toggle', width: 'w-28' },
   ]
 
   const addFields = [

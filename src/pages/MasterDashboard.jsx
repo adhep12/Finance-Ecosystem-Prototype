@@ -3004,7 +3004,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 function MasterImportTab(){
   const [subTab, setSubTab] = useState('transactions')
   const SUB_TABS = [
-    { id:'transactions', label:'Transactions' },
+    { id:'transactions', label:'Actuals'      },
     { id:'budget',       label:'Budget'       },
     { id:'patron',       label:'Patron Data'  },
     { id:'cashflow',     label:'Cash Flow'    },

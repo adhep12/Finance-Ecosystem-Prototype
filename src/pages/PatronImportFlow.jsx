@@ -189,7 +189,7 @@ function StepIndicator({ current }) {
       {steps.map((s, i) => (
         <span key={s} className="flex items-center gap-1">
           <span className={`px-2 py-0.5 rounded-full font-medium ${
-            i === current ? 'bg-pink-100 text-pink-700' :
+            i === current ? 'bg-teal-100 text-teal-700' :
             i < current  ? 'bg-gray-100 text-gray-500' : 'text-gray-400'
           }`}>{s}</span>
           {i < steps.length - 1 && <ChevronRight size={12} className="text-gray-300"/>}
@@ -215,21 +215,21 @@ function DropZone({ onFile }) {
       onDragLeave={() => setDrag(false)}
       onDrop={e => { e.preventDefault(); setDrag(false); handle(e.dataTransfer.files[0]) }}
       className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
-        drag ? 'border-pink-400 bg-pink-50' : 'border-gray-200 hover:border-pink-300'}`}>
+        drag ? 'border-teal-400 bg-teal-50' : 'border-gray-200 hover:border-teal-300'}`}>
       <Upload size={28} className="mx-auto mb-3 text-gray-400"/>
       <p className="text-sm font-medium text-gray-700 mb-1">Drop your CSV here or click to browse</p>
       <p className="text-xs text-gray-400 mb-4">Pre-aggregated monthly patron summary, one row per month</p>
       <input type="file" accept=".csv" className="hidden" ref={ref} onChange={e => handle(e.target.files[0])}/>
       <button
         onClick={() => ref.current?.click?.() || document.querySelector('input[type=file]')?.click()}
-        className="px-4 py-2 text-xs font-medium bg-pink-600 text-white rounded-lg hover:bg-pink-700 mr-2"
+        className="px-4 py-2 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 mr-2"
       >
         Choose File
       </button>
-      <button onClick={downloadTemplate} className="px-4 py-2 text-xs font-medium border border-pink-300 text-pink-600 rounded-lg hover:bg-pink-50 mr-2">
+      <button onClick={downloadTemplate} className="px-4 py-2 text-xs font-medium border border-teal-300 text-teal-600 rounded-lg hover:bg-teal-50 mr-2">
         Blank Template
       </button>
-      <button onClick={downloadSample} className="px-4 py-2 text-xs font-medium border border-pink-300 text-pink-600 rounded-lg hover:bg-pink-50">
+      <button onClick={downloadSample} className="px-4 py-2 text-xs font-medium border border-teal-300 text-teal-600 rounded-lg hover:bg-teal-50">
         Sample Data
       </button>
     </div>
@@ -553,7 +553,7 @@ export default function PatronImportFlow() {
     <div className="max-w-3xl mx-auto p-6 space-y-6">
 
       {/* Last import summary */}
-      <LastImportSummary importType="patron" accentColor="pink"/>
+      <LastImportSummary importType="patron" accentColor="teal"/>
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -575,7 +575,7 @@ export default function PatronImportFlow() {
                 onClick={() => setImportMode(m.id)}
                 className={`flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
                   importMode === m.id
-                    ? m.danger ? 'border-red-400 bg-red-50' : 'border-pink-500 bg-pink-50'
+                    ? m.danger ? 'border-red-400 bg-red-50' : 'border-teal-500 bg-teal-50'
                     : 'border-gray-200 hover:border-gray-300 bg-white'
                 }`}
               >
@@ -595,10 +595,10 @@ export default function PatronImportFlow() {
               <code className="bg-gray-100 px-1 rounded text-gray-700">new_patrons_total</code>
             </p>
             <div className="flex items-center gap-2">
-              <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs text-pink-600 border border-pink-300 rounded-lg px-3 py-1.5 hover:bg-pink-50">
+              <button onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
                 <Download size={12}/> Blank Template
               </button>
-              <button onClick={downloadSample} className="flex items-center gap-1.5 text-xs text-pink-600 border border-pink-300 rounded-lg px-3 py-1.5 hover:bg-pink-50">
+              <button onClick={downloadSample} className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-300 rounded-lg px-3 py-1.5 hover:bg-teal-50">
                 <Download size={12}/> Sample Data
               </button>
             </div>
@@ -606,7 +606,7 @@ export default function PatronImportFlow() {
 
           <button
             onClick={() => setStep(STEPS.upload)}
-            className="px-5 py-2 bg-pink-600 text-white text-sm font-medium rounded-lg hover:bg-pink-700 flex items-center gap-2"
+            className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2"
           >
             Continue <ChevronRight size={16}/>
           </button>
@@ -638,7 +638,7 @@ export default function PatronImportFlow() {
                   <span className="ml-2 text-gray-400">({rawRows.length} rows, {rawHeaders.length} columns)</span>
                 </p>
                 {selectedMapping && (
-                  <p className="text-xs text-pink-600 mt-0.5">Auto-detected mapping: <strong>{selectedMapping.mapping_name}</strong></p>
+                  <p className="text-xs text-teal-600 mt-0.5">Auto-detected mapping: <strong>{selectedMapping.mapping_name}</strong></p>
                 )}
               </div>
               {savedMappings.length > 0 && (
@@ -712,7 +712,7 @@ export default function PatronImportFlow() {
             <button
               onClick={runValidation}
               disabled={!mappingDraft.period || !mappingDraft.total_active_patrons || !mappingDraft.new_patrons_total}
-              className="px-5 py-2 bg-pink-600 text-white text-sm font-medium rounded-lg hover:bg-pink-700 disabled:opacity-40 flex items-center gap-2"
+              className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-40 flex items-center gap-2"
             >
               Validate <ChevronRight size={16}/>
             </button>
@@ -771,7 +771,7 @@ export default function PatronImportFlow() {
                       <tr key={r.period} className="hover:bg-gray-50">
                         <td className="px-3 py-2 font-medium">{r.period}</td>
                         <td className="px-3 py-2 text-right">{(r.total_active_patrons ?? '—').toLocaleString?.() ?? r.total_active_patrons ?? '—'}</td>
-                        <td className="px-3 py-2 text-right text-pink-700">{(r.new_patrons_total ?? '—').toLocaleString?.() ?? r.new_patrons_total ?? '—'}</td>
+                        <td className="px-3 py-2 text-right text-teal-700">{(r.new_patrons_total ?? '—').toLocaleString?.() ?? r.new_patrons_total ?? '—'}</td>
                         <td className="px-3 py-2 text-right">{r.recurring_giving_total != null ? `$${r.recurring_giving_total.toLocaleString()}` : '—'}</td>
                         <td className="px-3 py-2 text-right">{r.spontaneous_giving_total != null ? `$${r.spontaneous_giving_total.toLocaleString()}` : '—'}</td>
                         <td className="px-3 py-2 text-right">{r.avg_gift_size != null ? `$${r.avg_gift_size.toLocaleString()}` : '—'}</td>
@@ -818,7 +818,7 @@ export default function PatronImportFlow() {
             {!hasHardErrors && validRows.length > 0 ? (
               <button
                 onClick={() => setStep(STEPS.confirm)}
-                className="px-5 py-2 bg-pink-600 text-white text-sm font-medium rounded-lg hover:bg-pink-700 flex items-center gap-2"
+                className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2"
               >
                 Continue to Import <ChevronRight size={16}/>
               </button>
@@ -837,9 +837,9 @@ export default function PatronImportFlow() {
             <ChevronLeft size={12}/> Back
           </button>
 
-          <div className="bg-pink-50 border border-pink-200 rounded-xl p-5 space-y-4">
+          <div className="bg-teal-50 border border-teal-200 rounded-xl p-5 space-y-4">
             <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-              <Users size={16} className="text-pink-600"/> Confirm Import
+              <Users size={16} className="text-teal-600"/> Confirm Import
             </h3>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
               <dt className="text-gray-500">Mode</dt>
@@ -862,7 +862,7 @@ export default function PatronImportFlow() {
 
           <button
             onClick={handleConfirm}
-            className="px-6 py-2.5 bg-pink-600 text-white text-sm font-semibold rounded-lg hover:bg-pink-700 flex items-center gap-2"
+            className="px-6 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 flex items-center gap-2"
           >
             <Check size={16}/> Import Patron Data
           </button>
@@ -872,7 +872,7 @@ export default function PatronImportFlow() {
       {/* ── STEP 5: Importing ────────────────────────────────────────────────── */}
       {step === STEPS.importing && (
         <div className="flex flex-col items-center py-16 gap-4">
-          <Loader2 size={32} className="text-pink-500 animate-spin"/>
+          <Loader2 size={32} className="text-teal-500 animate-spin"/>
           <p className="text-sm text-gray-600">Writing monthly patron data to Supabase…</p>
         </div>
       )}
@@ -888,7 +888,7 @@ export default function PatronImportFlow() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-pink-600">{importResult.inserted ?? 0}</div>
+              <div className="text-2xl font-bold text-teal-600">{importResult.inserted ?? 0}</div>
               <div className="text-xs text-gray-500 mt-1">Monthly rows inserted</div>
             </div>
             {importResult.skipped != null && (
