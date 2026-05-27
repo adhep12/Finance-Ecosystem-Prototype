@@ -4668,27 +4668,50 @@ function docMonthToDate(month, year) {
 }
 
 function DocumentsTab({ orgConfig }) {
-  const pickerRef = useRef(null)
+  const pickerRef    = useRef(null)
   const fileInputRef = useRef(null)
 
-  const [docs, setDocs] = useState([
-    { id:1, displayName:'Statement of Activity – April 2026', fileType:'pdf', type:'Statement of Activity', month:'April', year:2026, size:'245 KB', uploadedAt:'2026-04-22', file_url: null },
-    { id:2, displayName:'Balance Sheet – Q2 FY2026',          fileType:'pdf', type:'Balance Sheet',         month:'March', year:2026, size:'189 KB', uploadedAt:'2026-03-21', file_url: null },
-    { id:3, displayName:'Cash Flow Statement – YTD',          fileType:'xlsx',type:'Cash Flow Statement',   month:'April', year:2026, size:'312 KB', uploadedAt:'2026-04-30', file_url: null },
-  ])
+  // ── Persistent docs from Supabase ──
+  const [docs,      setDocs]      = useState([])
+  const [docsLoading, setDocsLoading] = useState(true)
 
-  // Upload modal state
-  const [showUpload,  setShowUpload]  = useState(false)
-  const [upName,      setUpName]      = useState('')
-  const [upType,      setUpType]      = useState(DOC_TYPES[0])
-  const [upMonth,     setUpMonth]     = useState('April')
-  const [upYear,      setUpYear]      = useState(new Date().getFullYear())
-  const [upFileType,  setUpFileType]  = useState('pdf')
-  const [upFileName,  setUpFileName]  = useState('')
-  const [isDragOver,  setIsDragOver]  = useState(false)
+  useEffect(() => {
+    async function load() {
+      setDocsLoading(true)
+      const { data } = await supabase
+        .from('financial_documents')
+        .select('*')
+        .eq('org_id', ORG_ID)
+        .order('created_at', { ascending: false })
+      setDocs(data || [])
+      setDocsLoading(false)
+    }
+    load()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Upload modal state ──
+  const [showUpload, setShowUpload] = useState(false)
+  const [upFile,     setUpFile]     = useState(null)   // actual File object
+  const [upName,     setUpName]     = useState('')
+  const [upType,     setUpType]     = useState(DOC_TYPES[0])
+  const [upMonth,    setUpMonth]    = useState(MONTH_NAMES[new Date().getMonth()])
+  const [upYear,     setUpYear]     = useState(new Date().getFullYear())
+  const [upFileType, setUpFileType] = useState('pdf')
+  const [upFileName, setUpFileName] = useState('')
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [uploading,  setUploading]  = useState(false)
+  const [upError,    setUpError]    = useState(null)
+
+  function formatFileSize(bytes) {
+    if (!bytes) return 'Unknown'
+    if (bytes < 1024)        return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
 
   function openWithFile(file) {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf'
+    setUpFile(file)
     setUpFileName(file.name)
     if (DOC_FILE_TYPES.includes(ext)) setUpFileType(ext)
     setUpName(file.name.replace(/\.[^.]+$/, ''))
@@ -4702,7 +4725,76 @@ function DocumentsTab({ orgConfig }) {
     if (file) openWithFile(file)
   }
 
-  // Date range filter (local to documents)
+  function resetUploadForm() {
+    setUpFile(null); setUpName(''); setUpType(DOC_TYPES[0])
+    setUpFileName(''); setUpFileType('pdf'); setUpError(null)
+  }
+
+  async function handleUpload() {
+    if (!upName.trim() || uploading) return
+    setUploading(true)
+    setUpError(null)
+
+    let file_url     = null
+    let storage_path = null
+    let file_size    = 'Unknown'
+
+    if (upFile) {
+      const safe = upFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${ORG_ID}/${Date.now()}-${safe}`
+      const { data: uploaded, error: uploadErr } = await supabase.storage
+        .from('financial-documents')
+        .upload(path, upFile, { upsert: false })
+
+      if (uploadErr) {
+        setUpError(`Upload failed: ${uploadErr.message}`)
+        setUploading(false)
+        return
+      }
+      storage_path = uploaded.path
+      const { data: urlData } = supabase.storage
+        .from('financial-documents')
+        .getPublicUrl(storage_path)
+      file_url  = urlData?.publicUrl || null
+      file_size = formatFileSize(upFile.size)
+    }
+
+    const { data: newDoc, error: dbErr } = await supabase
+      .from('financial_documents')
+      .insert([{
+        org_id:       ORG_ID,
+        display_name: upName.trim(),
+        file_type:    upFileType,
+        doc_type:     upType,
+        month:        upMonth,
+        year:         Number(upYear),
+        file_size,
+        uploaded_at:  new Date().toISOString().slice(0, 10),
+        file_url,
+        storage_path,
+      }])
+      .select()
+      .single()
+
+    setUploading(false)
+    if (dbErr) { setUpError(`Save failed: ${dbErr.message}`); return }
+    if (newDoc) setDocs(prev => [newDoc, ...prev])
+    setShowUpload(false)
+    resetUploadForm()
+  }
+
+  async function removeDoc(id) {
+    const doc = docs.find(d => d.id === id)
+    if (!doc) return
+    if (doc.storage_path) {
+      await supabase.storage.from('financial-documents').remove([doc.storage_path])
+    }
+    await supabase.from('financial_documents').delete()
+      .eq('id', id).eq('org_id', ORG_ID)
+    setDocs(prev => prev.filter(d => d.id !== id))
+  }
+
+  // ── Date range filter ──
   const [showPicker,   setShowPicker]   = useState(false)
   const [filterPreset, setFilterPreset] = useState('all')
   const [filterRange,  setFilterRange]  = useState(null)
@@ -4714,9 +4806,8 @@ function DocumentsTab({ orgConfig }) {
   }, [])
 
   function applyDocPreset(preset) {
-    const range = getELTPresetRange(preset, orgConfig)
     setFilterPreset(preset)
-    setFilterRange(range)
+    setFilterRange(getELTPresetRange(preset, orgConfig))
     setShowPicker(false)
   }
   function applyDocCustom(s, e) {
@@ -4730,28 +4821,6 @@ function DocumentsTab({ orgConfig }) {
     return d >= new Date(filterRange.startDate) && d <= new Date(filterRange.endDate)
   })
 
-  function handleUpload() {
-    if (!upName.trim()) return
-    const newDoc = {
-      id: Date.now(),
-      displayName: upName.trim(),
-      fileType: upFileType,
-      type: upType,
-      month: upMonth,
-      year: Number(upYear),
-      size: upFileName ? `${Math.round(Math.random()*400+50)} KB` : 'Unknown',
-      uploadedAt: new Date().toISOString().slice(0,10),
-      file_url: null,
-    }
-    setDocs(prev => [newDoc, ...prev])
-    setShowUpload(false)
-    setUpName(''); setUpType(DOC_TYPES[0]); setUpFileName('')
-  }
-
-  function removeDoc(id) {
-    setDocs(prev => prev.filter(d => d.id !== id))
-  }
-
   const filterLabel = filterPreset === 'all' ? 'All time' : presetLabel(filterPreset)
 
   return (
@@ -4761,7 +4830,9 @@ function DocumentsTab({ orgConfig }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Financial Documents</p>
-          <p className="text-xs text-gray-400">{filteredDocs.length} of {docs.length} documents{filterPreset!=='all'?' in selected period':''}</p>
+          <p className="text-xs text-gray-400">
+            {docsLoading ? 'Loading…' : `${filteredDocs.length} of ${docs.length} document${docs.length!==1?'s':''}${filterPreset!=='all'?' in selected period':''}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Date range filter */}
@@ -4798,10 +4869,14 @@ function DocumentsTab({ orgConfig }) {
       </div>
 
       {/* Document list */}
-      {filteredDocs.length > 0 ? (
+      {docsLoading ? (
+        <div className="bg-white rounded-xl p-10 text-center mb-4" style={{border:'1px solid rgba(0,0,0,0.06)'}}>
+          <p className="text-sm text-gray-400">Loading documents…</p>
+        </div>
+      ) : filteredDocs.length > 0 ? (
         <div className="bg-white rounded-xl overflow-hidden mb-4" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
           {filteredDocs.map((doc, i) => {
-            const ic = docIcon(doc.fileType)
+            const ic = docIcon(doc.file_type)
             return (
               <a key={doc.id}
                 href={doc.file_url || undefined}
@@ -4812,14 +4887,14 @@ function DocumentsTab({ orgConfig }) {
                   <FileText size={15} className={ic.fg}/>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">{doc.displayName}</div>
+                  <div className="text-sm font-medium text-gray-800 truncate">{doc.display_name}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {doc.type} · {doc.month} {doc.year} · {doc.size}
-                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.fileType}</span>
+                    {doc.doc_type} · {doc.month} {doc.year} · {doc.file_size}
+                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.file_type}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploadedAt}</span>
+                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploaded_at}</span>
                   <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeDoc(doc.id) }}
                     className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all">
                     <Trash2 size={13}/>
@@ -4859,17 +4934,17 @@ function DocumentsTab({ orgConfig }) {
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[440px] p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-semibold text-gray-900">Upload Document</h3>
-              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+              <button onClick={() => { setShowUpload(false); resetUploadForm() }} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
             <div className="space-y-4">
-              {/* File picker (cosmetic) */}
+              {/* File picker */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">File</label>
                 <div onClick={() => fileInputRef.current?.click()}
                   className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:border-gray-400 transition-colors">
                   <Upload size={16} className="text-gray-300 flex-shrink-0"/>
-                  <span className="text-sm text-gray-400">{upFileName || 'Click to choose a file…'}</span>
-                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.csv" className="hidden"
+                  <span className="text-sm text-gray-400 truncate">{upFileName || 'Click to choose a file…'}</span>
+                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) openWithFile(f) }}/>
                 </div>
               </div>
@@ -4917,16 +4992,20 @@ function DocumentsTab({ orgConfig }) {
                   ))}
                 </div>
               </div>
+              {/* Error */}
+              {upError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{upError}</div>
+              )}
               {/* Actions */}
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setShowUpload(false)}
-                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+                <button onClick={() => { setShowUpload(false); resetUploadForm() }} disabled={uploading}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50">
                   Cancel
                 </button>
-                <button onClick={handleUpload} disabled={!upName.trim()}
+                <button onClick={handleUpload} disabled={!upName.trim() || uploading}
                   className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
                   style={{backgroundColor:'var(--color-primary)'}}>
-                  Add Document
+                  {uploading ? (upFile ? 'Uploading…' : 'Saving…') : 'Add Document'}
                 </button>
               </div>
             </div>
