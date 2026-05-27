@@ -26,6 +26,7 @@ import {
 import { supabase, ORG_ID } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import LastImportSummary from '../components/LastImportSummary'
+import PeriodMultiPicker from '../components/PeriodMultiPicker'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -440,8 +441,8 @@ export default function TransactionImportFlow() {
   // 'mode' | 'upload' | 'mapping' | 'preprocess' | 'validate' | 'confirm' | 'importing' | 'done' | 'error'
 
   // Step: mode
-  const [mode,          setMode]          = useState('replace_period')
-  const [replacePeriod, setReplacePeriod] = useState('') // YYYY-MM
+  const [mode,           setMode]           = useState('replace_period')
+  const [replacePeriods, setReplacePeriods] = useState([]) // YYYY-MM[]
 
   // Step: upload + mapping
   const [rawFile,    setRawFile]    = useState(null)
@@ -668,12 +669,12 @@ export default function TransactionImportFlow() {
           .update({ deleted: true, updated_at: new Date().toISOString() })
           .eq('org_id', ORG_ID)
           .eq('deleted', false)
-      } else if (mode === 'replace_period' && replacePeriod) {
+      } else if (mode === 'replace_period' && replacePeriods.length > 0) {
         await supabase
           .from('transactions')
           .update({ deleted: true, updated_at: new Date().toISOString() })
           .eq('org_id', ORG_ID)
-          .eq('fiscal_period', replacePeriod)
+          .in('fiscal_period', replacePeriods)
           .eq('deleted', false)
       }
 
@@ -837,7 +838,7 @@ export default function TransactionImportFlow() {
     setAcctResolutions({}); setDeptResolutions({})
     setDupeResolution('skip'); setNewAccountForms({}); setNewDeptForms({})
     setImportResult(null); setImportError(null)
-    setReplacePeriod('')
+    setReplacePeriods([])
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -913,13 +914,12 @@ export default function TransactionImportFlow() {
           </div>
 
           {mode === 'replace_period' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Period to replace <span className="text-red-400">*</span>
+            <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Period(s) to replace <span className="text-red-400">*</span>
               </label>
-              <input type="month" value={replacePeriod} onChange={e => setReplacePeriod(e.target.value)}
-                className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-              <p className="text-xs text-gray-400 mt-1">All existing transactions in this calendar month will be soft-deleted and replaced.</p>
+              <p className="text-xs text-gray-400">Select one or more months. All existing transactions in those months will be soft-deleted and replaced.</p>
+              <PeriodMultiPicker value={replacePeriods} onChange={setReplacePeriods}/>
             </div>
           )}
 
@@ -947,7 +947,7 @@ export default function TransactionImportFlow() {
 
           <button
             onClick={() => setStep('upload')}
-            disabled={mode === 'replace_period' && !replacePeriod}
+            disabled={mode === 'replace_period' && replacePeriods.length === 0}
             className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-40 transition-colors">
             Next: Upload File <ArrowRight size={14}/>
           </button>
@@ -965,7 +965,7 @@ export default function TransactionImportFlow() {
 
           <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-600">
             <p className="font-medium">Mode: <span className="text-teal-700">{MODES.find(m=>m.id===mode)?.label}</span>
-              {mode === 'replace_period' && <span className="ml-2 text-gray-500">({replacePeriod})</span>}
+              {mode === 'replace_period' && replacePeriods.length > 0 && <span className="ml-2 text-gray-500">({replacePeriods.join(', ')})</span>}
             </p>
             <p className="text-xs text-gray-400 mt-1">
               {savedMappings.length} saved mapping{savedMappings.length !== 1 ? 's' : ''} available for auto-detection

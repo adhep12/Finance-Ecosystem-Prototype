@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { supabase, ORG_ID, dbInsert } from '../lib/supabase'
 import LastImportSummary from '../components/LastImportSummary'
+import PeriodMultiPicker from '../components/PeriodMultiPicker'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -251,6 +252,7 @@ export default function PatronImportFlow() {
   const STEPS = { mode:0, upload:1, mapping:2, validate:3, confirm:4, importing:5, done:6, error:7 }
   const [step, setStep]             = useState(STEPS.mode)
   const [importMode, setImportMode] = useState('append')
+  const [replacePeriods, setReplacePeriods] = useState([])
 
   // ── File / raw data ─────────────────────────────────────────────────────────
   const [fileName, setFileName]     = useState('')
@@ -416,10 +418,11 @@ export default function PatronImportFlow() {
           .eq('org_id', ORG_ID)
         if (error) throw error
       } else if (importMode === 'replace_period') {
+        const periodsToDelete = replacePeriods.length > 0 ? replacePeriods : periodsInFile
         const { error } = await supabase.from('patron_data')
           .delete()
           .eq('org_id', ORG_ID)
-          .in('period', periodsInFile)
+          .in('period', periodsToDelete)
         if (error) throw error
       } else if (importMode === 'append') {
         // Skip periods that already exist
@@ -532,6 +535,7 @@ export default function PatronImportFlow() {
   function reset() {
     setStep(STEPS.mode)
     setImportMode('append')
+    setReplacePeriods([])
     setFileName('')
     setRawHeaders([])
     setRawRows([])
@@ -587,6 +591,14 @@ export default function PatronImportFlow() {
               </button>
             ))}
           </div>
+          {importMode === 'replace_period' && (
+            <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Period(s) to replace <span className="text-red-400">*</span></label>
+              <p className="text-xs text-gray-400">Select one or more months. Existing patron rows for those months will be deleted before inserting from the file.</p>
+              <PeriodMultiPicker value={replacePeriods} onChange={setReplacePeriods}/>
+            </div>
+          )}
+
           <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Download Template</p>
             <p className="text-xs text-gray-500 mb-3">
@@ -606,7 +618,8 @@ export default function PatronImportFlow() {
 
           <button
             onClick={() => setStep(STEPS.upload)}
-            className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 flex items-center gap-2"
+            disabled={importMode === 'replace_period' && replacePeriods.length === 0}
+            className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-40 flex items-center gap-2"
           >
             Continue <ChevronRight size={16}/>
           </button>

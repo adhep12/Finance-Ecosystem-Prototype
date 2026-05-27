@@ -24,6 +24,7 @@ import {
 import { supabase, ORG_ID } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import LastImportSummary from '../components/LastImportSummary'
+import PeriodMultiPicker from '../components/PeriodMultiPicker'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -394,8 +395,8 @@ export default function BudgetImportFlow() {
 
   // Mode step
   const [mode,           setMode]           = useState('replace_scenario')
-  const [replacePeriod,  setReplacePeriod]  = useState('')
-  const [replaceScenario,setReplaceScenario]= useState('')
+  const [replacePeriods,  setReplacePeriods]  = useState([])
+  const [replaceScenario, setReplaceScenario] = useState('')
 
   // Upload + mapping step
   const [rawFile,       setRawFile]       = useState(null)
@@ -553,10 +554,10 @@ export default function BudgetImportFlow() {
         await supabase.from('budgets')
           .update({ deleted: true, updated_at: new Date().toISOString() })
           .eq('org_id', ORG_ID).eq('deleted', false)
-      } else if (mode === 'replace_period' && replacePeriod) {
+      } else if (mode === 'replace_period' && replacePeriods.length > 0) {
         await supabase.from('budgets')
           .update({ deleted: true, updated_at: new Date().toISOString() })
-          .eq('org_id', ORG_ID).eq('period', replacePeriod).eq('deleted', false)
+          .eq('org_id', ORG_ID).in('period', replacePeriods).eq('deleted', false)
       } else if (mode === 'replace_scenario' && replaceScenario) {
         await supabase.from('budgets')
           .update({ deleted: true, updated_at: new Date().toISOString() })
@@ -689,7 +690,7 @@ export default function BudgetImportFlow() {
     setValidation(null); setAcctRes({}); setDeptRes({})
     setNewAcctForms({}); setNewDeptForms({})
     setImportResult(null); setImportError(null)
-    setReplacePeriod(''); setReplaceScenario('')
+    setReplacePeriods([]); setReplaceScenario('')
   }
 
   function downloadErrorReport(errorRows) {
@@ -759,11 +760,10 @@ export default function BudgetImportFlow() {
           </div>
 
           {mode === 'replace_period' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Period to replace <span className="text-red-400">*</span></label>
-              <input type="month" value={replacePeriod} onChange={e => setReplacePeriod(e.target.value)}
-                className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-              <p className="text-xs text-gray-400 mt-1">All budget rows in this calendar month will be soft-deleted.</p>
+            <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Period(s) to replace <span className="text-red-400">*</span></label>
+              <p className="text-xs text-gray-400">Select one or more months. All budget rows in those months will be soft-deleted before import.</p>
+              <PeriodMultiPicker value={replacePeriods} onChange={setReplacePeriods}/>
             </div>
           )}
           {mode === 'replace_scenario' && (
@@ -806,7 +806,7 @@ export default function BudgetImportFlow() {
 
           <button
             onClick={() => setStep('upload')}
-            disabled={(mode === 'replace_period' && !replacePeriod) || (mode === 'replace_scenario' && !replaceScenario)}
+            disabled={(mode === 'replace_period' && replacePeriods.length === 0) || (mode === 'replace_scenario' && !replaceScenario)}
             className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-40 transition-colors">
             Next: Upload File <ArrowRight size={14}/>
           </button>
