@@ -1920,6 +1920,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
+  const [showPLPanel,  setShowPLPanel]  = useState(true)
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
 
@@ -2369,8 +2370,18 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
             </table>
           </div>
 
-          {/* Summary panel */}
-          <div className="w-64 border-l border-gray-100 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
+          {/* Summary panel toggle + panel */}
+          <button
+            onClick={() => setShowPLPanel(v => !v)}
+            className="flex-shrink-0 border-l border-gray-100 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
+            title={showPLPanel ? 'Hide summary panel' : 'Show summary panel'}
+          >
+            {showPLPanel
+              ? <ChevronRight size={14} className="text-gray-400"/>
+              : <ChevronLeft  size={14} className="text-gray-400"/>}
+          </button>
+          {showPLPanel && (
+          <div className="w-64 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
             <div className="p-4 space-y-4">
               {/* Totals */}
               <div className="space-y-2">
@@ -2478,6 +2489,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               )}
             </div>
           </div>
+          )}
         </div>
       )}
 
