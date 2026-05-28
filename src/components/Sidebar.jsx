@@ -64,14 +64,11 @@ function setSidebarCSSVar(expanded, narrow = false) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
-  // Read initial expanded state synchronously — prevents margin-left flash
+  // Always start expanded — ignore any persisted collapse state
   const [expanded, setExpanded] = useState(() => {
-    const saved = localStorage.getItem('sidebar_state')
-    const isExpanded = saved !== 'collapsed'
-    // Set CSS var immediately so content wrapper already has the right margin
     const narrow = typeof window !== 'undefined' && window.innerWidth < 1024
-    setSidebarCSSVar(isExpanded, narrow)
-    return isExpanded
+    setSidebarCSSVar(true, narrow)
+    return true
   })
 
   const [teamsOpen, setTeamsOpen] = useState(() => readLS('teams_nav_expanded', false))
