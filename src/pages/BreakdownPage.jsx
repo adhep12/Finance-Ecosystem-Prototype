@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
-  ChevronRight, Ban, Plus, X, Search, GripVertical,
+  ChevronRight, ChevronLeft, Ban, Plus, X, Search, GripVertical,
   RotateCcw, MessageSquare, Calendar, Tag, Building2,
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
@@ -642,6 +642,7 @@ export default function BreakdownPage() {
 
   // ── Transient state ───────────────────────────────────────────────────────
   const [viewMode,      setViewMode]      = useState('summary')  // 'summary' | 'calendar'
+  const [showKPIPanel,  setShowKPIPanel]  = useState(true)
   const [activeDepts,   setActiveDepts]   = useState(null)  // null = all active
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
@@ -877,23 +878,37 @@ export default function BreakdownPage() {
 
       {/* ── Right panel: KPI — summary mode only ─────────────────────────── */}
       {viewMode === 'summary' && (
-        <div
-          className="w-72 flex-shrink-0 border-l border-gray-200 overflow-y-auto p-4"
-          style={{ backgroundColor: 'var(--color-primary-bg)' }}
-        >
-          <KPIPanel
-            actual={totalActual}
-            budget={totalBudget}
-            transactions={unhidden.length}
-            selectedScenario={selectedScenario}
-            actuals={unhidden}
-            budgetByCat={budgetByCat}
-          />
+        <div className="flex flex-shrink-0">
+          {/* Toggle strip */}
+          <button
+            onClick={() => setShowKPIPanel(v => !v)}
+            className="flex-shrink-0 border-l border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
+            title={showKPIPanel ? 'Hide KPI panel' : 'Show KPI panel'}
+          >
+            {showKPIPanel
+              ? <ChevronRight size={14} className="text-gray-400"/>
+              : <ChevronLeft  size={14} className="text-gray-400"/>}
+          </button>
+          {showKPIPanel && (
+            <div
+              className="w-72 flex-shrink-0 overflow-y-auto p-4"
+              style={{ backgroundColor: 'var(--color-primary-bg)' }}
+            >
+              <KPIPanel
+                actual={totalActual}
+                budget={totalBudget}
+                transactions={unhidden.length}
+                selectedScenario={selectedScenario}
+                actuals={unhidden}
+                budgetByCat={budgetByCat}
+              />
+            </div>
+          )}
         </div>
       )}
 
       {/* Comment pin FAB */}
-      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName={viewMode === 'summary' ? 'right-[296px]' : 'right-4'} />
+      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName={viewMode === 'summary' && showKPIPanel ? 'right-[304px]' : 'right-4'} />
 
       {/* Transaction modal */}
       {selectedTx && (

@@ -3586,37 +3586,37 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         })()}
 
         {/* Driver cards grid (excluding net-position) */}
-        <div className="flex gap-4 flex-wrap">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
           {kpiCards.map(id => {
             const card = renderKPICard(id)
             if (!card) return null
             return (
-              <div key={id} className="flex flex-col flex-1 min-w-[180px]">
+              <div key={id} className="flex flex-col">
                 {card}
                 <ContextNote noteId={`exec-kpi-${id}`} editMode={editKPI}/>
               </div>
             )
           })}
-          {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
+          {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
         </div>
       </section>
 
       {/* Supporter Metrics — KPI cards */}
       <section>
         <SectionHeader title="Supporter Metrics" editMode={editPatronMetrics} onToggleEdit={()=>setEditPatronMetrics(v=>!v)} onAdd={()=>setShowAddPatronMetric(true)}/>
-        <div className="flex gap-4 flex-wrap">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
           {patronMetricCards.map(id => {
             const card = renderPatronMetricCard(id)
             if (!card) return null
             return (
-              <div key={id} className="flex flex-col flex-1 min-w-[220px]">
+              <div key={id} className="flex flex-col">
                 {card}
                 <ContextNote noteId={`exec-patron-${id}`} editMode={editPatronMetrics}/>
               </div>
             )
           })}
           {editPatronMetrics&&(
-            <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500">
+            <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 text-gray-300 hover:text-gray-500">
               <Plus size={20}/><span className="text-xs font-medium">Add metric</span>
             </button>
           )}
@@ -3626,7 +3626,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       {/* Trend Charts — editable preset charts */}
       <section>
         <SectionHeader title="Trend Charts" editMode={editCharts} onToggleEdit={()=>setEditCharts(v=>!v)} onAdd={()=>setShowAddChart(true)}/>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
           {trendCharts.map(tc => {
             const removeChart  = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
             if (tc.id === 'new-patrons-yoy') return (
@@ -4021,7 +4021,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
         <div className="flex-1 overflow-hidden flex flex-col">
 
           {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3 px-6 pt-5 pb-4 flex-shrink-0">
+          <div className="grid grid-cols-2 min-[1100px]:grid-cols-3 gap-3 px-6 pt-5 pb-4 flex-shrink-0">
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actual</div>
               <div className="text-lg font-bold text-gray-900">{formatCurrency(scaledTeam.actual)}</div>
@@ -4537,7 +4537,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       </div>
 
       {/* 4 KPI summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
         {[
           { label:`Total Actuals · ${rangeLabel}`, value: formatCurrency(totalActual), sub: null, positive: true },
           { label:`Total Budget · ${rangeLabel}`,  value: formatCurrency(totalBudget), sub: null, positive: true },

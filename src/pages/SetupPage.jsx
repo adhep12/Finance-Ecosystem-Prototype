@@ -505,7 +505,7 @@ function RegistryTable({
       )}
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -786,7 +786,7 @@ function DepartmentsTable({ teamOptions, teams, addFields, exportColumns, csvImp
 
       {showAdd && <AddRowForm fields={addFields} onAdd={handleAdd} onCancel={() => setShowAdd(false)} loading={addLoading}/>}
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -998,7 +998,7 @@ function AccountsRegistry() {
 
       {showAdd && <AddRowForm fields={addFields} onAdd={handleAdd} onCancel={() => setShowAdd(false)} loading={addLoading}/>}
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -1517,7 +1517,7 @@ function MappingEditor({ existing, onSave, onCancel }) {
                 </div>
               )}
 
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
@@ -1627,7 +1627,7 @@ function MappingEditor({ existing, onSave, onCancel }) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
                 <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Column Mappings ({Object.values(mapping).filter(v => v && v !== '__skip__').length} active)
                 </div>

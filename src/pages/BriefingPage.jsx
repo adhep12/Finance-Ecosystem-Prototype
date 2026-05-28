@@ -521,7 +521,7 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-5 gap-4 mb-6 py-3 border-y border-gray-100">
+      <div className="grid grid-cols-2 min-[768px]:grid-cols-3 min-[1100px]:grid-cols-5 gap-4 mb-6 py-3 border-y border-gray-100">
         {[
           { label: 'Period Spend',     value: formatCurrency(periodSpend) },
           { label: 'Planned Spend',    value: formatCurrency(periodBudget) },

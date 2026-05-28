@@ -976,7 +976,7 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
         </div>
       </div>
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-3 mb-4 pb-4 border-b border-gray-100">
+      <div className="grid grid-cols-2 min-[768px]:grid-cols-3 min-[1100px]:grid-cols-5 gap-3 mb-4 pb-4 border-b border-gray-100">
         {[
           {label:'Period Spend', val:fmtCompact(totalActual), cls:'text-gray-900'},
           {label:'Planned Spend', val:fmtCompact(totalBudget), cls:'text-gray-900'},
@@ -1446,19 +1446,19 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
         {/* Tier 2 — Drivers */}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Drivers</div>
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 gap-4 mb-4">
           {tier2Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
         {/* Tier 3 — Supporting Context */}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Supporting Context</div>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
           {tier3Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
         {/* Added preset cards for financial_health */}
         {addedForSection('financial_health').length > 0 && (
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
             {addedForSection('financial_health').map(c => (
               <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
                 editMode={editMode}
@@ -1472,13 +1472,13 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       {/* ══ SUPPORTER HEALTH ════════════════════════════════════════════════ */}
       <section>
         <SectionHeader label="Supporter Health" section="supporter_health"/>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
           {supporterIds.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
         {/* Added preset cards for supporter_health */}
         {addedForSection('supporter_health').length > 0 && (
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
             {addedForSection('supporter_health').map(c => (
               <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
                 editMode={editMode}
@@ -1498,7 +1498,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
           <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
             <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
               <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
             </div>
@@ -1510,7 +1510,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
         {/* Added preset cards for charts */}
         {addedForSection('charts').length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4 mb-4">
             {addedForSection('charts').map(c => (
               <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
                 editMode={editMode}
@@ -1524,7 +1524,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       {/* ══ WATCH AREAS ═════════════════════════════════════════════════════ */}
       <section>
         <SectionHeader label="Watch Areas" section={null}/>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-2xl">
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4 max-w-2xl">
           <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={false} onRemove={()=>{}}/>
           <PatronWatchAreaPanel patronData={patronData} dateRange={dateRange}/>
         </div>
@@ -1920,6 +1920,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
+  const [showPLPanel,  setShowPLPanel]  = useState(true)
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
 
@@ -2284,7 +2285,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         <div className="flex-1 flex overflow-hidden">
 
           {/* Main P&L table */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-auto min-w-0">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-white border-b border-gray-200">
@@ -2369,8 +2370,18 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
             </table>
           </div>
 
-          {/* Summary panel */}
-          <div className="w-64 border-l border-gray-100 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
+          {/* Summary panel toggle + panel */}
+          <button
+            onClick={() => setShowPLPanel(v => !v)}
+            className="flex-shrink-0 border-l border-gray-100 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
+            title={showPLPanel ? 'Hide summary panel' : 'Show summary panel'}
+          >
+            {showPLPanel
+              ? <ChevronRight size={14} className="text-gray-400"/>
+              : <ChevronLeft  size={14} className="text-gray-400"/>}
+          </button>
+          {showPLPanel && (
+          <div className="w-64 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
             <div className="p-4 space-y-4">
               {/* Totals */}
               <div className="space-y-2">
@@ -2478,6 +2489,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               )}
             </div>
           </div>
+          )}
         </div>
       )}
 
@@ -2627,7 +2639,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
         <div className="ml-auto text-xs text-gray-400">{filtered.length} of {deptRows.length} transactions</div>
       </div>
       {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto min-w-0">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
             <tr>
@@ -2925,6 +2937,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 
         {/* ── Main table ───────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
@@ -2981,6 +2994,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* ── Team Spend chart (moved from Overview) ───────────────────── */}
