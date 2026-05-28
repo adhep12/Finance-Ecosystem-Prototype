@@ -64,11 +64,11 @@ function setSidebarCSSVar(expanded, narrow = false) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
-  // Always start expanded — ignore any persisted collapse state
+  // Start expanded when viewport >= 1100px; collapsed below that
   const [expanded, setExpanded] = useState(() => {
-    const narrow = typeof window !== 'undefined' && window.innerWidth < 1024
-    setSidebarCSSVar(true, narrow)
-    return true
+    const shouldExpand = typeof window === 'undefined' || window.innerWidth >= 1100
+    setSidebarCSSVar(shouldExpand, !shouldExpand)
+    return shouldExpand
   })
 
   const [teamsOpen, setTeamsOpen] = useState(() => readLS('teams_nav_expanded', false))
@@ -104,21 +104,23 @@ export default function Sidebar() {
     if (activeTeamId) writeLS('last_team_id', activeTeamId)
   }, [activeTeamId])
 
-  // ── Responsive: sync CSS variable on window resize ───────────────────────
+  // ── Responsive: auto-collapse below 1100px, auto-expand above 1100px ──────
   useEffect(() => {
     function onResize() {
-      setSidebarCSSVar(expanded, window.innerWidth < 1024)
+      const shouldExpand = window.innerWidth >= 1100
+      setExpanded(shouldExpand)
+      setSidebarCSSVar(shouldExpand, !shouldExpand)
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [expanded])
+  }, [])
 
   // ── Toggle sidebar ────────────────────────────────────────────────────────
   function toggle() {
     const next = !expanded
     setExpanded(next)
     localStorage.setItem('sidebar_state', next ? 'expanded' : 'collapsed')
-    setSidebarCSSVar(next, window.innerWidth < 1024)
+    setSidebarCSSVar(next, window.innerWidth < 1100)
   }
 
   // ── Tooltip helpers (collapsed mode) ─────────────────────────────────────
