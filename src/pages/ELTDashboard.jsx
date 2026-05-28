@@ -28,15 +28,18 @@ import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcess
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROLLING_QUOTES = [
-  { text: "Revenue is vanity, profit is sanity, cash is king.", author: "Traditional" },
-  { text: "Not everything that counts can be counted, and not everything that can be counted counts.", author: "William Bruce Cameron" },
-  { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
-  { text: "In God we trust. All others must bring data.", author: "W. Edwards Deming" },
-  { text: "Plans are nothing. Planning is everything.", author: "Dwight D. Eisenhower" },
-  { text: "Without data, you're just another person with an opinion.", author: "W. Edwards Deming" },
-  { text: "Give me six hours to chop down a tree and I will spend the first four sharpening the axe.", author: "Abraham Lincoln" },
-  { text: "Budgets are not merely affairs of arithmetic, but in a thousand ways go to the root of prosperity.", author: "William Gladstone" },
-  { text: "The goal is not to be perfect at the end. The goal is to be better today.", author: "Simon Sinek" },
+  { text: "For which of you, desiring to build a tower, does not first sit down and count the cost, whether he has enough to complete it?", author: "Luke 14:28" },
+  { text: "Dishonest money dwindles away, but whoever gathers money little by little makes it grow.", author: "Proverbs 13:11" },
+  { text: "The plans of the diligent lead to profit as surely as haste leads to poverty.", author: "Proverbs 21:5" },
+  { text: "Commit to the Lord whatever you do, and he will establish your plans.", author: "Proverbs 16:3" },
+  { text: "A good man leaves an inheritance to his children's children, but the sinner's wealth is laid up for the righteous.", author: "Proverbs 13:22" },
+  { text: "Honor the Lord with your wealth and with the firstfruits of all your produce.", author: "Proverbs 3:9" },
+  { text: "For where your treasure is, there your heart will be also.", author: "Matthew 6:21" },
+  { text: "Suppose one of you wants to build a tower. Won't you first sit down and estimate the cost to see if you have enough money to complete it?", author: "Luke 14:28" },
+  { text: "Be sure you know the condition of your flocks, give careful attention to your herds.", author: "Proverbs 27:23" },
+  { text: "The heart of the discerning acquires knowledge, for the ears of the wise seek it out.", author: "Proverbs 18:15" },
+  { text: "Many are the plans in a person's heart, but it is the Lord's purpose that prevails.", author: "Proverbs 19:21" },
+  { text: "Do not store up for yourselves treasures on earth… but store up for yourselves treasures in heaven.", author: "Matthew 6:19–20" },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
