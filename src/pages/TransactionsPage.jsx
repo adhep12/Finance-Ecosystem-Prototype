@@ -3,13 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowUp, ArrowDown, ArrowUpDown, FileDown, XCircle, Search,
   MessageSquare, X, ChevronDown, Check, SlidersHorizontal,
-  Pencil, Trash2, Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeam } from '../context/TeamContext'
 import { UnresolvedChip } from '../components/UnresolvedWarning'
-import DataEditModal from '../components/DataEditModal'
-import AuditLogPanel from '../components/AuditLogPanel'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -367,14 +364,7 @@ function TxCommentModal({ transaction: t, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
-  const {
-    comments, dateRange, deptNames,
-    cashFlowData, patronData,
-    addTransaction, updateTransaction, deleteTransaction,
-    addBudgetRow, updateBudgetRow, deleteBudgetRow,
-    addPatronRow, updatePatronRow, deletePatronRow,
-    addCashFlowRow, updateCashFlowRow, deleteCashFlowRow,
-  } = useApp()
+  const { comments, dateRange, deptNames } = useApp()
   const { teamActuals: actuals, teamBudget } = useTeam()
 
   // ── Date range — default to global fiscal year range from AppContext ──
@@ -383,11 +373,8 @@ export default function TransactionsPage() {
   const [startDate, setStartDate] = useState(dateRange?.startDate || yearStart)
   const [endDate,   setEndDate]   = useState(dateRange?.endDate   || today)
 
-  // ── View mode: actuals | budget | patron | cashflow | audit ──
+  // ── View mode: actuals | budget ──
   const [viewMode, setViewMode] = useState('actuals')
-
-  // ── Edit modal state ──
-  const [editModal, setEditModal] = useState(null) // { mode, row } or null
 
   // ── Actuals filters ──
   const [search,          setSearch]          = useState('')
@@ -637,19 +624,15 @@ export default function TransactionsPage() {
           <div className="text-xs font-bold uppercase tracking-widest text-teal-600 mb-1">Raw Data</div>
           <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {viewMode === 'budget'   ? 'Budget line items. Click the pencil icon to edit, or Add to create new.' :
-             viewMode === 'patron'   ? 'Monthly patron / supporter metrics. Edit any row or add a new period.' :
-             viewMode === 'cashflow' ? 'Monthly cash balance snapshots. Edit any row or add a new period.' :
-             viewMode === 'audit'    ? 'All field-level changes recorded by this system. Click Undo to revert.' :
-             'All actuals for this team. Click the pencil icon to edit, or the comment bubble to leave a note.'}
+            {viewMode === 'budget'
+              ? 'Budget line items for this team. Switch to Actuals to see transactions.'
+              : 'All actuals for this team. Click any row to leave a comment.'}
           </p>
         </div>
-        {(viewMode === 'actuals' || viewMode === 'budget') && (
-          <button onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-sm">
-            <FileDown size={14}/> Export{viewMode === 'actuals' && activeFilterCount() > 0 ? ' filtered' : ' all'}
-          </button>
-        )}
+        <button onClick={handleExport}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors shadow-sm">
+          <FileDown size={14}/> Export{viewMode === 'actuals' && activeFilterCount() > 0 ? ' filtered' : viewMode === 'budget' ? ' budget' : ' all'}
+        </button>
       </div>
 
       <div className="bg-white rounded-2xl overflow-hidden shadow-sm mx-6 mb-6 flex flex-col">
@@ -679,7 +662,7 @@ export default function TransactionsPage() {
                 ))}
               </div>
             </>
-          ) : viewMode === 'budget' ? (
+          ) : (
             /* Budget period range (month inputs) */
             <>
               <span className="text-xs text-gray-500 font-medium">Period:</span>
@@ -689,27 +672,18 @@ export default function TransactionsPage() {
               <input type="month" value={budgetEndPeriod} onChange={e => { setBudgetEndPeriod(e.target.value); setBudgetPage(1) }}
                 className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
             </>
-          ) : null}
+          )}
 
-          {/* View mode tabs — right side of toolbar row 1 */}
-          <div className="ml-auto flex items-center gap-1 flex-shrink-0">
-            <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5">
-              {[['actuals','Actuals'],['budget','Budget'],['patron','Patron'],['cashflow','Cash Flow'],['audit','Audit Log']].map(([id, lbl]) => (
-                <button key={id} onClick={() => setViewMode(id)}
-                  className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                    viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
-            {viewMode !== 'audit' && (
-              <button
-                onClick={() => setEditModal({ mode: viewMode, row: null })}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 transition-colors shadow-sm whitespace-nowrap">
-                <Plus size={11}/> Add
+          {/* Actuals / Budget view toggle — right side of toolbar row 1 */}
+          <div className="ml-auto flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
+            {[['actuals','Actuals'],['budget','Budget']].map(([id, lbl]) => (
+              <button key={id} onClick={() => setViewMode(id)}
+                className={`px-3 py-0.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                  viewMode === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {lbl}
               </button>
-            )}
+            ))}
           </div>
         </div>
 
@@ -803,17 +777,11 @@ export default function TransactionsPage() {
               )}
               <span className="font-semibold text-gray-700">{fmtAmtCompact(filteredTotal)}</span>
             </>
-          ) : viewMode === 'budget' ? (
+          ) : (
             <>
               <span className="font-medium text-gray-600">{filteredBudget.length.toLocaleString()} budget line{filteredBudget.length !== 1 ? 's' : ''}</span>
               <span className="font-semibold text-gray-700">{fmtAmtCompact(filteredBudgetTotal)} total budgeted</span>
             </>
-          ) : viewMode === 'patron' ? (
-            <span className="font-medium text-gray-600">{patronData.length} period{patronData.length !== 1 ? 's' : ''} of patron data</span>
-          ) : viewMode === 'cashflow' ? (
-            <span className="font-medium text-gray-600">{cashFlowData.length} period{cashFlowData.length !== 1 ? 's' : ''} of cash flow data</span>
-          ) : (
-            <span className="font-medium text-gray-600">Field-level change history — click Undo to revert any change</span>
           )}
         </div>
 
@@ -829,7 +797,7 @@ export default function TransactionsPage() {
                   <SH col="acct"   {...shProps}>Account</SH>
                   <SH col="vendor" {...shProps}>Vendor</SH>
                   <SH col="amount" right {...shProps}>Amount</SH>
-                  <th className="px-2 py-2.5 w-20 bg-gray-900"/>
+                  <th className="px-2 py-2.5 w-10 bg-gray-900"/>
                 </tr>
               </thead>
               <tbody>
@@ -881,29 +849,19 @@ export default function TransactionsPage() {
                       <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
                         {fmtAmt(row.amount)}
                       </td>
-                      <td className="px-2 py-2 w-20 text-center" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1">
-                          {hasComments ? (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white cursor-pointer"
-                              style={{ backgroundColor: commentColor }}
-                              onClick={() => setSelectedTx(row)}
-                              title={`${rowComments.length} comment${rowComments.length !== 1 ? 's' : ''}`}>
-                              <MessageSquare size={9}/>
-                              {rowComments.length}
-                            </span>
-                          ) : (
-                            <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-teal-100 text-teal-400 cursor-pointer"
-                              onClick={() => setSelectedTx(row)}>
-                              <MessageSquare size={12}/>
-                            </span>
-                          )}
-                          <button
-                            className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-blue-100 text-blue-400"
-                            title="Edit transaction"
-                            onClick={() => setEditModal({ mode: 'actuals', row })}>
-                            <Pencil size={11}/>
-                          </button>
-                        </div>
+                      <td className="px-2 py-2 w-10 text-center">
+                        {hasComments ? (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                            style={{ backgroundColor: commentColor }}
+                            title={`${rowComments.length} comment${rowComments.length !== 1 ? 's' : ''}`}>
+                            <MessageSquare size={9}/>
+                            {rowComments.length}
+                          </span>
+                        ) : (
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-teal-100 text-teal-400">
+                            <MessageSquare size={12}/>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -952,19 +910,18 @@ export default function TransactionsPage() {
                       </span>
                     </th>
                   ))}
-                  <th className="px-2 py-2.5 w-10 bg-gray-900"/>
                 </tr>
               </thead>
               <tbody>
                 {budgetPageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-gray-400 text-sm">
+                    <td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">
                       No budget lines match your filters.
                     </td>
                   </tr>
                 ) : budgetPageRows.map((row, i) => (
                   <tr key={i}
-                    className={`border-b border-gray-50 transition-colors group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                     <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
                     <td className="px-3 py-2 text-gray-700">{row.dept_name || row.department || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">{row.category || '—'}</td>
@@ -973,17 +930,10 @@ export default function TransactionsPage() {
                         {row.scenario || '—'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
+                    <td className="px-3 py-2 text-right font-mono font-semibold text-gray-800 whitespace-nowrap tabular-nums">
                       {fmtAmt(row.amount || 0)}
                     </td>
                     <td className="px-3 py-2 text-gray-500">{row.period_type || '—'}</td>
-                    <td className="px-2 py-2 text-center">
-                      <button
-                        className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-blue-100 text-blue-400"
-                        onClick={() => setEditModal({ mode: 'budget', row })}>
-                        <Pencil size={11}/>
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -993,10 +943,10 @@ export default function TransactionsPage() {
                     <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                       Total ({filteredBudget.length} lines)
                     </td>
-                    <td className="px-3 py-2 font-mono font-bold text-gray-900 tabular-nums">
+                    <td className="px-3 py-2 text-right font-mono font-bold text-gray-900 tabular-nums">
                       {fmtAmt(filteredBudgetTotal)}
                     </td>
-                    <td/><td/>
+                    <td/>
                   </tr>
                 </tfoot>
               )}
@@ -1061,120 +1011,12 @@ export default function TransactionsPage() {
             </div>
           </div>
         )}
-        {/* ── Table (Patron Data) ── */}
-        {viewMode === 'patron' && (
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
-              <thead>
-                <tr className="bg-gray-900 text-white select-none">
-                  {['Period','Active Patrons','New Total','New Recurring','New Spon.','Recurring #','Recurring $','Spon. $','Avg Gift','Retention',''].map((h, i) => (
-                    <th key={i} className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {patronData.length === 0 ? (
-                  <tr><td colSpan={11} className="px-5 py-12 text-center text-gray-400 text-sm">No patron data yet. Click Add to create a record.</td></tr>
-                ) : [...patronData].sort((a, b) => b.period.localeCompare(a.period)).map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-50 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                    <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
-                    <td className="px-3 py-2 text-gray-800 tabular-nums">{row.total_active_patrons ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 tabular-nums">{row.new_patrons_total ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 tabular-nums">{row.new_patrons_recurring ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 tabular-nums">{row.new_patrons_spontaneous ?? '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 tabular-nums">{row.recurring_patron_count ?? '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-700 tabular-nums">{row.recurring_giving_total != null ? fmtAmt(row.recurring_giving_total) : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-700 tabular-nums">{row.spontaneous_giving_total != null ? fmtAmt(row.spontaneous_giving_total) : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-700 tabular-nums">{row.avg_gift_size != null ? fmtAmt(row.avg_gift_size) : '—'}</td>
-                    <td className="px-3 py-2 text-gray-700 tabular-nums">{row.retention_rate != null ? `${(row.retention_rate * 100).toFixed(1)}%` : '—'}</td>
-                    <td className="px-2 py-2 text-center">
-                      <button className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-blue-100 text-blue-400"
-                        onClick={() => setEditModal({ mode: 'patron', row })}>
-                        <Pencil size={11}/>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── Table (Cash Flow) ── */}
-        {viewMode === 'cashflow' && (
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-xs border-collapse" style={{ minWidth: 540 }}>
-              <thead>
-                <tr className="bg-gray-900 text-white select-none">
-                  {['Period','Cash Balance','Prior Month','Prior Year','Reserve Floor',''].map((h, i) => (
-                    <th key={i} className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {cashFlowData.length === 0 ? (
-                  <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">No cash flow data yet. Click Add to create a record.</td></tr>
-                ) : [...cashFlowData].sort((a, b) => b.period.localeCompare(a.period)).map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-50 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                    <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
-                    <td className="px-3 py-2 font-mono font-semibold text-gray-800 tabular-nums">{fmtAmt(row.cash_balance)}</td>
-                    <td className="px-3 py-2 font-mono text-gray-600 tabular-nums">{row.prior_month_balance != null ? fmtAmt(row.prior_month_balance) : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-600 tabular-nums">{row.prior_year_balance != null ? fmtAmt(row.prior_year_balance) : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-600 tabular-nums">{row.reserve_floor != null ? fmtAmt(row.reserve_floor) : <span className="text-gray-400 italic">org default</span>}</td>
-                    <td className="px-2 py-2 text-center">
-                      <button className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-blue-100 text-blue-400"
-                        onClick={() => setEditModal({ mode: 'cashflow', row })}>
-                        <Pencil size={11}/>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── Audit Log ── */}
-        {viewMode === 'audit' && <AuditLogPanel/>}
-
       </div>
     </div>
 
     {/* Comment modal */}
     {selectedTx && (
       <TxCommentModal transaction={selectedTx} onClose={() => setSelectedTx(null)}/>
-    )}
-
-    {/* Edit / Add modal */}
-    {editModal && (
-      <DataEditModal
-        mode={editModal.mode}
-        row={editModal.row}
-        onClose={() => setEditModal(null)}
-        onSave={async (formData, isNew) => {
-          if (editModal.mode === 'actuals') {
-            if (isNew) await addTransaction(formData)
-            else await updateTransaction(editModal.row.id, formData, editModal.row)
-          } else if (editModal.mode === 'budget') {
-            if (isNew) await addBudgetRow(formData)
-            else await updateBudgetRow(editModal.row.id, formData, editModal.row)
-          } else if (editModal.mode === 'patron') {
-            if (isNew) await addPatronRow(formData)
-            else await updatePatronRow(editModal.row.id, formData, editModal.row)
-          } else if (editModal.mode === 'cashflow') {
-            if (isNew) await addCashFlowRow(formData)
-            else await updateCashFlowRow(editModal.row.id, formData, editModal.row)
-          }
-          setEditModal(null)
-        }}
-        onDelete={async (id) => {
-          if (editModal.mode === 'actuals')  await deleteTransaction(id)
-          else if (editModal.mode === 'budget')   await deleteBudgetRow(id)
-          else if (editModal.mode === 'patron')   await deletePatronRow(id)
-          else if (editModal.mode === 'cashflow') await deleteCashFlowRow(id)
-          setEditModal(null)
-        }}
-      />
     )}
     </>
   )
