@@ -273,19 +273,30 @@ function CommentPinModal({ page, sourceDashboard, sourcePage, sourcePeriod, pinP
 // ─── Main FAB export ──────────────────────────────────────────────────────────
 export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourcePeriod, rightClassName = 'right-6' }) {
   const { comments, updateCommentStatus, deleteComment } = useApp()
+  const location = useLocation()
   const [showPins,   setShowPins]   = useState(true)
   const [placing,    setPlacing]    = useState(false)   // placement mode
   const [pinPos,     setPinPos]     = useState(null)    // { xPct, yPct }
   const [showModal,  setShowModal]  = useState(false)
+  const [highlightId, setHighlightId] = useState(location.state?.highlightCommentId || null)
+
+  useEffect(() => {
+    if (highlightId) {
+      setShowPins(true)
+      const t = setTimeout(() => setHighlightId(null), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [highlightId])
 
   const pagePins = comments.filter(c => c.page === page)
-  const placedPins = pagePins.filter(c => c.pinPosition)
+  const placedPins = pagePins.filter(c => c.pinPosition && getStatus(c) !== 'resolved')
 
-  // Placement: record click position as viewport %
+  // Placement: record click position as document %
   function handlePlacementClick(e) {
     if (!placing) return
-    const xPct = (e.clientX / window.innerWidth)  * 100
-    const yPct = (e.clientY / window.innerHeight) * 100
+    const scrollEl = document.documentElement
+    const xPct = (e.clientX / window.innerWidth) * 100
+    const yPct = ((e.clientY + scrollEl.scrollTop) / scrollEl.scrollHeight) * 100
     setPinPos({ xPct, yPct })
     setPlacing(false)
     setShowModal(true)
@@ -329,9 +340,14 @@ export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourc
       )}
 
       {/* Positioned pin circles */}
-      {showPins && placedPins.map(pin => (
-        <PinCircle key={pin.id} pin={pin} />
-      ))}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 28 }}
+      >
+        {showPins && placedPins.map(pin => (
+          <PinCircle key={pin.id} pin={pin} highlight={highlightId === pin.id} />
+        ))}
+      </div>
 
       {/* FAB buttons */}
       {!placing && (

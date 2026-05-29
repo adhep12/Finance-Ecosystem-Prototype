@@ -188,12 +188,31 @@ function AddCommentModal({ initialType = 'question', onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CommentDetailPanel({ comment, onClose }) {
-  const { updateCommentStatus, deleteComment } = useApp()
+  const { comments, updateCommentStatus, deleteComment, addReply } = useApp()
   const { teamId } = useParams()
   const navigate = useNavigate()
   const status   = getStatus(comment)
   const typeColor = TYPE_COLOR_MAP[comment.type] || '#6B7280'
   const txRef     = comment.anchor?.txRef || comment.transactionRef
+  const replies   = comments.filter(r => r.parentId === comment.id)
+
+  const [replyText,    setReplyText]    = useState('')
+  const [replyAuthor,  setReplyAuthor]  = useState('')
+  const [postingReply, setPostingReply] = useState(false)
+
+  function handlePostReply() {
+    if (!replyText.trim() || !replyAuthor.trim()) return
+    setPostingReply(true)
+    addReply(comment.id, {
+      text:   replyText.trim(),
+      author: replyAuthor.trim(),
+      avatar: replyAuthor.trim().charAt(0).toUpperCase(),
+      page:   comment.page,
+      type:   'comment',
+    })
+    setReplyText('')
+    setPostingReply(false)
+  }
 
   const STATUSES = ['open', 'approved', 'rejected', 'resolved']
 
@@ -205,11 +224,15 @@ function CommentDetailPanel({ comment, onClose }) {
   function handleOpenInContext() {
     const anchor = comment.anchor
     const base   = teamId ? `/team/${teamId}` : ''
-    if (anchor?.type === 'tx' && anchor.txRef) {
-      navigate(`${base}/breakdown`, { state: { openTx: anchor.txRef } })
-    } else {
-      navigate(comment.page === 'breakdown' ? `${base}/breakdown` : `${base}/briefing`)
+    const pageRoutes = {
+      breakdown:       `${base}/breakdown`,
+      briefing:        `${base}/briefing`,
+      'elt-dashboard': '/elt',
+      'elt-teams':     '/elt/teams',
+      'master':        '/master',
     }
+    const dest = pageRoutes[comment.page] || (anchor?.type === 'tx' ? `${base}/breakdown` : `${base}/briefing`)
+    navigate(dest, { state: { highlightCommentId: comment.id, pinPosition: comment.pinPosition } })
     onClose()
   }
 
@@ -232,6 +255,56 @@ function CommentDetailPanel({ comment, onClose }) {
           <div>
             <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Comment</div>
             <p className="text-sm text-gray-800 leading-relaxed">{comment.text}</p>
+          </div>
+
+          {/* Thread */}
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+              Thread {replies.length > 0 && <span className="normal-case font-normal">· {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}</span>}
+            </div>
+            {replies.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {replies.map(r => (
+                  <div key={r.id} className="flex gap-2">
+                    <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600 flex-shrink-0">
+                      {(r.author || 'A')[0].toUpperCase()}
+                    </div>
+                    <div className="flex-1 bg-white rounded-xl px-3 py-2 border border-gray-100">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[11px] font-semibold text-gray-700">{r.author}</span>
+                        <span className="text-[10px] text-gray-400">{timeShort(r.timestamp)}</span>
+                      </div>
+                      <p className="text-xs text-gray-700 leading-relaxed">{r.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Reply input */}
+            <div className="space-y-2">
+              <textarea
+                value={replyText}
+                onChange={e => setReplyText(e.target.value)}
+                placeholder="Write a reply…"
+                rows={2}
+                className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-teal-400"
+              />
+              <div className="flex gap-2">
+                <input
+                  value={replyAuthor}
+                  onChange={e => setReplyAuthor(e.target.value)}
+                  placeholder="Your name"
+                  className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                />
+                <button
+                  onClick={handlePostReply}
+                  disabled={!replyText.trim() || !replyAuthor.trim() || postingReply}
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-gray-900 rounded-xl disabled:opacity-40 hover:bg-gray-700 transition-colors"
+                >
+                  Reply
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Status selector */}
