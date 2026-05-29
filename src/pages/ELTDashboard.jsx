@@ -3305,18 +3305,42 @@ const DEFAULT_TREND_CHARTS = [
   { id:'giving-vs-budget' },
 ]
 
-// ── Layout persistence helpers (localStorage, per-browser = per-user) ─────────
-const LAYOUT_KEY = 'elt_dashboard_layout'
+// ── Layout persistence (localStorage for instant load + Supabase for cross-device) ──
+const LAYOUT_KEY    = 'elt_dashboard_layout'
+const LAYOUT_DB_KEY = 'elt_layout'
 
 function loadLayout() {
-  try {
-    const raw = localStorage.getItem(LAYOUT_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
+  try { const raw = localStorage.getItem(LAYOUT_KEY); return raw ? JSON.parse(raw) : {} }
+  catch { return {} }
+}
+
+function saveLayoutLocal(layout) {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch {}
+}
+
+async function saveLayoutDB(layout) {
+  if (!ORG_ID) return
+  supabase.from('org_chart_preferences').upsert(
+    { org_id: ORG_ID, chart_key: LAYOUT_DB_KEY, chart_type: JSON.stringify(layout), updated_at: new Date().toISOString() },
+    { onConflict: 'org_id,chart_key' }
+  )
+}
+
+async function loadLayoutDB() {
+  if (!ORG_ID) return null
+  const { data } = await supabase
+    .from('org_chart_preferences')
+    .select('chart_type')
+    .eq('org_id', ORG_ID)
+    .eq('chart_key', LAYOUT_DB_KEY)
+    .single()
+  if (!data?.chart_type) return null
+  try { return JSON.parse(data.chart_type) } catch { return null }
 }
 
 function saveLayout(layout) {
-  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch {}
+  saveLayoutLocal(layout)
+  saveLayoutDB(layout)
 }
 
 function getSection(layout, section, defaults) {
@@ -3342,14 +3366,26 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
   const [editCharts,         setEditCharts]         = useState(false)
 
-  // Initialize from localStorage so removals persist across refreshes
-  const [kpiCards,           setKpiCards]           = useState(() => getSection(loadLayout(), 'kpi',          DEFAULT_KPI_CARDS))
-  const [patronMetricCards,  setPatronMetricCards]  = useState(() => getSection(loadLayout(), 'patron',       DEFAULT_PATRON_METRICS))
-  const [trendCharts,        setTrendCharts]        = useState(() => getSection(loadLayout(), 'charts',       DEFAULT_TREND_CHARTS))
+  // Seed from localStorage immediately, then sync from DB (overwrites if DB has newer)
+  const _localLayout = loadLayout()
+  const [kpiCards,           setKpiCards]           = useState(() => getSection(_localLayout, 'kpi',    DEFAULT_KPI_CARDS))
+  const [patronMetricCards,  setPatronMetricCards]  = useState(() => getSection(_localLayout, 'patron', DEFAULT_PATRON_METRICS))
+  const [trendCharts,        setTrendCharts]        = useState(() => getSection(_localLayout, 'charts', DEFAULT_TREND_CHARTS))
   const [showAddKPI,         setShowAddKPI]         = useState(false)
   const [showAddPatronMetric,setShowAddPatronMetric]= useState(false)
   const [showAddChart,       setShowAddChart]       = useState(false)
   const [manualCards,        setManualCards]        = useState({})
+
+  // Sync layout from DB on mount (overwrites localStorage seed if DB differs)
+  useEffect(() => {
+    loadLayoutDB().then(layout => {
+      if (!layout) return
+      saveLayoutLocal(layout)  // keep localStorage in sync for next visit
+      setKpiCards(getSection(layout, 'kpi',    DEFAULT_KPI_CARDS))
+      setPatronMetricCards(getSection(layout, 'patron', DEFAULT_PATRON_METRICS))
+      setTrendCharts(getSection(layout, 'charts', DEFAULT_TREND_CHARTS))
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Supabase: cash flow + patron trends
   const [cashData,   setCashData]   = useState([])
@@ -3389,6 +3425,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
 
   function resetLayout() {
     localStorage.removeItem(LAYOUT_KEY)
+    if (ORG_ID) supabase.from('org_chart_preferences').delete().eq('org_id', ORG_ID).eq('chart_key', LAYOUT_DB_KEY)
     setKpiCards(DEFAULT_KPI_CARDS)
     setPatronMetricCards(DEFAULT_PATRON_METRICS)
     setTrendCharts(DEFAULT_TREND_CHARTS)
