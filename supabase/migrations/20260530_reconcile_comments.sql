@@ -16,6 +16,9 @@ alter table comments_requests add column if not exists orphaned                 
 alter table comments_requests add column if not exists reattached                   boolean not null default false;
 alter table comments_requests add column if not exists original_transaction_context jsonb;
 
+-- parent_id: links reply rows to their parent comment (Feature 2 — reply threads)
+alter table comments_requests add column if not exists parent_id text;
+
 -- Ensure timestamp column exists (20260526 name) — comments code reads row.created_at so this is fine either way
 alter table comments_requests add column if not exists timestamp timestamptz not null default now();
 

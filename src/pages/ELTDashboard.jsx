@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine,
@@ -5890,7 +5890,15 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 
 export default function ELTDashboard() {
   const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario, applyPreset: appApplyPreset, applyCustomRange } = useApp()
+  const location = useLocation()
   const [activeTab, setActiveTab] = useState('dashboard')
+
+  // Switch to comments tab when navigated here with switchToComments state (e.g. from a comment pin)
+  useEffect(() => {
+    if (location.state?.switchToComments) {
+      setActiveTab('comments')
+    }
+  }, [location.state])
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
   const [activeBudget, setActiveBudget] = useState(selectedScenario)

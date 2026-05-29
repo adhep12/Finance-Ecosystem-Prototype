@@ -606,6 +606,7 @@ export function AppProvider({ children }) {
       source_period:    row.source_period    || null,
       pinPosition:      row.pin_position     || null,
       orphaned:         row.orphaned         || false,
+      parentId:         row.parent_id        || null,
     }
   }
 
@@ -697,6 +698,35 @@ export function AppProvider({ children }) {
       .eq('id', id)
       .eq('org_id', orgId)
     setComments(prev => prev.filter(c => c.id !== id))
+  }
+
+  async function addReply(parentId, replyData) {
+    if (!orgId) return
+    const id = typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `c${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const now = new Date().toISOString()
+    const row = {
+      id,
+      org_id:     orgId,
+      parent_id:  parentId,
+      status:     'open',
+      deleted:    false,
+      created_at: now,
+      updated_at: now,
+      timestamp:  now,
+      type:       replyData.type    || 'comment',
+      text:       replyData.text    || '',
+      author:     replyData.author  || '',
+      avatar:     replyData.avatar  || null,
+      page:       replyData.page    || null,
+      team_id:    replyData.teamId  ?? 1,
+      category:   null,
+      anchor:     null,
+    }
+    const { error } = await supabase.from('comments_requests').insert([row])
+    if (error) { console.error('addReply error', error); return }
+    setComments(prev => [...prev, dbRowToComment({ ...row, parent_id: parentId })])
   }
 
   // ── Transaction CRUD ──────────────────────────────────────────────────────
@@ -820,7 +850,7 @@ export function AppProvider({ children }) {
     // Briefing
     briefingExclusions, setBriefingExclusions,
     // Comments
-    comments, addComment, updateCommentStatus, updateComment, deleteComment,
+    comments, addComment, updateCommentStatus, updateComment, deleteComment, addReply,
     // Patron + cash flow data (app-wide, loaded in loadFromDB)
     cashFlowData, setCashFlowData,
     patronData,   setPatronData,
