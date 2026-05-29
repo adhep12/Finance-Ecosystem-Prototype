@@ -8,7 +8,7 @@
 
 import { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Settings, X, Check, AlertCircle } from 'lucide-react'
+import { Settings, X, Check, AlertCircle, BarChart2, TrendingUp } from 'lucide-react'
 import {
   ResponsiveContainer,
   LineChart, Line,
@@ -69,6 +69,21 @@ function EmptyState({ msg, hint }) {
       <AlertCircle size={20} className="text-gray-200"/>
       <p className="text-xs text-gray-400 font-medium">{msg}</p>
       {hint && <p className="text-[10px] text-gray-300 leading-relaxed">{hint}</p>}
+    </div>
+  )
+}
+
+function TypeToggle({ value, onChange }) {
+  return (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+      <button onClick={() => onChange('bar')} title="Bar chart"
+        className={`px-2 py-1 flex items-center transition-colors ${value === 'bar' ? 'bg-gray-900 text-white' : 'text-gray-400 hover:bg-gray-50'}`}>
+        <BarChart2 size={11}/>
+      </button>
+      <button onClick={() => onChange('line')} title="Line chart"
+        className={`px-2 py-1 flex items-center transition-colors ${value === 'line' ? 'bg-gray-900 text-white' : 'text-gray-400 hover:bg-gray-50'}`}>
+        <TrendingUp size={11}/>
+      </button>
     </div>
   )
 }
@@ -164,10 +179,11 @@ function TotalPatronsYoY({ patronData = [] }) {
   )
 }
 
-// 3. Recurring Patron Base — bar chart by period
+// 3. Recurring Patron Base — bar (default) or line
 function RecurringPatronBase({ patronData = [], dateRange = {} }) {
   const sp = (dateRange.startDate || '').slice(0, 7)
   const ep = (dateRange.endDate   || '').slice(0, 7)
+  const [type, setType] = useState('bar')
   const chartData = useMemo(() =>
     patronData
       .filter(r => r.period >= sp && r.period <= ep)
@@ -182,12 +198,22 @@ function RecurringPatronBase({ patronData = [], dateRange = {} }) {
     return <EmptyState msg="No recurring patron data in range" hint="Requires recurring_patron_count field"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} margin={ML}>
-        {GRID}{XAXIS()}{YAXIS()}<Tooltip contentStyle={TIP} formatter={v => [v?.toLocaleString(), 'Recurring Patrons']}/>
-        <Bar dataKey="count" name="Recurring Patrons" fill="var(--color-primary, #0A7EA4)" radius={[4, 4, 0, 0]}/>
-      </BarChart>
-    </ResponsiveContainer>
+    <div>
+      <div className="flex justify-end mb-2"><TypeToggle value={type} onChange={setType}/></div>
+      <ResponsiveContainer width="100%" height={178}>
+        {type === 'line' ? (
+          <LineChart data={chartData} margin={ML}>
+            {GRID}{XAXIS()}{YAXIS()}<Tooltip contentStyle={TIP} formatter={v => [v?.toLocaleString(), 'Recurring Patrons']}/>
+            <Line type="monotone" dataKey="count" name="Recurring Patrons" stroke="var(--color-primary, #0A7EA4)" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={ML}>
+            {GRID}{XAXIS()}{YAXIS()}<Tooltip contentStyle={TIP} formatter={v => [v?.toLocaleString(), 'Recurring Patrons']}/>
+            <Bar dataKey="count" name="Recurring Patrons" fill="var(--color-primary, #0A7EA4)" radius={[4, 4, 0, 0]}/>
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -219,10 +245,11 @@ function TotalActivePatrons({ patronData = [], dateRange = {} }) {
   )
 }
 
-// 5. Monthly Giving Totals — stacked bar (recurring + spontaneous)
+// 5. Monthly Giving Totals — stacked bar (default) or lines
 function GivingTotals({ patronData = [], dateRange = {} }) {
   const sp = (dateRange.startDate || '').slice(0, 7)
   const ep = (dateRange.endDate   || '').slice(0, 7)
+  const [type, setType] = useState('bar')
   const chartData = useMemo(() =>
     patronData
       .filter(r => r.period >= sp && r.period <= ep)
@@ -241,13 +268,24 @@ function GivingTotals({ patronData = [], dateRange = {} }) {
     return <EmptyState msg="No giving total data in range" hint="Requires recurring_giving_total or spontaneous_giving_total"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} margin={M}>
-        {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: false }), n]}/>{LEG}
-        <Bar dataKey="recurring"   name="Recurring"   fill="var(--color-primary, #0A7EA4)" stackId="g" radius={[0, 0, 0, 0]}/>
-        <Bar dataKey="spontaneous" name="Spontaneous" fill="#E8A838"                        stackId="g" radius={[4, 4, 0, 0]}/>
-      </BarChart>
-    </ResponsiveContainer>
+    <div>
+      <div className="flex justify-end mb-2"><TypeToggle value={type} onChange={setType}/></div>
+      <ResponsiveContainer width="100%" height={178}>
+        {type === 'line' ? (
+          <LineChart data={chartData} margin={M}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: false }), n]}/>{LEG}
+            <Line type="monotone" dataKey="recurring"   name="Recurring"   stroke="var(--color-primary, #0A7EA4)" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
+            <Line type="monotone" dataKey="spontaneous" name="Spontaneous" stroke="#E8A838" strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={M}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: false }), n]}/>{LEG}
+            <Bar dataKey="recurring"   name="Recurring"   fill="var(--color-primary, #0A7EA4)" stackId="g" radius={[0, 0, 0, 0]}/>
+            <Bar dataKey="spontaneous" name="Spontaneous" fill="#E8A838"                        stackId="g" radius={[4, 4, 0, 0]}/>
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -278,11 +316,12 @@ function AvgGiftSize({ patronData = [], dateRange = {} }) {
   )
 }
 
-// 7. Giving vs Budget — grouped bars
+// 7. Giving vs Budget — grouped bars (default) or lines, with monthly/cumulative toggle
 function GivingVsBudget({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '' }) {
   const sp = (dateRange.startDate || '').slice(0, 7)
   const ep = (dateRange.endDate   || '').slice(0, 7)
   const [mode, setMode] = useState('monthly')
+  const [type, setType] = useState('bar')
 
   const chartData = useMemo(() => {
     const aByP = {}, bByP = {}
@@ -310,7 +349,7 @@ function GivingVsBudget({ actuals = [], budgetFlat = [], dateRange = {}, scenari
 
   return (
     <div>
-      <div className="flex justify-end mb-2">
+      <div className="flex justify-end items-center gap-2 mb-2">
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
           {['monthly', 'cumulative'].map(m => (
             <button key={m} onClick={() => setMode(m)}
@@ -319,22 +358,32 @@ function GivingVsBudget({ actuals = [], budgetFlat = [], dateRange = {}, scenari
             </button>
           ))}
         </div>
+        <TypeToggle value={type} onChange={setType}/>
       </div>
-      <ResponsiveContainer width="100%" height={178}>
-        <BarChart data={chartData} margin={M}>
-          {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>{LEG}
-          <Bar dataKey="actual" name="Actual" fill="var(--color-primary, #0A7EA4)" radius={[4, 4, 0, 0]}/>
-          <Bar dataKey="budget" name="Budget" fill="#E8A838"                        radius={[4, 4, 0, 0]} opacity={0.7}/>
-        </BarChart>
+      <ResponsiveContainer width="100%" height={168}>
+        {type === 'line' ? (
+          <LineChart data={chartData} margin={M}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>{LEG}
+            <Line type="monotone" dataKey="actual" name="Actual" stroke="var(--color-primary, #0A7EA4)" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
+            <Line type="monotone" dataKey="budget" name="Budget" stroke="#E8A838" strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false}/>
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={M}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>{LEG}
+            <Bar dataKey="actual" name="Actual" fill="var(--color-primary, #0A7EA4)" radius={[4, 4, 0, 0]}/>
+            <Bar dataKey="budget" name="Budget" fill="#E8A838"                        radius={[4, 4, 0, 0]} opacity={0.7}/>
+          </BarChart>
+        )}
       </ResponsiveContainer>
     </div>
   )
 }
 
-// 8. Expense vs Budget — grouped bars
+// 8. Expense vs Budget — grouped bars (default) or lines
 function ExpenseVsBudget({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '' }) {
   const sp = (dateRange.startDate || '').slice(0, 7)
   const ep = (dateRange.endDate   || '').slice(0, 7)
+  const [type, setType] = useState('bar')
   const chartData = useMemo(() => {
     const aByP = {}, bByP = {}
     actuals.forEach(t => {
@@ -357,13 +406,24 @@ function ExpenseVsBudget({ actuals = [], budgetFlat = [], dateRange = {}, scenar
     return <EmptyState msg="No expense data in range" hint="Import actuals or budget to populate"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} margin={M}>
-        {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>{LEG}
-        <Bar dataKey="actual" name="Actual Expenses" fill="#EF4444" radius={[4, 4, 0, 0]} opacity={0.85}/>
-        <Bar dataKey="budget" name="Budget"          fill="#9CA3AF" radius={[4, 4, 0, 0]} opacity={0.65}/>
-      </BarChart>
-    </ResponsiveContainer>
+    <div>
+      <div className="flex justify-end mb-2"><TypeToggle value={type} onChange={setType}/></div>
+      <ResponsiveContainer width="100%" height={178}>
+        {type === 'line' ? (
+          <LineChart data={chartData} margin={M}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>{LEG}
+            <Line type="monotone" dataKey="actual" name="Actual Expenses" stroke="#EF4444" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
+            <Line type="monotone" dataKey="budget" name="Budget"          stroke="#9CA3AF" strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false}/>
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={M}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>{LEG}
+            <Bar dataKey="actual" name="Actual Expenses" fill="#EF4444" radius={[4, 4, 0, 0]} opacity={0.85}/>
+            <Bar dataKey="budget" name="Budget"          fill="#9CA3AF" radius={[4, 4, 0, 0]} opacity={0.65}/>
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
   )
 }
 
