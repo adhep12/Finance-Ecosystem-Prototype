@@ -2,6 +2,31 @@ import React, { createContext, useContext, useState, useMemo, useEffect } from '
 import { supabase, ORG_ID, setOrgId, SUPABASE_CONFIGURED, dbUpdate, dbSoftDelete } from '../lib/supabase'
 import { getScenarios } from '../utils/dataProcessing'
 
+// ─── Data cache (localStorage, cache-first loading) ───────────────────────────
+// Stores the last successful DB load so the app renders instantly on revisit.
+// Falls back gracefully if the data is too large or localStorage is unavailable.
+const CACHE_KEY = 'app_data_cache'
+const CACHE_TTL = 30 * 60 * 1000  // 30 minutes — refresh in background after this
+
+function readCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const { ts, actuals, budgetFlat, cashFlowData, patronData } = JSON.parse(raw)
+    return { ts, actuals, budgetFlat, cashFlowData, patronData, stale: Date.now() - ts > CACHE_TTL }
+  } catch { return null }
+}
+
+function writeCache(actuals, budgetFlat, cashFlowData, patronData) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), actuals, budgetFlat, cashFlowData, patronData }))
+  } catch { /* quota exceeded — skip silently */ }
+}
+
+function clearCache() {
+  try { localStorage.removeItem(CACHE_KEY) } catch {}
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Default org configuration — replace with actual org data on import
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,21 +120,22 @@ const AppContext = createContext(null)
 export function AppProvider({ children }) {
   const [orgConfig, setOrgConfig] = useState(DEFAULT_ORG)
 
-  // ── Core data state (populated from Supabase on mount) ───────────────────
-  const [actuals,      setActuals]      = useState([])
-  const [budgetFlat,   setBudgetFlat]   = useState([])
-  const [orgSummary,   setOrgSummary]   = useState([])   // v_org_summary: pre-aggregated actual+budget
-  const [teams,        setTeams]        = useState([])   // raw teams array for sidebar + import flows
+  // ── Core data state — seeded from cache for instant render ───────────────
+  const _cache = readCache()
+  const [actuals,      setActuals]      = useState(_cache?.actuals      || [])
+  const [budgetFlat,   setBudgetFlat]   = useState(_cache?.budgetFlat   || [])
+  const [orgSummary,   setOrgSummary]   = useState([])
+  const [teams,        setTeams]        = useState([])
   const [comments,     setComments]     = useState([])
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
+  const [cashFlowData, setCashFlowData] = useState(_cache?.cashFlowData || [])
+  const [patronData,   setPatronData]   = useState(_cache?.patronData   || [])
 
   // Undo history
   const [previousActuals, setPreviousActuals] = useState(null)
   const [previousBudget,  setPreviousBudget]  = useState(null)
 
-  // Loading / error flags
-  const [isLoading,   setIsLoading]   = useState(true)
+  // Loading / error flags — if we have cached data, start as not-loading so UI renders immediately
+  const [isLoading,   setIsLoading]   = useState(!_cache)
   const [dbError,     setDbError]     = useState(null)
   // orgNotFound = true when no org_settings row exists → show setup screen
   const [orgNotFound, setOrgNotFound] = useState(false)
@@ -278,20 +304,24 @@ export function AppProvider({ children }) {
         })(),
       ])
 
-      setActuals(mapActuals(txRows, deptMap, acctMap))
-      setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap))
+      const mappedActuals = mapActuals(txRows, deptMap, acctMap)
+      const mappedBudget  = mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap)
+      setActuals(mappedActuals)
+      setBudgetFlat(mappedBudget)
 
       // ── Cash flow + patron data (small tables, fetch in parallel) ───────────
       const [cashRes, patronRes] = await Promise.all([
         supabase.from('cash_flow').select('*').eq('org_id', resolvedOrgId).eq('deleted', false).order('period'),
         supabase.from('patron_data').select('*').eq('org_id', resolvedOrgId).eq('deleted', false).order('period'),
       ])
-      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
-      if (!patronRes.error) setPatronData(patronRes.data || [])
+      const cash   = cashRes.error   ? null : cashRes.data   || []
+      const patron = patronRes.error ? null : patronRes.data || []
+      if (cash   != null) setCashFlowData(cash)
+      if (patron != null) setPatronData(patron)
 
-      // v_org_summary was removed — the view times out (complex JOIN, no index)
-      // and no component reads orgSummary anyway.  All dashboard widgets derive
-      // their data directly from actuals + budgetFlat which are already loaded.
+      // Persist a fresh snapshot so the next load is instant
+      writeCache(mappedActuals, mappedBudget, cash ?? [], patron ?? [])
+
       setOrgSummary([])
 
     } catch (err) {
@@ -817,7 +847,7 @@ export function AppProvider({ children }) {
     incomeMonths,
     // DB state
     isLoading, dbError, orgNotFound,
-    refreshFromDB: loadFromDB,
+    refreshFromDB: () => { clearCache(); loadFromDB() },
   }
 
   // If no org_settings row found, prompt the user to set up the org first
