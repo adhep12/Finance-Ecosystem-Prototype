@@ -1,12 +1,9 @@
 /**
  * ChartSlot.jsx — Switchable chart panel for the ELT Executive Dashboard.
  *
- * Wraps a chart panel with a gear icon (visible on hover) that opens a picker
- * modal. Users can swap any slot to show a different metric. Preferences are
- * persisted to localStorage under the key `elt_chart_prefs`.
- *
- * Usage:
- *   <ChartSlot slotId="patron-base" patronData={...} actuals={...} ... />
+ * Each slot shows a gear icon on hover to open a chart-type picker modal, and
+ * a line/bar/area toggle for charts that support it. Preferences saved to
+ * localStorage key `elt_chart_prefs`.
  */
 
 import { useState, useMemo } from 'react'
@@ -26,7 +23,7 @@ const LS_KEY = 'elt_chart_prefs'
 const DEFAULT_SLOT_CHARTS = {
   'new-patrons-yoy':  'new_patrons_yoy',
   'patron-base':      'recurring_patron_base',
-  'giving-vs-budget': 'giving_vs_budget',
+  'giving-vs-budget': 'total_giving_yoy',   // YoY income chart is the default "giving" view
 }
 
 const CARD_STYLE = {
@@ -47,15 +44,24 @@ const MONEY_FORMATTER = v =>
   : v >= 1e3 ? `$${(v / 1e3).toFixed(0)}K`
   : `$${v}`
 
+// Ordered newest-first so index 0 = current year gets the primary colour
 const YEAR_PALETTE = [
   'var(--color-primary, #0A7EA4)',
   '#C05A2F',
   '#E8A838',
   '#9BA8B5',
-  '#C8D0D8',
 ]
 
-// ─── Shared sub-components ─────────────────────────────────────────────────────
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Return the last `n` calendar years ending with `endYear` (inclusive), oldest first. */
+function lastNYears(n = 4, endYear = new Date().getFullYear()) {
+  return Array.from({ length: n }, (_, i) => String(endYear - (n - 1 - i)))
+}
+
+// ─── Shared UI sub-components ──────────────────────────────────────────────────
 
 function EmptyState({ msg, hint }) {
   return (
@@ -67,24 +73,126 @@ function EmptyState({ msg, hint }) {
   )
 }
 
-function ChartGrid() {
-  return <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" vertical={false}/>
-}
-
-function ChartXAxis({ dataKey = 'label' }) {
+function CGrid()  { return <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" vertical={false}/> }
+function CXAxis({ dataKey = 'label' }) {
   return <XAxis dataKey={dataKey} tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false}/>
 }
-
-function ChartYAxis({ formatter }) {
-  return <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickFormatter={formatter} axisLine={false} tickLine={false}/>
+function CYAxis({ fmt }) {
+  return <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickFormatter={fmt} axisLine={false} tickLine={false}/>
 }
 
-// ─── Headless chart body components ───────────────────────────────────────────
-// Each receives { patronData, actuals, budgetFlat, cashData, dateRange, scenario }
-// and renders only the chart (no card wrapper).
+/** Render a LineChart, AreaChart, or BarChart wrapping the same series. */
+function FlexChart({ type = 'line', data, margin, height = 200, children, ...rest }) {
+  const common = { data, margin: margin || { top: 5, right: 5, left: -5, bottom: 0 }, ...rest }
+  if (type === 'area')
+    return <ResponsiveContainer width="100%" height={height}><AreaChart {...common}>{children}</AreaChart></ResponsiveContainer>
+  if (type === 'bar')
+    return <ResponsiveContainer width="100%" height={height}><BarChart {...common}>{children}</BarChart></ResponsiveContainer>
+  return <ResponsiveContainer width="100%" height={height}><LineChart {...common}>{children}</LineChart></ResponsiveContainer>
+}
 
-// 1. Total Active Patrons over time
-function TotalActivePatronsChart({ patronData = [], dateRange = {} }) {
+/** Render a single data series as Line, Area, or Bar depending on chart type. */
+function Series({ type = 'line', dataKey, name, color, dashed, opacity = 1, stackId }) {
+  const sharedBar = { dataKey, name, fill: color, radius: [4, 4, 0, 0], opacity, stackId }
+  if (type === 'bar')  return <Bar  {...sharedBar}/>
+  if (type === 'area') return <Area type="monotone" dataKey={dataKey} name={name}
+    stroke={color} fill={color} fillOpacity={0.12 * opacity} strokeWidth={dashed ? 1.8 : 2.5}
+    strokeDasharray={dashed ? '5 3' : undefined} dot={false} connectNulls={false}/>
+  return <Line type="monotone" dataKey={dataKey} name={name}
+    stroke={color} strokeWidth={dashed ? 1.8 : 2.5} strokeDasharray={dashed ? '5 3' : undefined}
+    opacity={opacity} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
+}
+
+// ─── Chart body components (headless — no card wrapper) ────────────────────────
+// Each receives { patronData, actuals, budgetFlat, cashData, dateRange, scenario, chartType }
+
+// ── 1. Total Giving YoY ────────────────────────────────────────────────────────
+// Always shows the last 4 calendar years (Jan–Dec), income from actuals.
+function TotalGivingYoYChart({ actuals = [], chartType = 'line' }) {
+  const years = useMemo(() => lastNYears(4), [])
+
+  const chartData = useMemo(() => {
+    const byYearMonth = {}
+    for (const t of actuals) {
+      const p = t.period || (t.date ? t.date.slice(0, 7) : null)
+      if (!p || t.record_type !== 'income') continue
+      const [yr, mo] = p.split('-')
+      if (!years.includes(yr)) continue
+      if (!byYearMonth[yr]) byYearMonth[yr] = {}
+      byYearMonth[yr][+mo] = (byYearMonth[yr][+mo] || 0) + Math.abs(t.amount || 0)
+    }
+    return MONTHS.map((m, i) => {
+      const row = { month: m }
+      for (const yr of years) row[`y${yr}`] = byYearMonth[yr]?.[i + 1] ?? null
+      return row
+    })
+  }, [actuals, years])
+
+  const hasAny = chartData.some(r => years.some(yr => r[`y${yr}`] != null))
+  if (!hasAny)
+    return <EmptyState msg="No income data for the last 4 years" hint="Import actuals to populate"/>
+
+  return (
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+      <CGrid/>
+      <CXAxis dataKey="month"/>
+      <CYAxis fmt={MONEY_FORMATTER}/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [v != null ? formatCurrency(v, { compact: true }) : '—', n]}/>
+      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+      {years.map((yr, i) => (
+        <Series key={yr} type={chartType} dataKey={`y${yr}`} name={yr}
+          color={YEAR_PALETTE[years.length - 1 - i]}
+          dashed={i < years.length - 1}
+          opacity={i === years.length - 1 ? 1 : 0.7}/>
+      ))}
+    </FlexChart>
+  )
+}
+
+// ── 2. New Supporters YoY ──────────────────────────────────────────────────────
+// Always shows the last 4 calendar years regardless of date range filter.
+function NewPatronsYoYChart({ patronData = [], chartType = 'line' }) {
+  const years = useMemo(() => lastNYears(4), [])
+
+  const chartData = useMemo(() => {
+    const byYearMonth = {}
+    for (const row of patronData) {
+      if (!row.period) continue
+      const [yr, mo] = row.period.split('-')
+      if (!years.includes(yr)) continue
+      if (!byYearMonth[yr]) byYearMonth[yr] = {}
+      byYearMonth[yr][+mo] = row.new_patrons_total
+    }
+    return MONTHS.map((m, i) => {
+      const row = { month: m }
+      for (const yr of years) row[`y${yr}`] = byYearMonth[yr]?.[i + 1] ?? null
+      return row
+    })
+  }, [patronData, years])
+
+  const hasAny = chartData.some(r => years.some(yr => r[`y${yr}`] != null))
+  if (!hasAny)
+    return <EmptyState msg="No new patron data available" hint="Requires new_patrons_total — not available from raw giving imports"/>
+
+  return (
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+      <CGrid/>
+      <CXAxis dataKey="month"/>
+      <CYAxis/>
+      <Tooltip contentStyle={TOOLTIP_STYLE}/>
+      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+      {years.map((yr, i) => (
+        <Series key={yr} type={chartType} dataKey={`y${yr}`} name={yr}
+          color={YEAR_PALETTE[years.length - 1 - i]}
+          dashed={i < years.length - 1}
+          opacity={i === years.length - 1 ? 1 : 0.7}/>
+      ))}
+    </FlexChart>
+  )
+}
+
+// ── 3. Total Active Patrons over time ─────────────────────────────────────────
+function TotalActivePatronsChart({ patronData = [], dateRange = {}, chartType = 'line' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() =>
@@ -93,82 +201,28 @@ function TotalActivePatronsChart({ patronData = [], dateRange = {} }) {
       .sort((a, b) => a.period.localeCompare(b.period))
       .map(r => {
         const [y, m] = r.period.split('-')
-        const label = new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`
-        return { label, patrons: r.total_active_patrons }
+        return {
+          label:   new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`,
+          patrons: r.total_active_patrons,
+        }
       })
   , [patronData, startP, endP])
 
   if (!chartData.length || chartData.every(r => r.patrons == null))
-    return <EmptyState msg="No patron data in range" hint="Import patron data to populate this chart"/>
+    return <EmptyState msg="No patron data in range" hint="Import patron data to populate"/>
 
+  const color = 'var(--color-primary, #0A7EA4)'
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/><ChartYAxis/>
-        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [v?.toLocaleString(), 'Active Patrons']}/>
-        <Line type="monotone" dataKey="patrons" name="Active Patrons"
-          stroke="var(--color-primary, #0A7EA4)" strokeWidth={2.5}
-          dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
-      </LineChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [v?.toLocaleString(), 'Active Patrons']}/>
+      <Series type={chartType} dataKey="patrons" name="Active Patrons" color={color}/>
+    </FlexChart>
   )
 }
 
-// 2. New Supporters YoY
-function NewPatronsYoYChart({ patronData = [], dateRange = {} }) {
-  const startP = (dateRange.startDate || '').slice(0, 7)
-  const endP   = (dateRange.endDate   || '').slice(0, 7)
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const { chartData, years } = useMemo(() => {
-    const byYear = {}
-    for (const row of patronData) {
-      if (!row.period) continue
-      // Only include years that overlap the selected date range
-      if (startP && endP) {
-        const rowYear = row.period.slice(0, 4)
-        const rangeStart = startP.slice(0, 4)
-        const rangeEnd   = endP.slice(0, 4)
-        if (rowYear < rangeStart || rowYear > rangeEnd) continue
-      }
-      const [yr, mo] = row.period.split('-')
-      if (!byYear[yr]) byYear[yr] = {}
-      byYear[yr][parseInt(mo)] = row.new_patrons_total
-    }
-    const years = Object.keys(byYear).sort()
-    const chartData = MONTHS.map((m, i) => {
-      const row = { month: m }
-      for (const yr of years) row[`y${yr}`] = byYear[yr]?.[i + 1] ?? null
-      return row
-    })
-    return { chartData, years }
-  }, [patronData, startP, endP])
-
-  if (!years.length || chartData.every(r => years.every(yr => r[`y${yr}`] == null)))
-    return <EmptyState msg="No new patron data available" hint="Requires new_patrons_total — not available from raw giving imports"/>
-
-  return (
-    <ResponsiveContainer width="100%" height={200}>
-      <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-        <ChartGrid/>
-        <ChartXAxis dataKey="month"/>
-        <ChartYAxis/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}/>
-        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
-        {years.map((yr, i) => (
-          <Line key={yr} type="monotone" dataKey={`y${yr}`} name={yr}
-            stroke={YEAR_PALETTE[i % YEAR_PALETTE.length]}
-            strokeWidth={i === years.length - 1 ? 2.5 : 1.8}
-            strokeDasharray={i === years.length - 1 ? undefined : '5 3'}
-            opacity={i === years.length - 1 ? 1 : 0.7}
-            dot={false} connectNulls={false}/>
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
-  )
-}
-
-// 3. Recurring Patron Base
-function RecurringPatronBaseChart({ patronData = [], dateRange = {} }) {
+// ── 4. Recurring Patron Base ──────────────────────────────────────────────────
+function RecurringPatronBaseChart({ patronData = [], dateRange = {}, chartType = 'bar' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() =>
@@ -187,20 +241,18 @@ function RecurringPatronBaseChart({ patronData = [], dateRange = {} }) {
   if (!chartData.length || chartData.every(r => r.count == null))
     return <EmptyState msg="No recurring patron data in range" hint="Requires recurring_patron_count field"/>
 
+  const color = 'var(--color-primary, #0A7EA4)'
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/><ChartYAxis/>
-        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [v?.toLocaleString(), 'Recurring Patrons']}/>
-        <Bar dataKey="count" name="Recurring Patrons"
-          fill="var(--color-primary, #0A7EA4)" radius={[4, 4, 0, 0]}/>
-      </BarChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [v?.toLocaleString(), 'Recurring Patrons']}/>
+      <Series type={chartType} dataKey="count" name="Recurring Patrons" color={color}/>
+    </FlexChart>
   )
 }
 
-// 4. Monthly Giving Totals (recurring + spontaneous stacked)
-function GivingTotalsChart({ patronData = [], dateRange = {} }) {
+// ── 5. Monthly Giving Totals (stacked recurring + spontaneous) ────────────────
+function GivingTotalsChart({ patronData = [], dateRange = {}, chartType = 'bar' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() =>
@@ -210,9 +262,9 @@ function GivingTotalsChart({ patronData = [], dateRange = {} }) {
       .map(r => {
         const [y, m] = r.period.split('-')
         return {
-          label: new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }),
-          recurring:    r.recurring_giving_total    ?? null,
-          spontaneous:  r.spontaneous_giving_total  ?? null,
+          label:       new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }),
+          recurring:   r.recurring_giving_total   ?? null,
+          spontaneous: r.spontaneous_giving_total ?? null,
         }
       })
   , [patronData, startP, endP])
@@ -220,22 +272,34 @@ function GivingTotalsChart({ patronData = [], dateRange = {} }) {
   if (!chartData.length || chartData.every(r => r.recurring == null && r.spontaneous == null))
     return <EmptyState msg="No giving total data in range" hint="Requires recurring_giving_total or spontaneous_giving_total"/>
 
+  const fmt = (v, n) => [formatCurrency(v, { compact: false }), n]
+  // For line/area, stack doesn't apply — render two separate series
+  if (chartType === 'bar') {
+    return (
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+          <CGrid/><CXAxis/><CYAxis fmt={MONEY_FORMATTER}/>
+          <Tooltip contentStyle={TOOLTIP_STYLE} formatter={fmt}/>
+          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+          <Bar dataKey="recurring"   name="Recurring"   fill="var(--color-primary, #0A7EA4)" radius={[0, 0, 0, 0]} stackId="g"/>
+          <Bar dataKey="spontaneous" name="Spontaneous" fill="#E8A838"                        radius={[4, 4, 0, 0]} stackId="g"/>
+        </BarChart>
+      </ResponsiveContainer>
+    )
+  }
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/><ChartYAxis formatter={MONEY_FORMATTER}/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          formatter={(v, n) => [formatCurrency(v, { compact: false }), n]}/>
-        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
-        <Bar dataKey="recurring"   name="Recurring"   fill="var(--color-primary, #0A7EA4)" radius={[0, 0, 0, 0]} stackId="g"/>
-        <Bar dataKey="spontaneous" name="Spontaneous" fill="#E8A838"                        radius={[4, 4, 0, 0]} stackId="g"/>
-      </BarChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis fmt={MONEY_FORMATTER}/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={fmt}/>
+      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+      <Series type={chartType} dataKey="recurring"   name="Recurring"   color="var(--color-primary, #0A7EA4)"/>
+      <Series type={chartType} dataKey="spontaneous" name="Spontaneous" color="#E8A838"/>
+    </FlexChart>
   )
 }
 
-// 5. Giving vs Budget
-function GivingVsBudgetChart({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '' }) {
+// ── 6. Giving vs Budget ────────────────────────────────────────────────────────
+function GivingVsBudgetChart({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '', chartType = 'bar' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const [mode, setMode] = useState('monthly')
@@ -289,22 +353,19 @@ function GivingVsBudgetChart({ actuals = [], budgetFlat = [], dateRange = {}, sc
           ))}
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-          <ChartGrid/><ChartXAxis/><ChartYAxis formatter={MONEY_FORMATTER}/>
-          <Tooltip contentStyle={TOOLTIP_STYLE}
-            formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
-          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
-          <Bar dataKey="actual" name="Actual" fill="var(--color-primary, #0A7EA4)" radius={[4, 4, 0, 0]}/>
-          <Bar dataKey="budget" name="Budget" fill="#E8A838" radius={[4, 4, 0, 0]} opacity={0.7}/>
-        </BarChart>
-      </ResponsiveContainer>
+      <FlexChart type={chartType} data={chartData} height={180} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+        <CGrid/><CXAxis/><CYAxis fmt={MONEY_FORMATTER}/>
+        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
+        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+        <Series type={chartType} dataKey="actual" name="Actual" color="var(--color-primary, #0A7EA4)"/>
+        <Series type={chartType} dataKey="budget" name="Budget" color="#E8A838" opacity={0.8}/>
+      </FlexChart>
     </div>
   )
 }
 
-// 6. Avg Gift Size
-function AvgGiftSizeChart({ patronData = [], dateRange = {} }) {
+// ── 7. Avg Gift Size ──────────────────────────────────────────────────────────
+function AvgGiftSizeChart({ patronData = [], dateRange = {}, chartType = 'line' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() =>
@@ -315,7 +376,7 @@ function AvgGiftSizeChart({ patronData = [], dateRange = {} }) {
         const [y, m] = r.period.split('-')
         return {
           label: new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }),
-          avg: r.avg_gift_size ?? null,
+          avg:   r.avg_gift_size ?? null,
         }
       })
   , [patronData, startP, endP])
@@ -324,21 +385,16 @@ function AvgGiftSizeChart({ patronData = [], dateRange = {} }) {
     return <EmptyState msg="No avg gift size data in range" hint="Requires avg_gift_size field"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/>
-        <ChartYAxis formatter={v => `$${v}`}/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          formatter={v => [formatCurrency(v, { compact: false }), 'Avg Gift']}/>
-        <Line type="monotone" dataKey="avg" name="Avg Gift Size"
-          stroke="#10B981" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
-      </LineChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis fmt={v => `$${v}`}/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [formatCurrency(v, { compact: false }), 'Avg Gift']}/>
+      <Series type={chartType} dataKey="avg" name="Avg Gift Size" color="#10B981"/>
+    </FlexChart>
   )
 }
 
-// 7. Patron Retention Rate
-function RetentionRateChart({ patronData = [], dateRange = {} }) {
+// ── 8. Patron Retention Rate ──────────────────────────────────────────────────
+function RetentionRateChart({ patronData = [], dateRange = {}, chartType = 'line' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() =>
@@ -349,7 +405,7 @@ function RetentionRateChart({ patronData = [], dateRange = {} }) {
         const [y, m] = r.period.split('-')
         return {
           label: new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }),
-          rate: r.retention_rate != null ? Math.round(r.retention_rate * 1000) / 10 : null,
+          rate:  r.retention_rate != null ? Math.round(r.retention_rate * 1000) / 10 : null,
         }
       })
   , [patronData, startP, endP])
@@ -358,23 +414,18 @@ function RetentionRateChart({ patronData = [], dateRange = {} }) {
     return <EmptyState msg="No retention rate data available" hint="Requires retention_rate — not available from raw giving imports"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/>
-        <ChartYAxis formatter={v => `${v}%`}/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          formatter={v => [`${v?.toFixed(1)}%`, 'Retention Rate']}/>
-        <ReferenceLine y={80} stroke="#E8A838" strokeDasharray="4 2"
-          label={{ value: '80%', position: 'right', fontSize: 9, fill: '#E8A838' }}/>
-        <Line type="monotone" dataKey="rate" name="Retention Rate"
-          stroke="#8B5CF6" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls={false}/>
-      </LineChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis fmt={v => `${v}%`}/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={v => [`${v?.toFixed(1)}%`, 'Retention Rate']}/>
+      <ReferenceLine y={80} stroke="#E8A838" strokeDasharray="4 2"
+        label={{ value: '80%', position: 'right', fontSize: 9, fill: '#E8A838' }}/>
+      <Series type={chartType} dataKey="rate" name="Retention Rate" color="#8B5CF6"/>
+    </FlexChart>
   )
 }
 
-// 8. Expenses vs Budget
-function ExpenseVsBudgetChart({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '' }) {
+// ── 9. Expenses vs Budget ─────────────────────────────────────────────────────
+function ExpenseVsBudgetChart({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '', chartType = 'bar' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() => {
@@ -410,21 +461,18 @@ function ExpenseVsBudgetChart({ actuals = [], budgetFlat = [], dateRange = {}, s
     return <EmptyState msg="No expense data in range" hint="Import actuals or budget to populate"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/><ChartYAxis formatter={MONEY_FORMATTER}/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
-        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
-        <Bar dataKey="actual" name="Actual Expenses" fill="#EF4444" radius={[4, 4, 0, 0]} opacity={0.85}/>
-        <Bar dataKey="budget" name="Budget"           fill="#9CA3AF" radius={[4, 4, 0, 0]} opacity={0.6}/>
-      </BarChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis fmt={MONEY_FORMATTER}/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
+      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+      <Series type={chartType} dataKey="actual" name="Actual Expenses" color="#EF4444" opacity={0.85}/>
+      <Series type={chartType} dataKey="budget" name="Budget"          color="#9CA3AF" opacity={0.7}/>
+    </FlexChart>
   )
 }
 
-// 9. Expenses vs Prior Year
-function ExpenseVsPriorYearChart({ actuals = [], dateRange = {} }) {
+// ── 10. Expenses vs Prior Year ────────────────────────────────────────────────
+function ExpenseVsPriorYearChart({ actuals = [], dateRange = {}, chartType = 'line' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() => {
@@ -438,12 +486,10 @@ function ExpenseVsPriorYearChart({ actuals = [], dateRange = {} }) {
     let cur = startP
     while (cur <= endP) {
       const [y, m] = cur.split('-')
-      // Derive prior year per row so multi-year ranges compare correctly
-      const prevY = String(+y - 1)
-      const prevP = `${prevY}-${m}`
+      const prevP = `${+y - 1}-${m}`
       rows.push({
         label:   new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`,
-        current: byPeriod[cur]   ?? null,
+        current: byPeriod[cur]  ?? null,
         prior:   byPeriod[prevP] ?? null,
       })
       const next = new Date(+y, +m, 1)
@@ -456,23 +502,18 @@ function ExpenseVsPriorYearChart({ actuals = [], dateRange = {} }) {
     return <EmptyState msg="No expense data in range" hint="Import actuals to populate"/>
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/><ChartYAxis formatter={MONEY_FORMATTER}/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
-        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
-        <Line type="monotone" dataKey="current" name="Current Year"
-          stroke="#EF4444" strokeWidth={2.5} dot={false} connectNulls={false}/>
-        <Line type="monotone" dataKey="prior"   name="Prior Year"
-          stroke="#9CA3AF" strokeWidth={1.8} strokeDasharray="5 3" dot={false} connectNulls={false}/>
-      </LineChart>
-    </ResponsiveContainer>
+    <FlexChart type={chartType} data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+      <CGrid/><CXAxis/><CYAxis fmt={MONEY_FORMATTER}/>
+      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
+      <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
+      <Series type={chartType} dataKey="current" name="Current Year" color="#EF4444"/>
+      <Series type={chartType} dataKey="prior"   name="Prior Year"   color="#9CA3AF" dashed opacity={0.7}/>
+    </FlexChart>
   )
 }
 
-// 10. Cash Balance vs Reserve Floor
-function CashBalanceChart({ cashData = [], dateRange = {} }) {
+// ── 11. Cash Balance vs Reserve Floor ────────────────────────────────────────
+function CashBalanceChart({ cashData = [], dateRange = {}, chartType = 'area' }) {
   const startP = (dateRange.startDate || '').slice(0, 7)
   const endP   = (dateRange.endDate   || '').slice(0, 7)
   const chartData = useMemo(() =>
@@ -483,8 +524,8 @@ function CashBalanceChart({ cashData = [], dateRange = {} }) {
         const [y, m] = r.period.split('-')
         return {
           label: new Date(+y, +m - 1, 1).toLocaleString('en-US', { month: 'short' }),
-          cash:  r.cash_balance   ?? null,
-          floor: r.reserve_floor  ?? null,
+          cash:  r.cash_balance  ?? null,
+          floor: r.reserve_floor ?? null,
         }
       })
   , [cashData, startP, endP])
@@ -492,19 +533,24 @@ function CashBalanceChart({ cashData = [], dateRange = {} }) {
   if (!chartData.length)
     return <EmptyState msg="No cash flow data in range" hint="Import cash flow data to populate"/>
 
+  // Cash balance always rendered as area regardless of chart type selection
+  // (floor is always a dashed line overlay)
+  const ChartRoot = chartType === 'bar' ? BarChart : AreaChart
   return (
     <ResponsiveContainer width="100%" height={200}>
-      <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-        <ChartGrid/><ChartXAxis/><ChartYAxis formatter={MONEY_FORMATTER}/>
-        <Tooltip contentStyle={TOOLTIP_STYLE}
-          formatter={(v, n) => [formatCurrency(v, { compact: false }), n]}/>
+      <ChartRoot data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+        <CGrid/><CXAxis/><CYAxis fmt={MONEY_FORMATTER}/>
+        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [formatCurrency(v, { compact: false }), n]}/>
         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}/>
-        <Area type="monotone" dataKey="cash"  name="Cash Balance"
-          stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.12} strokeWidth={2.5}/>
+        {chartType === 'bar'
+          ? <Bar dataKey="cash" name="Cash Balance" fill="#3B82F6" radius={[4, 4, 0, 0]} opacity={0.8}/>
+          : <Area type="monotone" dataKey="cash" name="Cash Balance"
+              stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.12} strokeWidth={2.5}/>
+        }
         <Area type="monotone" dataKey="floor" name="Reserve Floor"
           stroke="#EF4444" fill="transparent" fillOpacity={0}
           strokeWidth={1.5} strokeDasharray="5 3"/>
-      </AreaChart>
+      </ChartRoot>
     </ResponsiveContainer>
   )
 }
@@ -513,89 +559,119 @@ function CashBalanceChart({ cashData = [], dateRange = {} }) {
 
 export const CHART_CATALOG = [
   {
-    id:          'total_active_patrons',
-    label:       'Total Active Patrons',
-    description: 'Headcount of active patrons over time',
-    category:    'patron',
-    hasData:     ({ patronData }) => (patronData || []).some(r => r.total_active_patrons != null),
-    Component:   TotalActivePatronsChart,
+    id:           'total_giving_yoy',
+    label:        'Total Giving YoY',
+    description:  'Monthly income by year — last 4 years side by side (Jan–Dec)',
+    category:     'financial',
+    allowedTypes: ['line', 'area', 'bar'],
+    defaultType:  'line',
+    hasData:      ({ actuals }) => (actuals || []).some(t => t.record_type === 'income'),
+    Component:    TotalGivingYoYChart,
   },
   {
-    id:          'new_patrons_yoy',
-    label:       'New Supporters YoY',
-    description: 'Year-over-year new patron comparison by month',
-    category:    'patron',
-    hasData:     ({ patronData }) => (patronData || []).some(r => r.new_patrons_total != null),
-    Component:   NewPatronsYoYChart,
-  },
-  {
-    id:          'recurring_patron_base',
-    label:       'Recurring Supporter Base',
-    description: 'Monthly recurring patron count in selected range',
-    category:    'patron',
-    hasData:     ({ patronData }) => (patronData || []).some(r => r.recurring_patron_count != null),
-    Component:   RecurringPatronBaseChart,
-  },
-  {
-    id:          'giving_totals',
-    label:       'Monthly Giving Totals',
-    description: 'Recurring + spontaneous giving stacked by month',
-    category:    'patron',
-    hasData:     ({ patronData }) => (patronData || []).some(r =>
-      r.recurring_giving_total != null || r.spontaneous_giving_total != null),
-    Component:   GivingTotalsChart,
-  },
-  {
-    id:          'avg_gift_size',
-    label:       'Avg Gift Size',
-    description: 'Average gift size per month',
-    category:    'patron',
-    hasData:     ({ patronData }) => (patronData || []).some(r => r.avg_gift_size != null),
-    Component:   AvgGiftSizeChart,
-  },
-  {
-    id:          'retention_rate',
-    label:       'Patron Retention Rate',
-    description: 'Monthly patron retention % (requires pre-aggregated import)',
-    category:    'patron',
-    hasData:     ({ patronData }) => (patronData || []).some(r => r.retention_rate != null),
-    Component:   RetentionRateChart,
-  },
-  {
-    id:          'giving_vs_budget',
-    label:       'Giving vs Budget',
-    description: 'Actual income vs budget scenario by month',
-    category:    'financial',
-    hasData:     ({ actuals, budgetFlat }) =>
+    id:           'giving_vs_budget',
+    label:        'Giving vs Budget',
+    description:  'Actual income vs budget scenario by month',
+    category:     'financial',
+    allowedTypes: ['bar', 'line', 'area'],
+    defaultType:  'bar',
+    hasData:      ({ actuals, budgetFlat }) =>
       (actuals || []).some(t => t.record_type === 'income') ||
       (budgetFlat || []).some(b => b.record_type === 'income'),
-    Component:   GivingVsBudgetChart,
+    Component:    GivingVsBudgetChart,
   },
   {
-    id:          'expense_vs_budget',
-    label:       'Expenses vs Budget',
-    description: 'Actual expenses vs budget by month',
-    category:    'financial',
-    hasData:     ({ actuals, budgetFlat }) =>
+    id:           'expense_vs_budget',
+    label:        'Expenses vs Budget',
+    description:  'Actual expenses vs budget by month',
+    category:     'financial',
+    allowedTypes: ['bar', 'line', 'area'],
+    defaultType:  'bar',
+    hasData:      ({ actuals, budgetFlat }) =>
       (actuals || []).some(t => t.record_type === 'expense') ||
       (budgetFlat || []).some(b => b.record_type === 'expense'),
-    Component:   ExpenseVsBudgetChart,
+    Component:    ExpenseVsBudgetChart,
   },
   {
-    id:          'expense_vs_prior_year',
-    label:       'Expenses vs Prior Year',
-    description: 'Current year expenses compared to prior year by month',
-    category:    'financial',
-    hasData:     ({ actuals }) => (actuals || []).some(t => t.record_type === 'expense'),
-    Component:   ExpenseVsPriorYearChart,
+    id:           'expense_vs_prior_year',
+    label:        'Expenses vs Prior Year',
+    description:  'Current year expenses compared to prior year',
+    category:     'financial',
+    allowedTypes: ['line', 'area', 'bar'],
+    defaultType:  'line',
+    hasData:      ({ actuals }) => (actuals || []).some(t => t.record_type === 'expense'),
+    Component:    ExpenseVsPriorYearChart,
   },
   {
-    id:          'cash_balance',
-    label:       'Cash Balance & Reserve Floor',
-    description: 'Monthly cash balance with reserve floor reference',
-    category:    'financial',
-    hasData:     ({ cashData }) => (cashData || []).length > 0,
-    Component:   CashBalanceChart,
+    id:           'cash_balance',
+    label:        'Cash Balance & Reserve Floor',
+    description:  'Monthly cash balance with reserve floor reference',
+    category:     'financial',
+    allowedTypes: ['area', 'line', 'bar'],
+    defaultType:  'area',
+    hasData:      ({ cashData }) => (cashData || []).length > 0,
+    Component:    CashBalanceChart,
+  },
+  {
+    id:           'total_active_patrons',
+    label:        'Total Active Patrons',
+    description:  'Headcount of active patrons over time',
+    category:     'patron',
+    allowedTypes: ['line', 'area', 'bar'],
+    defaultType:  'line',
+    hasData:      ({ patronData }) => (patronData || []).some(r => r.total_active_patrons != null),
+    Component:    TotalActivePatronsChart,
+  },
+  {
+    id:           'new_patrons_yoy',
+    label:        'New Supporters YoY',
+    description:  'New patron count by month — last 4 years side by side',
+    category:     'patron',
+    allowedTypes: ['line', 'area', 'bar'],
+    defaultType:  'line',
+    hasData:      ({ patronData }) => (patronData || []).some(r => r.new_patrons_total != null),
+    Component:    NewPatronsYoYChart,
+  },
+  {
+    id:           'recurring_patron_base',
+    label:        'Recurring Supporter Base',
+    description:  'Monthly recurring patron count in selected range',
+    category:     'patron',
+    allowedTypes: ['bar', 'line', 'area'],
+    defaultType:  'bar',
+    hasData:      ({ patronData }) => (patronData || []).some(r => r.recurring_patron_count != null),
+    Component:    RecurringPatronBaseChart,
+  },
+  {
+    id:           'giving_totals',
+    label:        'Monthly Giving Totals',
+    description:  'Recurring + spontaneous giving by month',
+    category:     'patron',
+    allowedTypes: ['bar', 'line', 'area'],
+    defaultType:  'bar',
+    hasData:      ({ patronData }) => (patronData || []).some(r =>
+      r.recurring_giving_total != null || r.spontaneous_giving_total != null),
+    Component:    GivingTotalsChart,
+  },
+  {
+    id:           'avg_gift_size',
+    label:        'Avg Gift Size',
+    description:  'Average gift size per month',
+    category:     'patron',
+    allowedTypes: ['line', 'area', 'bar'],
+    defaultType:  'line',
+    hasData:      ({ patronData }) => (patronData || []).some(r => r.avg_gift_size != null),
+    Component:    AvgGiftSizeChart,
+  },
+  {
+    id:           'retention_rate',
+    label:        'Patron Retention Rate',
+    description:  'Monthly patron retention % (requires pre-aggregated import)',
+    category:     'patron',
+    allowedTypes: ['line', 'area', 'bar'],
+    defaultType:  'line',
+    hasData:      ({ patronData }) => (patronData || []).some(r => r.retention_rate != null),
+    Component:    RetentionRateChart,
   },
 ]
 
@@ -604,38 +680,29 @@ export const CHART_CATALOG = [
 function ChartSlotPicker({ current, onSelect, onClose, patronData, actuals, budgetFlat, cashData }) {
   const dataProps = { patronData, actuals, budgetFlat, cashData }
   const categories = [
-    { id: 'patron',    label: 'Patron Metrics' },
     { id: 'financial', label: 'Financial' },
+    { id: 'patron',    label: 'Patron Metrics' },
   ]
 
   return createPortal(
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-[1px] z-40"
-        onClick={onClose}
-      />
-      {/* Modal */}
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-[1px] z-40" onClick={onClose}/>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <div
           className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col pointer-events-auto"
           style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.18)', border: '1px solid rgba(0,0,0,0.08)' }}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
             <div>
               <h3 className="text-sm font-semibold text-gray-900">Switch Chart</h3>
               <p className="text-xs text-gray-400 mt-0.5">Choose what this panel displays</p>
             </div>
-            <button
-              onClick={onClose}
-              className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors"
-            >
+            <button onClick={onClose}
+              className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
               <X size={14}/>
             </button>
           </div>
 
-          {/* Chart list */}
           <div className="overflow-y-auto flex-1 p-4 space-y-5">
             {categories.map(cat => {
               const items = CHART_CATALOG.filter(c => c.category === cat.id)
@@ -649,8 +716,7 @@ function ChartSlotPicker({ current, onSelect, onClose, patronData, actuals, budg
                       const available  = def.hasData(dataProps)
                       const isSelected = def.id === current
                       return (
-                        <button
-                          key={def.id}
+                        <button key={def.id}
                           onClick={() => { onSelect(def.id); onClose() }}
                           disabled={!available && !isSelected}
                           className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl border-2 text-left transition-all ${
@@ -659,8 +725,7 @@ function ChartSlotPicker({ current, onSelect, onClose, patronData, actuals, budg
                               : available
                                 ? 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
                                 : 'border-gray-100 opacity-40 cursor-not-allowed'
-                          }`}
-                        >
+                          }`}>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`text-xs font-medium ${isSelected ? 'text-teal-800' : 'text-gray-700'}`}>
@@ -668,14 +733,10 @@ function ChartSlotPicker({ current, onSelect, onClose, patronData, actuals, budg
                               </span>
                               {isSelected && <Check size={12} className="text-teal-600 flex-shrink-0"/>}
                             </div>
-                            <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
-                              {def.description}
-                            </p>
+                            <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">{def.description}</p>
                           </div>
                           <span className={`flex-shrink-0 self-center px-2 py-0.5 rounded-full text-[9px] font-semibold ${
-                            available
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-gray-100 text-gray-400'
+                            available ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'
                           }`}>
                             {available ? 'Available' : 'No data'}
                           </span>
@@ -707,63 +768,96 @@ export function ChartSlot({
   editMode    = false,
   onRemove,
 }) {
+  // Restore both selected chart id AND chart type from localStorage
   const [chartId, setChartId] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
-      return saved[slotId] || DEFAULT_SLOT_CHARTS[slotId] || 'total_active_patrons'
-    } catch {
-      return DEFAULT_SLOT_CHARTS[slotId] || 'total_active_patrons'
-    }
+      const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
+      return s[slotId] || DEFAULT_SLOT_CHARTS[slotId] || 'total_giving_yoy'
+    } catch { return DEFAULT_SLOT_CHARTS[slotId] || 'total_giving_yoy' }
   })
+
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const def = CHART_CATALOG.find(d => d.id === chartId) || CHART_CATALOG[0]
-  const ChartComponent = def.Component
 
+  // Per-slot chart type (line/bar/area), defaulting to catalog entry's defaultType
+  const [chartType, setChartType] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
+      return s[`${slotId}_type`] || def.defaultType || 'line'
+    } catch { return def.defaultType || 'line' }
+  })
+
+  const ChartComponent = def.Component
   const dataProps = { patronData, actuals, budgetFlat, cashData, dateRange, scenario }
 
   function selectChart(id) {
+    const newDef = CHART_CATALOG.find(d => d.id === id) || def
     setChartId(id)
-    try {
-      const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
-      localStorage.setItem(LS_KEY, JSON.stringify({ ...saved, [slotId]: id }))
-    } catch { /* localStorage unavailable */ }
+    // Reset type to the new chart's default when switching charts
+    const newType = newDef.defaultType || 'line'
+    setChartType(newType)
+    persist(id, newType)
   }
+
+  function selectType(t) {
+    setChartType(t)
+    persist(chartId, t)
+  }
+
+  function persist(id, type) {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
+      localStorage.setItem(LS_KEY, JSON.stringify({ ...s, [slotId]: id, [`${slotId}_type`]: type }))
+    } catch {}
+  }
+
+  const showTypeSwitcher = def.allowedTypes && def.allowedTypes.length > 1
 
   return (
     <div className="group relative bg-white rounded-xl p-5" style={CARD_STYLE}>
-      {/* Edit/remove button */}
       {editMode && onRemove && (
-        <button
-          onClick={onRemove}
-          className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
-        >
+        <button onClick={onRemove}
+          className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
           <X size={11}/>
         </button>
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-4 gap-2">
         <div className="min-w-0 flex-1">
           <div className="text-xs font-semibold text-gray-700 mb-0.5">{def.label}</div>
           <div className="text-[10px] text-gray-400 leading-relaxed">{def.description}</div>
         </div>
-        {/* Gear — visible on group-hover, always visible in editMode */}
-        <button
-          onClick={() => setPickerOpen(true)}
-          title="Switch chart"
-          className={`flex-shrink-0 ml-3 w-7 h-7 rounded-lg border border-gray-200 bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-teal-600 hover:border-teal-300 transition-all ${
-            editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          }`}
-        >
-          <Settings size={13}/>
-        </button>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {/* Line / Bar / Area type toggle */}
+          {showTypeSwitcher && (
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {def.allowedTypes.map(t => (
+                <button key={t} onClick={() => selectType(t)}
+                  className={`px-2 py-1 text-[9px] font-bold uppercase tracking-wide transition-colors ${
+                    chartType === t ? 'bg-gray-900 text-white' : 'text-gray-400 hover:bg-gray-50'
+                  }`}>
+                  {t[0].toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Gear — switch to a different chart type entirely */}
+          <button onClick={() => setPickerOpen(true)} title="Switch chart"
+            className={`w-7 h-7 rounded-lg border border-gray-200 bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-teal-600 hover:border-teal-300 transition-all ${
+              editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}>
+            <Settings size={13}/>
+          </button>
+        </div>
       </div>
 
-      {/* Chart body */}
-      <ChartComponent {...dataProps}/>
+      {/* Chart */}
+      <ChartComponent {...dataProps} chartType={chartType}/>
 
-      {/* Picker modal */}
       {pickerOpen && (
         <ChartSlotPicker
           current={chartId}
