@@ -1522,7 +1522,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                   </td></tr>
                 )}
                 {budgetPageRows.map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                  <tr key={row.id || i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
                     <td className="px-3 py-1 text-xs">
                       <EditCell value={row.period} type="month"
                         onChange={v => handleBudgetFieldEdit(row, 'period', v)}/>
@@ -1622,7 +1622,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                 {filteredPatron.length === 0 ? (
                   <tr><td colSpan={11} className="px-5 py-12 text-center text-gray-400 text-sm">No patron data in this period. Click Add or adjust the date range.</td></tr>
                 ) : filteredPatron.map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                  <tr key={row.id || i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
                     <td className="px-3 py-2 text-sm">
                       <EditCell value={row.period} type="month" onChange={v => handlePatronFieldEdit(row, 'period', v)}/>
                     </td>
@@ -1677,7 +1677,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                 {filteredCashFlow.length === 0 ? (
                   <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">No cash flow data in this period. Click Add or adjust the date range.</td></tr>
                 ) : filteredCashFlow.map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                  <tr key={row.id || i} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
                     <td className="px-3 py-2 text-sm">
                       <EditCell value={row.period} type="month" onChange={v => handleCashFlowFieldEdit(row, 'period', v)}/>
                     </td>
