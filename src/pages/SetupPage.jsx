@@ -505,7 +505,7 @@ function RegistryTable({
       )}
 
       {/* Table */}
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -786,7 +786,7 @@ function DepartmentsTable({ teamOptions, teams, addFields, exportColumns, csvImp
 
       {showAdd && <AddRowForm fields={addFields} onAdd={handleAdd} onCancel={() => setShowAdd(false)} loading={addLoading}/>}
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -998,7 +998,7 @@ function AccountsRegistry() {
 
       {showAdd && <AddRowForm fields={addFields} onAdd={handleAdd} onCancel={() => setShowAdd(false)} loading={addLoading}/>}
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -1082,9 +1082,7 @@ function GrantsRegistry() {
     { key: 'grant_code',  label: 'Grant Code',  width: 'w-32' },
     { key: 'grant_name',  label: 'Grant Name',  width: 'flex-1' },
     { key: 'description', label: 'Description', width: 'flex-1', placeholder: 'Optional' },
-    { key: 'active',      label: 'Active', type: 'select',
-      options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }],
-      width: 'w-24' },
+    { key: 'active', label: 'Active', type: 'toggle', width: 'w-28' },
   ]
 
   const addFields = [
@@ -1209,7 +1207,7 @@ function OrgSettingsForm() {
 
       {/* Year settings */}
       <div className="mb-8">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Year Configuration</h3>
+        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Reporting Periods</h3>
         <p className="text-xs text-gray-400 mb-4">
           Only the start <em>month</em> is stored. The year is computed dynamically from today's date — the dashboard rolls automatically when today crosses your start month.
         </p>
@@ -1519,7 +1517,7 @@ function MappingEditor({ existing, onSave, onCancel }) {
                 </div>
               )}
 
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
@@ -1629,7 +1627,7 @@ function MappingEditor({ existing, onSave, onCancel }) {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
                 <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Column Mappings ({Object.values(mapping).filter(v => v && v !== '__skip__').length} active)
                 </div>

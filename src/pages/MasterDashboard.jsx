@@ -16,6 +16,7 @@ import {
   TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useChartPreferences } from '../context/ChartPreferencesContext'
 import CommentsPage from './CommentsPage'
 import SetupPage from './SetupPage'
 import TransactionImportFlow from './TransactionImportFlow'
@@ -499,24 +500,20 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
       break
     }
     case 'teams-over-budget': {
-      // Build dept-code → team-name from budgetFlat (rows carry team_name from mapBudgetFlatDirect)
-      const deptToTeam = {}
-      for (const b of budgetFlat) {
-        if (b.department && b.team_name) deptToTeam[b.department] = b.team_name
-      }
       // All teams that have expense budget entries in the selected scenario+range
       const relevantBudget = budgetFlat.filter(b =>
         b.scenario===scenario && b.record_type!=='income' &&
         b.period && b.period>=startM && b.period<=endM && b.team_name
       )
       const allTeams = [...new Set(relevantBudget.map(b => b.team_name))]
-      // Sum budget and actual per team
+      // Sum budget per team
       const budByTeam = {}
       for (const b of relevantBudget) budByTeam[b.team_name] = (budByTeam[b.team_name]||0) + (b.amount||0)
+      // Sum actuals per team using t.team_name directly (same source as the Teams tab)
+      // so both views agree on which teams are over budget.
       const actByTeam = {}
       for (const t of expInRange) {
-        const tn = deptToTeam[t.department]
-        if (tn) actByTeam[tn] = (actByTeam[tn]||0) + Math.abs(t.amount||0)
+        if (t.team_name) actByTeam[t.team_name] = (actByTeam[t.team_name]||0) + Math.abs(t.amount||0)
       }
       const overCount = allTeams.filter(tn => (actByTeam[tn]||0) > (budByTeam[tn]||0)).length
       mainValue = `${overCount} of ${allTeams.length}`
@@ -625,7 +622,55 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
     )
   }
 
-  // Status-driven styling for specific cards
+  // ── Net Position — dark hero card (matches executive dashboard) ──────────────
+  if (id === 'net-position') {
+    const netValue  = totalGiving - totalExpenses
+    const isPos     = netValue >= 0
+    const accent    = isPos ? '#4CAF82' : '#FF6B6B'
+    const leftBorder= isPos ? STATUS_COLORS.positive : STATUS_COLORS.negative
+    const shadow    = isPos ? '0 4px 20px rgba(61,153,112,0.15)' : '0 4px 20px rgba(192,57,43,0.15)'
+    return (
+      <div className="relative w-full rounded-xl"
+        style={{
+          background: '#1a1f2e',
+          borderLeft: `5px solid ${leftBorder}`,
+          borderRadius: '12px',
+          boxShadow: shadow,
+          padding: '28px 32px',
+        }}>
+        {editMode && (
+          <button onClick={onRemove}
+            className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+            style={{backgroundColor:'rgba(255,255,255,0.1)',color:'#9CA3AF'}}>
+            <X size={11}/>
+          </button>
+        )}
+        <div className="flex items-start justify-between mb-4">
+          <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>
+            {catalogDef?.label || 'Net Position'} YTD
+          </div>
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold"
+            style={{background:`rgba(${isPos?'61,153,112':'192,57,43'},0.25)`,color:accent,border:`1px solid rgba(${isPos?'61,153,112':'192,57,43'},0.4)`}}>
+            {isPos ? 'Surplus' : 'Deficit'}
+          </span>
+        </div>
+        <div className="font-bold mb-5" style={{fontSize:'52px',color:accent,lineHeight:1}}>
+          {mainValue}
+        </div>
+        {cmp1 && (
+          <div className="flex items-center gap-3 text-xs mb-1.5" style={{color:'#6B7384'}}>
+            <span>VS BUDGET</span>
+            <span style={{color: cmp1.delta >= 0 ? '#4CAF82' : '#FF6B6B'}}>
+              {cmp1.delta >= 0 ? '+' : ''}{formatCurrency(cmp1.delta,{compact:true})}
+            </span>
+            <span>vs {formatCurrency(cmp1.base,{compact:true})}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Status-driven styling for remaining cards
   let valueColor = '#111827'
   let cardBgColor = '#FFFFFF'
   let cardBorderColor = 'rgba(0, 0, 0, 0.06)'
@@ -635,25 +680,7 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
   let fontSize = 'text-2xl' // Tier 3 default (28px)
   let padding = 'p-5' // Default 20px padding
 
-  if (id === 'net-position') {
-    const netValue = totalGiving - totalExpenses
-    const isPositive = netValue >= 0
-    valueColor = isPositive ? STATUS_COLORS.positive : STATUS_COLORS.negative
-    fontSize = 'text-6xl' // 48px for Net Position
-    padding = 'p-6' // 24px padding
-
-    if (isPositive) {
-      cardBgColor = '#F0FDF4'
-      cardBorderColor = 'rgba(61, 153, 112, 0.2)'
-      cardBorderLeftColor = STATUS_COLORS.positive
-      cardBadge = 'Surplus'
-    } else {
-      cardBgColor = '#FEF2F2'
-      cardBorderColor = 'rgba(192, 57, 43, 0.2)'
-      cardBorderLeftColor = STATUS_COLORS.negative
-      cardBadge = 'Deficit'
-    }
-  } else if (id === 'total-giving') {
+  if (id === 'total-giving') {
     fontSize = 'text-4xl' // 36px for driver cards
     padding = 'p-5' // 20px padding
     cardBorderTopColor = DATA_COLORS[0] // steel blue for income
@@ -863,8 +890,31 @@ function fmtCompact(v){ // raw dollars → compact string
   return `$${Math.round(v)}`
 }
 
-// Chart 1: Monthly Spend vs Planned — full width, line chart, with stats + toggle
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart Type Switcher — reads from ChartPreferencesContext
+// ─────────────────────────────────────────────────────────────────────────────
+function ChartTypeSwitcher({ chartKey, allowedTypes }) {
+  const { getChartType, setChartType } = useChartPreferences()
+  const current = getChartType(chartKey)
+  if (!allowedTypes || allowedTypes.length <= 1) return null
+  return (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+      {allowedTypes.map(t => (
+        <button key={t} onClick={() => setChartType(chartKey, t)}
+          className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+            current === t ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+          }`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Chart 1: Monthly Giving vs Budget Scenario — full width, line/area chart, with stats + toggle
 function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('monthly_giving_vs_budget')
   const [mode, setMode] = useState('monthly')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
@@ -912,18 +962,21 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
       <div className="flex items-center justify-between mb-4">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Monthly Spend vs Planned</div>
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          {['monthly','cumulative'].map(m=>(
-            <button key={m} onClick={()=>setMode(m)}
-              className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
-              {m==='monthly'?'Monthly':'Cumulative'}
-            </button>
-          ))}
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Monthly Giving vs Budget Scenario</div>
+        <div className="flex items-center gap-2">
+          <ChartTypeSwitcher chartKey="monthly_giving_vs_budget" allowedTypes={['line','area']}/>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {['monthly','cumulative'].map(m=>(
+              <button key={m} onClick={()=>setMode(m)}
+                className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${mode===m?'bg-gray-900 text-white':'text-gray-500 hover:bg-gray-50'}`}>
+                {m==='monthly'?'Monthly':'Cumulative'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-3 mb-4 pb-4 border-b border-gray-100">
+      <div className="grid grid-cols-2 min-[768px]:grid-cols-3 min-[1100px]:grid-cols-5 gap-3 mb-4 pb-4 border-b border-gray-100">
         {[
           {label:'Period Spend', val:fmtCompact(totalActual), cls:'text-gray-900'},
           {label:'Planned Spend', val:fmtCompact(totalBudget), cls:'text-gray-900'},
@@ -943,12 +996,20 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <div style={{height:200}}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
-                {grid}{xa}{ya}{tip}
-                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                <Line type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
-                <Line type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
-              </LineChart>
+              {chartType === 'area'
+                ? <AreaChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    <Area type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} fill={ORG_COLORS.primary} fillOpacity={0.15} strokeWidth={2} dot={false}/>
+                    <Area type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} fill={STATUS_COLORS.warning} fillOpacity={0.08} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+                  </AreaChart>
+                : <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    <Line type="monotone" dataKey="actual" name="Actual" stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                    <Line type="monotone" dataKey="budget" name="Budget" stroke={STATUS_COLORS.warning} strokeWidth={2} strokeDasharray="6 3" dot={false}/>
+                  </LineChart>
+              }
             </ResponsiveContainer>
           </div>
       }
@@ -981,7 +1042,7 @@ const NetPositionCard = React.memo(function NetPositionCard({ actuals, incomeMon
 
   const grid=<CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
   const xa=<XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false}/>
-  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56}/>
+  const ya=<YAxis tick={axisStyle} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={56} domain={[dataMin => Math.min(0, dataMin), dataMax => Math.max(0, dataMax)]}/>
   const tip=<Tooltip contentStyle={TOOLTIP_STYLE} formatter={v=>[fmtCompact(v),'Net']}/>
 
   return (
@@ -1042,8 +1103,10 @@ const CashPositionCard = React.memo(function CashPositionCard({ cashFlowData, da
   )
 })
 
-// Chart 4: Team Spend Comparison — stacked bar chart, one segment per team
+// Chart 4: Team Spend Comparison — stacked bar or line chart, one series per team
 const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('team_spend_comparison')
   const { startDate, endDate } = dateRange
   const startP=startDate.slice(0,7), endP=endDate.slice(0,7)
 
@@ -1074,19 +1137,32 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{color:'var(--neutral-60)'}}>Team Spend Comparison</div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>Team Spend Comparison</div>
+        <ChartTypeSwitcher chartKey="team_spend_comparison" allowedTypes={['bar','line']}/>
+      </div>
       {chartData.length===0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
         : <div style={{height:180}}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
-                {grid}{xa}{ya}{tip}
-                <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
-                {teams.map((t,i)=>(
-                  <Bar key={t} dataKey={t} name={t} stackId="a"
-                    fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
-                ))}
-              </BarChart>
+              {chartType === 'line'
+                ? <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    {teams.map(t=>(
+                      <Line key={t} type="monotone" dataKey={t} name={t}
+                        stroke={getTeamColor(t)} strokeWidth={2} dot={false} activeDot={{r:3}}/>
+                    ))}
+                  </LineChart>
+                : <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                    {grid}{xa}{ya}{tip}
+                    <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                    {teams.map((t,i)=>(
+                      <Bar key={t} dataKey={t} name={t} stackId="a"
+                        fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>
+                    ))}
+                  </BarChart>
+              }
             </ResponsiveContainer>
           </div>
       }
@@ -1100,9 +1176,9 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
 
 const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
-  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
-  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
-  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+t.amount; return acc },{}), [inRange])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income'),[actuals,startDate,endDate])
+  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'),scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
+  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+Math.abs(t.amount||0); return acc },{}), [inRange])
 
   const alerts = useMemo(()=>
     Object.entries(budgetByCat)
@@ -1251,11 +1327,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
-  const { orgConfig } = useApp()
-
-  // ── Remote data ─────────────────────────────────────────────────────────
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
+  const { orgConfig, cashFlowData, patronData } = useApp()
 
   // ── Edit layout state ────────────────────────────────────────────────────
   const [editMode,     setEditMode]     = useState(false)
@@ -1264,18 +1336,13 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
   const [showPicker,   setShowPicker]   = useState(null) // { section: 'financial_health' }
   const [confirmRemove, setConfirmRemove] = useState(null) // { cardKey, section }
 
-  // ── Load all data on mount ───────────────────────────────────────────────
+  // ── Load dashboard layout on mount ──────────────────────────────────────
   useEffect(() => {
-    Promise.all([
-      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
-      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-      supabase.from('org_dashboard_layout').select('*')
-        .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview'),
-    ]).then(([cashRes, patronRes, layoutRes]) => {
-      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
-      if (!patronRes.error) setPatronData(patronRes.data || [])
-      if (!layoutRes.error) setAddedCards(layoutRes.data || [])
-    }).catch(err => console.error('[OverviewTab] data load error:', err))
+    supabase.from('org_dashboard_layout').select('*')
+      .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview')
+      .then(({ data, error }) => {
+        if (!error) setAddedCards(data || [])
+      }).catch(err => console.error('[OverviewTab] layout load error:', err))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Add / remove handlers (save to Supabase instantly) ──────────────────
@@ -1333,7 +1400,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
   )
 
   return (
-    <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'#F4F5F7'}}>
+    <div className="flex-1 overflow-y-auto p-6" style={{backgroundColor:'var(--color-primary-bg)'}}>
 
       {/* ── Edit mode banner ────────────────────────────────────────────── */}
       {editMode && (
@@ -1370,19 +1437,19 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
         {/* Tier 2 — Drivers */}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Drivers</div>
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 gap-4 mb-4">
           {tier2Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
         {/* Tier 3 — Supporting Context */}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{color:'#9CA3AF'}}>Supporting Context</div>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
           {tier3Ids.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
         {/* Added preset cards for financial_health */}
         {addedForSection('financial_health').length > 0 && (
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
             {addedForSection('financial_health').map(c => (
               <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
                 editMode={editMode}
@@ -1396,13 +1463,13 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       {/* ══ SUPPORTER HEALTH ════════════════════════════════════════════════ */}
       <section>
         <SectionHeader label="Supporter Health" section="supporter_health"/>
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
           {supporterIds.map(id => <FinanceKPICard key={id} id={id} {...kpiProps} editMode={false}/>)}
         </div>
 
         {/* Added preset cards for supporter_health */}
         {addedForSection('supporter_health').length > 0 && (
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-4 mb-4">
             {addedForSection('supporter_health').map(c => (
               <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
                 editMode={editMode}
@@ -1422,7 +1489,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
           <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
             <SpendVsPlannedCard actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}/>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border border-gray-100 p-6" style={{boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
               <NetPositionCard actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}/>
             </div>
@@ -1434,7 +1501,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
 
         {/* Added preset cards for charts */}
         {addedForSection('charts').length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4 mb-4">
             {addedForSection('charts').map(c => (
               <PresetCard key={c.card_key} cardKey={c.card_key} {...presetProps}
                 editMode={editMode}
@@ -1448,7 +1515,7 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
       {/* ══ WATCH AREAS ═════════════════════════════════════════════════════ */}
       <section>
         <SectionHeader label="Watch Areas" section={null}/>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-2xl">
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4 max-w-2xl">
           <WatchAreaPanel actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange} editMode={false} onRemove={()=>{}}/>
           <PatronWatchAreaPanel patronData={patronData} dateRange={dateRange}/>
         </div>
@@ -1562,7 +1629,7 @@ function AddCardPicker({ section, addedKeys, onAdd, onClose }) {
 function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
   const { deptNames } = useApp()
   const { startDate, endDate } = dateRange
-  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income'),[actuals,startDate,endDate])
 
   const allDepts = Object.keys(deptNames)
   const depts    = activeDepts ? [...activeDepts] : allDepts
@@ -1572,9 +1639,9 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
 
   const cards = useMemo(()=>depts.map(code=>{
     const dActuals = inRange.filter(t=>t.department===code)
-    const actual   = dActuals.reduce((s,t)=>s+t.amount,0)
-    // Budget: sum rows for this dept (handles period-based and legacy shapes)
-    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code)
+    const actual   = dActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0)
+    // Budget: expense rows only for this dept
+    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code && b.record_type!=='income')
     const n = numMonthsInRange(startDate,endDate)
     const budget = dBudgetRows.reduce((s,b)=>{
       if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
@@ -1821,12 +1888,16 @@ function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
-  const { deptNames, incomeMonths, orgConfig, comments } = useApp()
+  const { deptNames, incomeMonths, orgConfig, comments, cashFlowData, patronData } = useApp()
   const navigate = useNavigate()
 
   // Drill order: any of category/account/team/dept/vendor in any order
   const [drillOrder, setDrillOrder] = useLocalStorage('master-pl-drill', ['category','account','vendor'])
   const [viewMode,   setViewMode]   = useState('summary')
+  const [drillDragIdx, setDrillDragIdx] = useState(null)
+  const [drillDropIdx, setDrillDropIdx] = useState(null)
+  const [addFieldOpen, setAddFieldOpen] = useState(false)
+  const addFieldRef = useRef(null)
   const [searchQ,         setSearchQ]         = useState('')
   const [debouncedSearchQ, setDebouncedSearchQ] = useState('')
   const searchDebounceRef = useRef(null)
@@ -1840,21 +1911,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
-
-  useEffect(() => {
-    Promise.all([
-      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
-      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-    ]).then(([cf, pd]) => {
-      if (!cf.error) setCashFlowData(cf.data || [])
-      if (!pd.error) setPatronData(pd.data || [])
-    }).catch(err => {
-      console.error('[MasterDashboard] Dashboard data load error:', err)
-    })
-  }, [])
-
+  const [showPLPanel,  setShowPLPanel]  = useState(true)
   const { startDate, endDate } = dateRange
 
   // All unique dept codes in actuals (for dropdown)
@@ -2037,7 +2094,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               </span>
             )}
             <span className={`truncate ${isTop ? 'text-sm font-medium text-gray-800' : 'text-xs font-medium text-gray-700'}`}>
-              {row.value}
+              {row.field === 'department' ? (deptNames[row.value] || row.value) : row.value}
             </span>
           </div>
         </td>
@@ -2045,7 +2102,11 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
           {formatCurrency(actual, {compact:false})}
         </td>
         <td className="px-4 py-2.5 text-right tabular-nums text-sm text-gray-400">
-          {budget > 0 ? formatCurrency(budget, {compact:false}) : <span className="text-gray-300">—</span>}
+          {budget > 0
+            ? formatCurrency(budget, {compact:false})
+            : row.budgetMissing
+              ? <span className="text-gray-300 italic text-xs" title="No budget rows imported for this category">Unbudgeted</span>
+              : <span className="text-gray-300">—</span>}
         </td>
         <td className={`px-4 py-2.5 text-right tabular-nums text-sm font-medium ${variance !== null ? varCls : 'text-gray-300'}`}>
           {variance !== null ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, {compact:false})}` : '—'}
@@ -2118,43 +2179,52 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
 
         {/* Draggable pills — reorder to change top-level P&L grouping */}
         <div className="flex items-center gap-1.5 flex-wrap flex-1">
-          {drillOrder.map((field) => (
-            <div key={field}
+          {drillOrder.map((field, idx) => (
+            <div key={field} className="relative"
               draggable
-              onDragStart={e => { e.dataTransfer.setData('text/plain', field); e.dataTransfer.effectAllowed = 'move' }}
-              onDragOver={e => e.preventDefault()}
+              onDragStart={e => { setDrillDragIdx(idx); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={e => { e.preventDefault(); setDrillDropIdx(idx) }}
               onDrop={e => {
                 e.preventDefault()
-                const from = e.dataTransfer.getData('text/plain')
-                if (!from || from === field) return
+                if (drillDragIdx === null || drillDragIdx === idx) { setDrillDragIdx(null); setDrillDropIdx(null); return }
                 const next = [...drillOrder]
-                const fi = next.indexOf(from), ti = next.indexOf(field)
-                if (fi < 0 || ti < 0) return
-                next.splice(fi, 1); next.splice(ti, 0, from)
+                const [moved] = next.splice(drillDragIdx, 1)
+                next.splice(idx, 0, moved)
                 setDrillOrder(next); setIncOpenPath([]); setExpOpenPath([])
-              }}>
-              <div className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab select-none"
+                setDrillDragIdx(null); setDrillDropIdx(null)
+              }}
+              onDragEnd={() => { setDrillDragIdx(null); setDrillDropIdx(null) }}>
+              {drillDropIdx === idx && drillDragIdx !== null && drillDragIdx !== idx && (
+                <div className="absolute -left-1 top-0 bottom-0 w-0.5 bg-teal-500 rounded-full"/>
+              )}
+              <div className={`flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full text-xs font-semibold border cursor-grab active:cursor-grabbing select-none transition-opacity ${drillDragIdx === idx ? 'opacity-40' : 'opacity-100'}`}
                 style={{ backgroundColor:FIELD_COLORS[field]+'20', borderColor:FIELD_COLORS[field]+'60', color:FIELD_COLORS[field] }}>
                 <GripVertical size={10} className="opacity-60"/>
                 {FIELD_LABELS[field]}
-                <button onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
+                <button onMouseDown={e => e.stopPropagation()}
+                  onClick={() => { setDrillOrder(drillOrder.filter(f => f !== field)); setIncOpenPath([]); setExpOpenPath([]) }}
                   className="opacity-60 hover:opacity-100 ml-0.5"><X size={9}/></button>
               </div>
             </div>
           ))}
-          {/* Add field */}
+          {/* Add field — click-controlled dropdown */}
           {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).length>0 && (
-            <div className="relative group">
-              <button className="flex items-center gap-1 px-2 py-1 rounded-full text-xs text-gray-400 border border-dashed border-gray-300 hover:border-gray-400">
+            <div className="relative" ref={addFieldRef}>
+              <button onClick={() => setAddFieldOpen(v => !v)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors">
                 <Plus size={10}/> Add
               </button>
-              <div className="hidden group-hover:block absolute left-0 top-7 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-36">
-                {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
-                  <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]) }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
-                    {FIELD_LABELS[f]}
-                  </button>
-                ))}
-              </div>
+              {addFieldOpen && (
+                <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 w-36">
+                  {ALL_DRILL_FIELDS.filter(f=>!drillOrder.includes(f)).map(f=>(
+                    <button key={f} onClick={()=>{ setDrillOrder([...drillOrder,f]); setIncOpenPath([]); setExpOpenPath([]); setAddFieldOpen(false) }}
+                      className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: FIELD_COLORS[f] }}/>
+                      {FIELD_LABELS[f]}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <button onClick={()=>{ setDrillOrder(['category','account','vendor']); setIncOpenPath([]); setExpOpenPath([]) }}
@@ -2175,7 +2245,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
       {/* Calendar view */}
       {viewMode==='calendar' && (
         <div className="flex-1 overflow-y-auto p-4" style={{backgroundColor:'var(--color-primary-bg)'}}>
-          <CalendarBreakdownView transactions={searched} budgetFlat={budgetFlat} selectedScenario={scenario}
+          <CalendarBreakdownView transactions={enrichedSearched} budgetFlat={budgetFlat} selectedScenario={scenario}
             drillOrder={drillOrder} dateRange={dateRange} deptNames={deptNames} activeDepts={activeDepts} onHide={()=>{}}/>
         </div>
       )}
@@ -2185,7 +2255,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
         <div className="flex-1 flex overflow-hidden">
 
           {/* Main P&L table */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-auto min-w-0">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-white border-b border-gray-200">
@@ -2270,8 +2340,18 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
             </table>
           </div>
 
-          {/* Summary panel */}
-          <div className="w-64 border-l border-gray-100 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
+          {/* Summary panel toggle + panel */}
+          <button
+            onClick={() => setShowPLPanel(v => !v)}
+            className="flex-shrink-0 border-l border-gray-100 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
+            title={showPLPanel ? 'Hide summary panel' : 'Show summary panel'}
+          >
+            {showPLPanel
+              ? <ChevronRight size={14} className="text-gray-400"/>
+              : <ChevronLeft  size={14} className="text-gray-400"/>}
+          </button>
+          {showPLPanel && (
+          <div className="w-64 overflow-y-auto flex-shrink-0" style={{backgroundColor:'var(--color-primary-bg)'}}>
             <div className="p-4 space-y-4">
               {/* Totals */}
               <div className="space-y-2">
@@ -2379,6 +2459,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               )}
             </div>
           </div>
+          )}
         </div>
       )}
 
@@ -2528,7 +2609,7 @@ function MasterTransactionsTab({ actuals, budgetFlat, scenario, dateRange, activ
         <div className="ml-auto text-xs text-gray-400">{filtered.length} of {deptRows.length} transactions</div>
       </div>
       {/* Table */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-auto min-w-0">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
             <tr>
@@ -2615,14 +2696,16 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
   }, [actuals, startP, endP])
 
   // ── Budget by team ─────────────────────────────────────────────────────────
-  const budgetByTeam = useMemo(() => {
+  const { budgetByTeam, unassignedBudget } = useMemo(() => {
     const m = {}
+    let unassigned = 0
     for (const b of budgetFlat) {
-      if (b.scenario!==scenario||b.record_type==='income'||!b.team_name) continue
+      if (b.scenario!==scenario||b.record_type==='income') continue
       if (!b.period||b.period<startP||b.period>endP) continue
+      if (!b.team_name) { unassigned += Math.abs(b.amount||0); continue }
       m[b.team_name] = (m[b.team_name]||0) + Math.abs(b.amount||0)
     }
-    return m
+    return { budgetByTeam: m, unassignedBudget: unassigned }
   }, [budgetFlat, scenario, startP, endP])
 
   // ── Unresolved warning map — transactions in range with _warnings ─────────
@@ -2695,7 +2778,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 
   // ── Summary stats ──────────────────────────────────────────────────────────
   const totalActual   = teams.reduce((s,t) => s+t.actual,   0)
-  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0)
+  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0) + unassignedBudget
   const totalVariance = totalActual - totalBudget
   const teamsOver     = teams.filter(t => t.status === 'over').length
 
@@ -2826,6 +2909,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 
         {/* ── Main table ───────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
@@ -2882,6 +2966,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
               })}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* ── Team Spend chart (moved from Overview) ───────────────────── */}
@@ -2905,7 +2990,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 function MasterImportTab(){
   const [subTab, setSubTab] = useState('transactions')
   const SUB_TABS = [
-    { id:'transactions', label:'Transactions' },
+    { id:'transactions', label:'Actuals'      },
     { id:'budget',       label:'Budget'       },
     { id:'patron',       label:'Patron Data'  },
     { id:'cashflow',     label:'Cash Flow'    },

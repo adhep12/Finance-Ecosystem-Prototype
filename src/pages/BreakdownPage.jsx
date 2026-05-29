@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
-  ChevronRight, Ban, Plus, X, Search, GripVertical,
+  ChevronRight, ChevronLeft, Ban, Plus, X, Search, GripVertical,
   RotateCcw, MessageSquare, Calendar, Tag, Building2,
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
@@ -293,6 +293,7 @@ function DrillOrderBar({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HiddenBar({ hidden, onRestore, onShowAll }) {
+  const { deptNames } = useApp()
   if (hidden.length === 0) return null
   return (
     <div className="flex items-center gap-2 px-5 py-2 bg-amber-50 border-b border-amber-100 flex-wrap">
@@ -304,7 +305,7 @@ function HiddenBar({ hidden, onRestore, onShowAll }) {
         {hidden.map(h => (
           <span key={h.field + h.value} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
             <span className="opacity-60 uppercase text-[9px] tracking-wide">{FIELD_LABELS[h.field]}</span>
-            {h.value}
+            {h.field === 'department' ? (deptNames[h.value] || h.value) : h.value}
             <button onClick={() => onRestore(h.field, h.value)} className="hover:opacity-70">
               <X size={9} />
             </button>
@@ -367,10 +368,12 @@ function TableHeader({ drillOrder, selectedScenario, sortCol, sortDir, onSort })
 // ─────────────────────────────────────────────────────────────────────────────
 
 function GroupRow({ row, onToggle, onHide, totalExpenses }) {
+  const { deptNames } = useApp()
   const delta  = row.budget !== null ? row.actual - row.budget : null
   const isOver = delta !== null && delta >= 0
   const pctUsed = row.budget ? Math.round((row.actual / row.budget) * 100) : null
   const indent = 16 + row.depth * 24
+  const displayValue = row.field === 'department' ? (deptNames[row.value] || row.value) : row.value
 
   return (
     <div
@@ -393,11 +396,11 @@ function GroupRow({ row, onToggle, onHide, totalExpenses }) {
 
       {/* Value name + always-visible ban button */}
       <div className="flex-1 min-w-0 flex items-center gap-1.5">
-        <span className="text-sm font-semibold text-gray-800 truncate">{row.value}</span>
+        <span className="text-sm font-semibold text-gray-800 truncate">{displayValue}</span>
         <button
           className="flex-shrink-0 p-0.5 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 transition-colors"
           onClick={e => { e.stopPropagation(); onHide(row.field, row.value) }}
-          title={`Hide ${row.value}`}
+          title={`Hide ${displayValue}`}
         >
           <Ban size={11} />
         </button>
@@ -408,9 +411,14 @@ function GroupRow({ row, onToggle, onHide, totalExpenses }) {
         {formatCurrency(row.actual)}
       </div>
 
-      {/* Budget — show when budget > 0, dash otherwise (data-driven, not type-hardcoded) */}
+      {/* Budget — show when budget > 0; "Unbudgeted" when category has no budget rows at all;
+             dash for proportionally-allocated zeros at lower drill levels */}
       <div className="text-right flex-shrink-0 text-gray-500 text-sm" style={{ width: 96 }}>
-        {row.budget > 0 ? formatCurrency(row.budget) : <span className="text-gray-300">—</span>}
+        {row.budget > 0
+          ? formatCurrency(row.budget)
+          : row.budgetMissing
+            ? <span className="text-gray-300 italic text-[11px]" title="No budget rows imported for this category">Unbudgeted</span>
+            : <span className="text-gray-300">—</span>}
       </div>
 
       {/* Over/Under — only meaningful when budget > 0 */}
@@ -634,6 +642,7 @@ export default function BreakdownPage() {
 
   // ── Transient state ───────────────────────────────────────────────────────
   const [viewMode,      setViewMode]      = useState('summary')  // 'summary' | 'calendar'
+  const [showKPIPanel,  setShowKPIPanel]  = useState(true)
   const [activeDepts,   setActiveDepts]   = useState(null)  // null = all active
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
@@ -715,7 +724,7 @@ export default function BreakdownPage() {
   )
 
   // ── Summary stats for KPI panel ──────────────────────────────────────────
-  const totalActual  = unhidden.reduce((s, t) => s + t.amount, 0)
+  const totalActual  = unhidden.filter(t => t.record_type !== 'income').reduce((s, t) => s + Math.abs(t.amount || 0), 0)
   const totalBudget  = Object.values(budgetByCat).reduce((s, v) => s + v, 0)
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -869,23 +878,37 @@ export default function BreakdownPage() {
 
       {/* ── Right panel: KPI — summary mode only ─────────────────────────── */}
       {viewMode === 'summary' && (
-        <div
-          className="w-72 flex-shrink-0 border-l border-gray-200 overflow-y-auto p-4"
-          style={{ backgroundColor: 'var(--color-primary-bg)' }}
-        >
-          <KPIPanel
-            actual={totalActual}
-            budget={totalBudget}
-            transactions={unhidden.length}
-            selectedScenario={selectedScenario}
-            actuals={unhidden}
-            budgetByCat={budgetByCat}
-          />
+        <div className="flex flex-shrink-0">
+          {/* Toggle strip */}
+          <button
+            onClick={() => setShowKPIPanel(v => !v)}
+            className="flex-shrink-0 border-l border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
+            title={showKPIPanel ? 'Hide KPI panel' : 'Show KPI panel'}
+          >
+            {showKPIPanel
+              ? <ChevronRight size={14} className="text-gray-400"/>
+              : <ChevronLeft  size={14} className="text-gray-400"/>}
+          </button>
+          {showKPIPanel && (
+            <div
+              className="w-72 flex-shrink-0 overflow-y-auto p-4"
+              style={{ backgroundColor: 'var(--color-primary-bg)' }}
+            >
+              <KPIPanel
+                actual={totalActual}
+                budget={totalBudget}
+                transactions={unhidden.length}
+                selectedScenario={selectedScenario}
+                actuals={unhidden}
+                budgetByCat={budgetByCat}
+              />
+            </div>
+          )}
         </div>
       )}
 
       {/* Comment pin FAB */}
-      <CommentPinFAB page="breakdown" rightClassName={viewMode === 'summary' ? 'right-[296px]' : 'right-4'} />
+      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName={viewMode === 'summary' && showKPIPanel ? 'right-[304px]' : 'right-4'} />
 
       {/* Transaction modal */}
       {selectedTx && (
@@ -893,7 +916,7 @@ export default function BreakdownPage() {
           transaction={selectedTx}
           onClose={() => setSelectedTx(null)}
           onAddComment={data => {
-            addComment(data)
+            addComment({ ...data, source_dashboard: 'Content Team', source_page: 'Breakdown' })
             // leave modal open so user can see "Saved!" message
           }}
         />

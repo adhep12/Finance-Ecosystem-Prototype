@@ -72,26 +72,36 @@ function buildActualsLookup(transactions, drillOrder) {
   return lu
 }
 
-function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts) {
+function buildBudgetLookup(budgetFlat, scenario, months, drillOrder, activeDepts, deptNames = {}) {
   if (!drillOrder.length) return {}
   const lu = {}
   const add = (k, mo, amt) => { if (!lu[k]) lu[k] = {}; lu[k][mo] = (lu[k][mo] || 0) + amt }
-  const f0 = drillOrder[0]
-  const f1 = drillOrder[1]
-  for (const m of months) {
-    for (const e of (budgetFlat || [])) {
-      if (e.scenario !== scenario) continue
-      const d   = e.department || 'Unknown'
-      const cat = e.category   || 'N/A'
-      const amt = e.monthlyAmount || 0
-      if (activeDepts && !activeDepts.has(d)) continue
-      if (f0 === 'department') {
-        add(d, m.key, amt)
-        if (f1 === 'category') add(`${d}|${cat}`, m.key, amt)
-      } else if (f0 === 'category') {
-        add(cat, m.key, amt)
-        if (f1 === 'department') add(`${cat}|${d}`, m.key, amt)
-      }
+  const monthSet = new Set(months.map(m => m.key))
+
+  function getVal(e, field) {
+    if (field === 'category')   return e.category   || 'N/A'
+    if (field === 'dept')       return e.dept_name  || deptNames[e.department] || e.department || 'Unknown Dept'
+    if (field === 'department') return e.department || 'Unknown'
+    if (field === 'team')       return e.team_name  || 'Unknown Team'
+    if (field === 'account')    return e.account_name || e.account || 'N/A'
+    if (field === 'vendor')     return e.vendor || 'N/A'
+    return null
+  }
+
+  for (const e of (budgetFlat || [])) {
+    if (e.scenario !== scenario) continue
+    const mo = e.period ? String(e.period).slice(0, 7) : null
+    if (!mo || !monthSet.has(mo)) continue
+    if (activeDepts && !activeDepts.has(e.department)) continue
+    const amt = Math.abs(e.amount || 0)
+
+    const v0 = getVal(e, drillOrder[0])
+    if (!v0) continue
+    add(v0, mo, amt)
+
+    if (drillOrder[1]) {
+      const v1 = getVal(e, drillOrder[1])
+      if (v1) add(`${v0}|${v1}`, mo, amt)
     }
   }
   return lu
@@ -320,7 +330,7 @@ export default function CalendarBreakdownView({
   onHide,
 }) {
   // ── View mode: chart (default) vs table ──
-  const [chartMode,      setChartMode]      = useState('chart')
+  const [chartMode,      setChartMode]      = useState('table')
 
   // ── Chart state ──
   const [hoveredCat,     setHoveredCat]     = useState(null)
@@ -342,8 +352,8 @@ export default function CalendarBreakdownView({
   const actualsLu = useMemo(
     () => buildActualsLookup(transactions, drillOrder), [transactions, drillOrder])
   const budgetLu  = useMemo(
-    () => buildBudgetLookup(budgetFlat, selectedScenario, months, drillOrder, activeDepts),
-    [budgetFlat, selectedScenario, months, drillOrder, activeDepts])
+    () => buildBudgetLookup(budgetFlat, selectedScenario, months, drillOrder, activeDepts, deptNames),
+    [budgetFlat, selectedScenario, months, drillOrder, activeDepts, deptNames])
   const lu   = mode === 'actuals' ? actualsLu : budgetLu
   const rows = useMemo(() => buildRows(transactions, drillOrder, expanded), [transactions, drillOrder, expanded])
 
@@ -365,10 +375,14 @@ export default function CalendarBreakdownView({
   function expandAll()   { setExpanded(getAllExpandableKeys(transactions, drillOrder)) }
   function collapseAll() { setExpanded(new Set()); setOpenLeaves(new Set()) }
 
-  const get      = (key, mk) => lu[key]?.[mk] || 0
-  const yearTot  = (key, yr) => (yearGroups[yr] || []).reduce((s, m) => s + get(key, m.key), 0)
-  const rowTotal = (key)     => months.reduce((s, m) => s + get(key, m.key), 0)
-  const rowLabel = (row)     => row?.field === 'department' ? (deptNames[row.label] || row.label) : (row?.label ?? '')
+  const get           = (key, mk) => lu[key]?.[mk] || 0
+  const yearTot       = (key, yr) => (yearGroups[yr] || []).reduce((s, m) => s + get(key, m.key), 0)
+  const rowTotal      = (key)     => months.reduce((s, m) => s + get(key, m.key), 0)
+  const rowLabel      = (row)     => row?.field === 'department' ? (deptNames[row.label] || row.label) : (row?.label ?? '')
+  // Budget helpers — always read from budgetLu regardless of mode
+  const getBgt        = (key, mk) => budgetLu[key]?.[mk] || 0
+  const budgetRowTot  = (key)     => months.reduce((s, m) => s + getBgt(key, m.key), 0)
+  const hasBudgetData = Object.keys(budgetLu).length > 0
 
   const cc  = 'px-2.5 py-2 text-right tabular-nums text-xs whitespace-nowrap'
   const cct = 'px-2.5 py-1.5 text-right tabular-nums text-xs whitespace-nowrap'
@@ -584,6 +598,10 @@ export default function CalendarBreakdownView({
                   )
                 })}
                 <th className={`${ch} text-right border-l border-b border-gray-200 bg-gray-50`}>Total</th>
+                {hasBudgetData && <>
+                  <th className={`${ch} text-right border-l border-b border-gray-200 bg-gray-50`}>Budget</th>
+                  <th className={`${ch} text-right border-l border-b border-gray-200 bg-gray-50`}>Variance</th>
+                </>}
               </tr>
 
               {/* Month row */}
@@ -600,6 +618,10 @@ export default function CalendarBreakdownView({
                   ))
                 )}
                 <th className={`${ch} border-l border-b border-gray-200`}/>
+                {hasBudgetData && <>
+                  <th className={`${ch} border-l border-b border-gray-200`}/>
+                  <th className={`${ch} border-l border-b border-gray-200`}/>
+                </>}
               </tr>
             </thead>
 
@@ -680,6 +702,22 @@ export default function CalendarBreakdownView({
                     }`}>
                       {tot ? formatCurrency(tot, { compact: true }) : <span className="text-gray-300">—</span>}
                     </td>
+                    {hasBudgetData && (() => {
+                      const bgt = budgetRowTot(row.key)
+                      const variance = tot - bgt
+                      const varColor = variance > 0 ? '#C0392B' : variance < 0 ? '#3D9970' : '#6B7384'
+                      const fwCls = isTop ? 'font-bold' : isMid ? 'font-semibold' : 'font-medium'
+                      return <>
+                        <td className={`${cc} border-l border-gray-200 ${fwCls} text-gray-600`}>
+                          {bgt ? formatCurrency(bgt, { compact: true }) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className={`${cc} border-l border-gray-200 ${fwCls}`} style={{color: bgt ? varColor : '#D1D5DB'}}>
+                          {bgt
+                            ? `${variance >= 0 ? '+' : ''}${formatCurrency(variance, { compact: true })}`
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </>
+                    })()}
                   </tr>
                 )
 
@@ -728,6 +766,10 @@ export default function CalendarBreakdownView({
                       <td className={`${cct} border-l border-gray-200 text-gray-600`}>
                         {formatCurrency(t.amount, { compact: true })}
                       </td>
+                      {hasBudgetData && <>
+                        <td className={`${cct} border-l border-gray-200`}/>
+                        <td className={`${cct} border-l border-gray-200`}/>
+                      </>}
                     </tr>
                   )
                 })

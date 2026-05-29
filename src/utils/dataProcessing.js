@@ -154,9 +154,10 @@ export function buildChartSeries(
     cur.setMonth(cur.getMonth() + 1)
   }
 
-  // Monthly budget total (for the given category filter and depts)
+  // Monthly budget total (expense rows only — income budget would distort the spend chart)
   const relevantBudget = budgetFlat.filter(b => {
     if (b.scenario !== scenario) return false
+    if (b.record_type === 'income') return false
     if (categoryFilter && b.category !== categoryFilter) return false
     if (depts && depts.length > 0 && !depts.includes(b.department)) return false
     return true
@@ -279,9 +280,12 @@ export function getTopVendors(actuals, categoryFilter, excluded = [], n = 3) {
 export function calcBriefingSummary(actuals, budgetFlat, scenario, startDate, endDate, excluded, depts = null) {
   const filtered = filterActualsByRange(actuals, startDate, endDate, depts)
     .filter(t => !excluded.includes(t.category))
+    .filter(t => t.record_type !== 'income')   // expense-only — income is not a team spend
 
-  const totalActual = filtered.reduce((s, t) => s + t.amount, 0)
-  const budgetByCat = calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, depts)
+  const totalActual = filtered.reduce((s, t) => s + Math.abs(t.amount || 0), 0)
+  // Pre-filter to expense budget only so income budget lines don't distort the total
+  const expenseBudget = budgetFlat.filter(b => b.record_type !== 'income')
+  const budgetByCat = calcBudgetByCategory(expenseBudget, scenario, startDate, endDate, depts)
   const totalBudget = Object.entries(budgetByCat)
     .filter(([cat]) => !excluded.includes(cat))
     .reduce((s, [, v]) => s + v, 0)
@@ -344,8 +348,12 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
 
   function getBudget(g, field, parentBudget, parentActual) {
     if (field === 'category') return budgetByCat[g.key] || 0
-    if (parentActual > 0)     return parentBudget * (g.total / parentActual)
-    return 0
+    // Proportional allocation: only valid when there IS a parent budget to proportion from
+    if (parentActual > 0 && parentBudget > 0) return parentBudget * (g.total / parentActual)
+    // No parent budget (e.g. department/vendor/account at depth 0) — sum the category
+    // budgets for every category represented in this group's transactions
+    const cats = new Set((g.items || []).map(t => t.category).filter(Boolean))
+    return [...cats].reduce((s, cat) => s + (budgetByCat[cat] || 0), 0)
   }
 
   function sortGroups(groups, field, parentBudget, parentActual) {
@@ -394,7 +402,11 @@ export function buildVisibleRows(actuals, drillOrder, openPath, budgetByCat, sor
       // No hardcoding by field type. If budget data exists at any drill level it
       // shows automatically; if budget is zero/missing the UI shows '—'.
       const budgetIsReal = budget > 0
-      result.push({ type: 'group', field, value: g.key, actual: g.total, budget, budgetIsReal, depth, isExpanded, isDimmed, items: g.items })
+      // budgetMissing: category-level row where no budget row exists in the selected range
+      // (vs budget = 0, which could mean an allocated-zero budget). Lets the UI show
+      // "Unbudgeted" instead of "—" so users can distinguish missing data from intentional $0.
+      const budgetMissing = field === 'category' && !(g.key in budgetByCat)
+      result.push({ type: 'group', field, value: g.key, actual: g.total, budget, budgetIsReal, budgetMissing, depth, isExpanded, isDimmed, items: g.items })
 
       if (isExpanded) {
         process(g.items, depth + 1, budget, g.total)

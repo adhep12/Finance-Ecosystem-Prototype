@@ -14,11 +14,19 @@ const noopClient = {
     select:  () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }),
     insert:  () => Promise.resolve({ data: [], error: null }),
     update:  () => ({ eq: () => ({ eq: () => ({ select: () => Promise.resolve({ data: [], error: null }) }) }) }),
+    delete:  () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) }),
     eq:      function(){ return this },
     order:   function(){ return this },
     limit:   function(){ return this },
     single:  () => Promise.resolve({ data: null, error: null }),
   }),
+  storage: {
+    from: () => ({
+      upload:       () => Promise.resolve({ data: null, error: { message: 'Supabase not configured' } }),
+      remove:       () => Promise.resolve({ data: null, error: null }),
+      getPublicUrl: () => ({ data: { publicUrl: null } }),
+    }),
+  },
   channel: () => ({ on: () => ({ subscribe: () => {} }) }),
   removeChannel: () => {},
 }

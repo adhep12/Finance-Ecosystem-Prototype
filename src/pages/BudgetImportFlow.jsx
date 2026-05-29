@@ -24,6 +24,7 @@ import {
 import { supabase, ORG_ID } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 import LastImportSummary from '../components/LastImportSummary'
+import PeriodMultiPicker from '../components/PeriodMultiPicker'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -33,22 +34,26 @@ const MODES = [
   {
     id: 'append',
     label: 'Append',
+    icon: '＋',
     desc: 'Add budget rows on top of existing data. Duplicate period/scenario/dept combinations are left as-is.',
   },
   {
     id: 'replace_full',
-    label: 'Replace — Full',
+    label: 'Replace — All',
+    icon: '↻',
     desc: 'Wipes ALL budget data for every scenario and loads only what\'s in this file.',
     warn: true,
   },
   {
     id: 'replace_period',
     label: 'Replace — Period',
+    icon: '⊘',
     desc: 'Wipes budget rows for one specific calendar month and replaces with this file. Use after mid-year revisions.',
   },
   {
     id: 'replace_scenario',
     label: 'Replace — Scenario',
+    icon: '↺',
     desc: 'Wipes all rows for one named scenario and replaces with this file. Safe way to update a single budget version.',
   },
 ]
@@ -394,8 +399,8 @@ export default function BudgetImportFlow() {
 
   // Mode step
   const [mode,           setMode]           = useState('replace_scenario')
-  const [replacePeriod,  setReplacePeriod]  = useState('')
-  const [replaceScenario,setReplaceScenario]= useState('')
+  const [replacePeriods,  setReplacePeriods]  = useState([])
+  const [replaceScenario, setReplaceScenario] = useState('')
 
   // Upload + mapping step
   const [rawFile,       setRawFile]       = useState(null)
@@ -553,10 +558,10 @@ export default function BudgetImportFlow() {
         await supabase.from('budgets')
           .update({ deleted: true, updated_at: new Date().toISOString() })
           .eq('org_id', ORG_ID).eq('deleted', false)
-      } else if (mode === 'replace_period' && replacePeriod) {
+      } else if (mode === 'replace_period' && replacePeriods.length > 0) {
         await supabase.from('budgets')
           .update({ deleted: true, updated_at: new Date().toISOString() })
-          .eq('org_id', ORG_ID).eq('period', replacePeriod).eq('deleted', false)
+          .eq('org_id', ORG_ID).in('period', replacePeriods).eq('deleted', false)
       } else if (mode === 'replace_scenario' && replaceScenario) {
         await supabase.from('budgets')
           .update({ deleted: true, updated_at: new Date().toISOString() })
@@ -689,7 +694,7 @@ export default function BudgetImportFlow() {
     setValidation(null); setAcctRes({}); setDeptRes({})
     setNewAcctForms({}); setNewDeptForms({})
     setImportResult(null); setImportError(null)
-    setReplacePeriod(''); setReplaceScenario('')
+    setReplacePeriods([]); setReplaceScenario('')
   }
 
   function downloadErrorReport(errorRows) {
@@ -746,24 +751,26 @@ export default function BudgetImportFlow() {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Import Mode</label>
             {MODES.map(m => (
               <button key={m.id} onClick={() => setMode(m.id)}
-                className={`w-full text-left p-4 border-2 rounded-xl transition-colors
+                className={`w-full text-left p-4 border-2 rounded-xl transition-colors flex items-start gap-3
                   ${mode === m.id ? (m.warn ? 'border-amber-500 bg-amber-50' : 'border-teal-500 bg-teal-50') : 'border-gray-200 hover:border-gray-300'}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-sm font-semibold ${mode === m.id ? (m.warn ? 'text-amber-800' : 'text-teal-800') : 'text-gray-800'}`}>{m.label}</span>
-                  {m.warn && <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Destructive</span>}
-                  {mode === m.id && <Check size={14} className="ml-auto text-teal-600"/>}
+                <span className="text-2xl leading-none mt-0.5 flex-shrink-0">{m.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-sm font-semibold ${mode === m.id ? (m.warn ? 'text-amber-800' : 'text-teal-800') : 'text-gray-800'}`}>{m.label}</span>
+                    {m.warn && <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Destructive</span>}
+                    {mode === m.id && <Check size={14} className={`ml-auto ${m.warn ? 'text-amber-600' : 'text-teal-600'}`}/>}
+                  </div>
+                  <p className="text-xs text-gray-500">{m.desc}</p>
                 </div>
-                <p className="text-xs text-gray-500">{m.desc}</p>
               </button>
             ))}
           </div>
 
           {mode === 'replace_period' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Period to replace <span className="text-red-400">*</span></label>
-              <input type="month" value={replacePeriod} onChange={e => setReplacePeriod(e.target.value)}
-                className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"/>
-              <p className="text-xs text-gray-400 mt-1">All budget rows in this calendar month will be soft-deleted.</p>
+            <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Period(s) to replace <span className="text-red-400">*</span></label>
+              <p className="text-xs text-gray-400">Select one or more months. All budget rows in those months will be soft-deleted before import.</p>
+              <PeriodMultiPicker value={replacePeriods} onChange={setReplacePeriods}/>
             </div>
           )}
           {mode === 'replace_scenario' && (
@@ -806,7 +813,7 @@ export default function BudgetImportFlow() {
 
           <button
             onClick={() => setStep('upload')}
-            disabled={(mode === 'replace_period' && !replacePeriod) || (mode === 'replace_scenario' && !replaceScenario)}
+            disabled={(mode === 'replace_period' && replacePeriods.length === 0) || (mode === 'replace_scenario' && !replaceScenario)}
             className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-40 transition-colors">
             Next: Upload File <ArrowRight size={14}/>
           </button>

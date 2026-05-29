@@ -285,12 +285,14 @@ function TxCommentModal({ transaction: t, onClose }) {
     if (!text.trim() || !author.trim()) return
     addComment({
       author,
-      avatar:   author.charAt(0).toUpperCase(),
+      avatar:            author.charAt(0).toUpperCase(),
       type,
-      page:     'breakdown',
+      page:              'breakdown',
+      source_dashboard:  'Content Team',
+      source_page:       'Transactions',
       text,
-      category: t.category,
-      status:   'open',
+      category:          t.category,
+      status:            'open',
       anchor: {
         type: 'tx',
         txRef: {
@@ -897,12 +899,11 @@ export default function TransactionsPage() {
                     { col: 'dept',        label: 'Department'  },
                     { col: 'cat',         label: 'Category'    },
                     { col: 'scenario',    label: 'Scenario'    },
-                    { col: 'amount',      label: 'Amount',      right: true },
+                    { col: 'amount',      label: 'Amount' },
                     { col: 'period_type', label: 'Period Type' },
                   ].map(({ col, label, right }) => (
                     <th key={col} onClick={() => { toggleBudgetSort(col); setBudgetPage(1) }}
-                      className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none whitespace-nowrap
-                        ${right ? 'text-right' : 'text-left'} ${budgetSortCol === col ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>
+                      className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest cursor-pointer select-none whitespace-nowrap text-left ${budgetSortCol === col ? 'bg-gray-700' : 'hover:bg-gray-800'}`}>
                       <span className={`inline-flex items-center gap-1 ${right ? 'justify-end' : ''}`}>
                         {label}
                         {budgetSortCol === col

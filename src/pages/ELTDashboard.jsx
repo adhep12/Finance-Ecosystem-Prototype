@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   ResponsiveContainer, LineChart, Line, AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine,
 } from 'recharts'
 import {
   ChevronDown, Pencil, Plus, X, Check, ChevronRight,
@@ -13,25 +13,33 @@ import {
   Download, Calendar, Trash2, Save
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useChartPreferences } from '../context/ChartPreferencesContext'
 import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
+import CommentPinFAB from '../components/CommentPinFAB'
+import ContextNote from '../components/ContextNote'
 import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
+import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
+import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROLLING_QUOTES = [
-  { text: "Revenue is vanity, profit is sanity, cash is king.", author: "Traditional" },
-  { text: "Not everything that counts can be counted, and not everything that can be counted counts.", author: "William Bruce Cameron" },
-  { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
-  { text: "In God we trust. All others must bring data.", author: "W. Edwards Deming" },
-  { text: "Plans are nothing. Planning is everything.", author: "Dwight D. Eisenhower" },
-  { text: "Without data, you're just another person with an opinion.", author: "W. Edwards Deming" },
-  { text: "Give me six hours to chop down a tree and I will spend the first four sharpening the axe.", author: "Abraham Lincoln" },
-  { text: "Budgets are not merely affairs of arithmetic, but in a thousand ways go to the root of prosperity.", author: "William Gladstone" },
-  { text: "The goal is not to be perfect at the end. The goal is to be better today.", author: "Simon Sinek" },
+  { text: "For which of you, desiring to build a tower, does not first sit down and count the cost, whether he has enough to complete it?", author: "Luke 14:28" },
+  { text: "Dishonest money dwindles away, but whoever gathers money little by little makes it grow.", author: "Proverbs 13:11" },
+  { text: "The plans of the diligent lead to profit as surely as haste leads to poverty.", author: "Proverbs 21:5" },
+  { text: "Commit to the Lord whatever you do, and he will establish your plans.", author: "Proverbs 16:3" },
+  { text: "A good man leaves an inheritance to his children's children, but the sinner's wealth is laid up for the righteous.", author: "Proverbs 13:22" },
+  { text: "Honor the Lord with your wealth and with the firstfruits of all your produce.", author: "Proverbs 3:9" },
+  { text: "For where your treasure is, there your heart will be also.", author: "Matthew 6:21" },
+  { text: "Suppose one of you wants to build a tower. Won't you first sit down and estimate the cost to see if you have enough money to complete it?", author: "Luke 14:28" },
+  { text: "Be sure you know the condition of your flocks, give careful attention to your herds.", author: "Proverbs 27:23" },
+  { text: "The heart of the discerning acquires knowledge, for the ears of the wise seek it out.", author: "Proverbs 18:15" },
+  { text: "Many are the plans in a person's heart, but it is the Lord's purpose that prevails.", author: "Proverbs 19:21" },
+  { text: "Do not store up for yourselves treasures on earth… but store up for yourselves treasures in heaven.", author: "Matthew 6:19–20" },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -684,20 +692,8 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
             ))}
           </div>
         </nav>
-        <div className="relative flex-shrink-0" ref={pickerRef}>
-          <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
-            <span>{presetLabel(dateRange.preset)}</span>
-            <ChevronDown size={12} className="text-gray-400"/>
-          </button>
-          {showDatePicker && (
-            <div className="absolute right-0 top-full mt-2 z-50">
-              <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
-            </div>
-          )}
-        </div>
         {/* Budget Scenario Selector */}
-        <div className="relative flex-shrink-0 ml-2" ref={budgetPickerRef}>
+        <div className="relative flex-shrink-0" ref={budgetPickerRef}>
           <button onClick={() => setShowBudgetPicker(v=>!v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
             <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET SCENARIO</span>
@@ -719,6 +715,19 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
                   ))
                 }
               </div>
+            </div>
+          )}
+        </div>
+        {/* Reporting Period — far right, matching all other pages */}
+        <div className="relative flex-shrink-0 ml-2" ref={pickerRef}>
+          <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
+            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
+            <span>{presetLabel(dateRange.preset)}</span>
+            <ChevronDown size={12} className="text-gray-400"/>
+          </button>
+          {showDatePicker && (
+            <div className="absolute right-0 top-full mt-2 z-50">
+              <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
             </div>
           )}
         </div>
@@ -752,26 +761,33 @@ function TrendBadge({ delta, inverse=false, label }) {
 // KPI Card (dashboard)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2Label, cmp2Value, cmp2Delta, cmp2Pct, inverse=false, onRemove, editMode }) {
+function KPICard({ title, value, cmp1Label, cmp1Value, cmp1Delta, cmp1Pct, cmp2Label, cmp2Value, cmp2Delta, cmp2Pct, inverse=false, onRemove, editMode, topBorderColor=null }) {
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative rounded-xl p-6 flex-1 min-w-[220px]"
+      style={{
+        backgroundColor: '#FFFFFF',
+        border: '1px solid rgba(0,0,0,0.06)',
+        borderTopWidth: topBorderColor ? '3px' : '1px',
+        borderTopColor: topBorderColor || 'rgba(0,0,0,0.06)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)',
+      }}>
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{title}</div>
-      <div className="text-3xl font-bold text-gray-900 mb-4">{value}</div>
+      <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{color:'#6B7384'}}>{title}</div>
+      <div className="font-bold text-gray-900 mb-4" style={{fontSize:'36px'}}>{value}</div>
       <div className="space-y-2.5">
         {cmp1Label && <div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp1Label}</div>
+          <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color:'#9CA3AF'}}>{cmp1Label}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <TrendBadge delta={cmp1Delta} inverse={inverse} label={cmp1Pct}/>
-            <span className={`text-sm font-semibold ${varColor(cmp1Delta,inverse)}`}>{cmp1Delta>0?'+':''}{formatCurrency(cmp1Delta)}</span>
+            <span className="text-sm font-semibold" style={{color: (inverse ? cmp1Delta<=0 : cmp1Delta>=0) ? STATUS_COLORS.positive : STATUS_COLORS.negative}}>{cmp1Delta>0?'+':''}{formatCurrency(cmp1Delta)}</span>
             <span className="text-xs text-gray-400">vs {formatCurrency(cmp1Value)}</span>
           </div>
         </div>}
         {cmp2Label && <div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">{cmp2Label}</div>
+          <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color:'#9CA3AF'}}>{cmp2Label}</div>
           <div className="flex items-center gap-2 flex-wrap">
             <TrendBadge delta={cmp2Delta} inverse={inverse} label={cmp2Pct}/>
-            <span className={`text-sm font-semibold ${varColor(cmp2Delta,inverse)}`}>{cmp2Delta>0?'+':''}{formatCurrency(cmp2Delta)}</span>
+            <span className="text-sm font-semibold" style={{color: (inverse ? cmp2Delta<=0 : cmp2Delta>=0) ? STATUS_COLORS.positive : STATUS_COLORS.negative}}>{cmp2Delta>0?'+':''}{formatCurrency(cmp2Delta)}</span>
             <span className="text-xs text-gray-400">vs {formatCurrency(cmp2Value)}</span>
           </div>
         </div>}
@@ -857,7 +873,7 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
   }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative bg-white rounded-xl p-6 flex-1 min-w-[220px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       {editMode && (
         <div className="absolute top-2 right-2 flex gap-1">
           <button onClick={()=>setEditing(true)} className="w-5 h-5 rounded-full bg-gray-100 hover:bg-blue-100 text-gray-400 hover:text-blue-500 flex items-center justify-center transition-colors" title="Edit card">
@@ -886,63 +902,113 @@ function ManualKPICard({ card, editMode, onRemove, onEdit }) {
 
 function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2Pct, cmp2Value, breakdown, editMode, onRemove }) {
   const [showBreakdown, setShowBreakdown] = useState(false)
-  function deltaColor(d) { return d > 0 ? '#6ECF8C' : d < 0 ? '#F0876A' : 'rgba(255,255,255,0.5)' }
+  const isPositive = value >= 0
+  const accentColor  = isPositive ? '#4CAF82' : '#FF6B6B'
+  const borderColor  = isPositive ? STATUS_COLORS.positive : STATUS_COLORS.negative
+  const badgeLabel   = isPositive ? 'Surplus' : 'Deficit'
+  const badgeBg      = isPositive ? 'rgba(61,153,112,0.25)'  : 'rgba(192,57,43,0.25)'
+  const badgeBorder  = isPositive ? 'rgba(61,153,112,0.4)'   : 'rgba(192,57,43,0.4)'
+  const shadowColor  = isPositive ? 'rgba(61,153,112,0.15)'  : 'rgba(192,57,43,0.15)'
+  function deltaColor(d) { return d > 0 ? '#4CAF82' : d < 0 ? '#FF6B6B' : 'rgba(255,255,255,0.4)' }
+
   return (
-    <div className="relative rounded-2xl p-5 flex-1 min-w-[220px]"
-      style={{backgroundColor:'var(--ink-900)',border:'1px solid var(--ink-800)'}}>
+    <div className="relative w-full rounded-xl"
+      style={{
+        backgroundColor: '#1a1f2e',
+        borderLeft: `5px solid ${borderColor}`,
+        border: `1px solid rgba(255,255,255,0.06)`,
+        borderLeftWidth: '5px',
+        borderLeftColor: borderColor,
+        boxShadow: `0 4px 20px ${shadowColor}`,
+        padding: '28px 32px',
+      }}
+      onMouseEnter={()=>setShowBreakdown(true)}
+      onMouseLeave={()=>setShowBreakdown(false)}>
       {editMode && onRemove && (
-        <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
+        <button onClick={onRemove} className="absolute top-3 right-3 w-5 h-5 rounded-full flex items-center justify-center transition-colors"
           style={{backgroundColor:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.4)'}}>
           <X size={11}/>
         </button>
       )}
-      {/* Label + info */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <div className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--color-primary)'}}>
-          Net Position YTD
-        </div>
-        <div className="relative" onMouseEnter={()=>setShowBreakdown(true)} onMouseLeave={()=>setShowBreakdown(false)}>
-          <Info size={12} style={{color:'rgba(255,255,255,0.25)'}} className="cursor-help"/>
-          {showBreakdown && (
-            <div className="absolute left-0 top-5 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-64">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Breakdown</div>
-              {breakdown.lines.map((line,i) => (
-                <div key={i} className={`flex justify-between py-1 ${line.isTotal?'border-t border-gray-200 mt-1 pt-2 font-semibold':''} ${line.isSubtract?'text-red-600':'text-gray-700'}`}>
-                  <span className="text-xs">{line.label}</span>
-                  <span className="text-xs font-medium tabular-nums">{line.isSubtract?'−':''}{formatCurrency(line.value)}</span>
+
+      {/* Breakdown popup — anchored top-right of card, does not extend below */}
+      {showBreakdown && (() => {
+        const incomeLines = breakdown.lines.filter(l => !l.isSubtract && !l.isTotal)
+        const totalIncome = breakdown.lines.find(l => l.isTotal && !l.isSubtract)
+        const expenses    = breakdown.lines.find(l => l.isSubtract)
+        return (
+          <div className="absolute bottom-0 right-12 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 w-72">
+            {/* Income section */}
+            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Income</div>
+            <div className="space-y-1 mb-2">
+              {incomeLines.map((l,i) => (
+                <div key={i} className="flex justify-between">
+                  <span className="text-xs text-gray-500">{l.label}</span>
+                  <span className="text-xs text-gray-700 tabular-nums font-medium">{formatCurrency(l.value)}</span>
                 </div>
               ))}
-              <div className="flex justify-between py-1.5 border-t-2 border-gray-800 mt-2 pt-2">
-                <span className="text-xs font-bold text-gray-900">Net Position</span>
-                <span className="text-xs font-bold text-gray-900 tabular-nums">{formatCurrency(value)}</span>
-              </div>
             </div>
-          )}
+            {totalIncome && (
+              <div className="flex justify-between py-1.5 border-t border-gray-200 mb-3">
+                <span className="text-xs font-semibold text-gray-800">Total Income</span>
+                <span className="text-xs font-semibold text-gray-800 tabular-nums">{formatCurrency(totalIncome.value)}</span>
+              </div>
+            )}
+            {/* Expenses section */}
+            {expenses && (
+              <>
+                <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-2">Expenses</div>
+                <div className="flex justify-between mb-3">
+                  <span className="text-xs text-gray-500">Total Expenses</span>
+                  <span className="text-xs text-red-600 tabular-nums font-medium">− {formatCurrency(expenses.value)}</span>
+                </div>
+              </>
+            )}
+            {/* Net Position result */}
+            <div className="flex justify-between pt-2.5 border-t-2 border-gray-900">
+              <span className="text-xs font-bold text-gray-900">= Net Position</span>
+              <span className={`text-xs font-bold tabular-nums ${value >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(value)}</span>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Header + big value */}
+      <div className="cursor-default">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>Net Position YTD</div>
+            <Info size={12} style={{color:'rgba(255,255,255,0.2)'}}/>
+          </div>
+          <span className="text-[11px] font-bold px-3 py-1 rounded-full"
+            style={{backgroundColor: badgeBg, color: accentColor, border: `1px solid ${badgeBorder}`}}>
+            {badgeLabel}
+          </span>
         </div>
+
+        {/* Big value */}
+        <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
       </div>
-      {/* Big value */}
-      <div className="text-3xl font-bold mb-4" style={{color:'#FFFFFF'}}>{formatCurrency(value)}</div>
+
       {/* Comparisons */}
-      <div className="space-y-2.5">
+      <div className="flex gap-8 flex-wrap">
         {[
           {label:'vs Forecast',   delta:cmp1Delta, pct:cmp1Pct, base:cmp1Value},
           {label:'vs Prior Year', delta:cmp2Delta, pct:cmp2Pct, base:cmp2Value},
         ].map(({label,delta,pct,base})=>(
           <div key={label}>
-            <div className="text-[10px] uppercase tracking-wider font-semibold mb-1"
-              style={{color:'rgba(255,255,255,0.45)'}}>{label}</div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold mb-1" style={{color:'#6B7384'}}>{label}</div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-                style={{backgroundColor:'rgba(255,255,255,0.10)',color:deltaColor(delta)}}>
+                style={{backgroundColor:'rgba(255,255,255,0.08)',color:deltaColor(delta)}}>
                 {delta>0?<TrendingUp size={11}/>:delta<0?<TrendingDown size={11}/>:<Minus size={11}/>}
                 {pct}
               </span>
               <span className="text-sm font-semibold" style={{color:deltaColor(delta)}}>
                 {delta>0?'+':''}{formatCurrency(delta)}
               </span>
-              <span className="text-xs" style={{color:'rgba(255,255,255,0.3)'}}>
-                vs {formatCurrency(base)}
-              </span>
+              <span className="text-xs" style={{color:'rgba(255,255,255,0.3)'}}>vs {formatCurrency(base)}</span>
             </div>
           </div>
         ))}
@@ -962,7 +1028,7 @@ function MonthlyKPICard({ title, actual, budget, priorYear, inverse=false, editM
   const p2 = priorYear > 0 ? formatPercent(d2 / priorYear * 100, { showSign: true, decimals: 1 }) : '—'
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex-1 min-w-[170px] max-w-[240px]">
+    <div className="relative bg-white rounded-xl p-4 flex-1 min-w-[170px] max-w-[240px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors">
           <X size={11}/>
@@ -1219,9 +1285,10 @@ function SectionLabel({ children, color }) {
 
 function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest" style={{color:'var(--ink-900)'}}>{title}</h2>
-      <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3 mt-8 mb-4">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] whitespace-nowrap" style={{color:'#6B7384'}}>{title}</h2>
+      <div className="flex-1 h-px" style={{backgroundColor:'rgba(0,0,0,0.08)'}}/>
+      <div className="flex items-center gap-2 flex-shrink-0">
         {editMode && showAdd && (
           <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-white" style={{backgroundColor:'var(--color-primary)'}}>
             <Plus size={11}/> Add card
@@ -1236,9 +1303,28 @@ function SectionHeader({ title, editMode, onToggleEdit, onAdd, showAdd=true }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chart Type Toggle
+// Chart Type Switcher — reads/writes ChartPreferencesContext; shows only valid types
 // ─────────────────────────────────────────────────────────────────────────────
 
+function ChartTypeSwitcher({ chartKey, allowedTypes }) {
+  const { getChartType, setChartType } = useChartPreferences()
+  const current = getChartType(chartKey)
+  if (!allowedTypes || allowedTypes.length <= 1) return null
+  return (
+    <div className="flex rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+      {allowedTypes.map(t => (
+        <button key={t} onClick={() => setChartType(chartKey, t)}
+          className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+            current === t ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+          }`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Legacy toggle — kept for TeamDetailDrawer which uses local state, not context
 function ChartTypeToggle({ type, onChange }) {
   return (
     <div className="flex items-center gap-0.5 bg-gray-100 rounded-full p-0.5">
@@ -1366,7 +1452,7 @@ function PLTable({ data, accounts = PL_ACCOUNTS, rangeLabel = 'Year-to-date', wa
   })
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl overflow-hidden" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">Profit & Loss</h2>
@@ -1435,7 +1521,7 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
   const b2 = fmtBase(sub2Base, sub2Format)
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[220px]">
+    <div className="relative bg-white rounded-xl p-6 flex-1 min-w-[220px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
       {editMode && onRemove && <button onClick={onRemove} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"><X size={11}/></button>}
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{label}</div>
       <div className="text-3xl font-bold text-gray-900 mb-4">{mainValue}</div>
@@ -1480,7 +1566,9 @@ function PatronMetricCard({ label, mainValue, sub1Label, sub1Delta, sub1Base, su
 const TOOLTIP_STYLE = { backgroundColor:'#fff', border:'1px solid var(--neutral-10)', borderRadius:'10px', fontSize:'12px', boxShadow:'0 4px 16px rgba(24,20,14,0.10)' }
 
 // Chart 1: New Supporters by Month — year-over-year comparison, live from patron_data
-function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=false, onChangeType, onRemove }) {
+function NewPatronChartCard({ patronData, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('new_supporters_by_month')
   // Build YoY dataset: x-axis = months Jan–Dec, one line per calendar year
   const chartData = useMemo(() => {
     const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -1527,14 +1615,14 @@ function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=
   }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="text-xs font-semibold text-gray-700 mb-0.5">New Supporters by Month</div>
           <div className="text-[10px] text-gray-400">Year-over-year comparison</div>
         </div>
-        {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+        <ChartTypeSwitcher chartKey="new_supporters_by_month" allowedTypes={['line','area']}/>
       </div>
       {noData
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data imported yet</div>
@@ -1547,12 +1635,15 @@ function NewPatronChartCard({ patronData, dateRange, chartType='line', editMode=
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-new-patrons-yoy" editMode={editMode}/>
     </div>
   )
 }
 
 // Chart 2: Monthly Supporter Base — recurring_patron_count by period
-function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=false, onChangeType, onRemove }) {
+function PatronBaseChartCard({ patronData, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('monthly_supporter_base')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
 
@@ -1574,14 +1665,14 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
   const common = { data: chartData, margin:{top:5,right:5,left:-20,bottom:0} }
 
   return (
-    <div className="relative bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Supporter Base</div>
           <div className="text-[10px] text-gray-400">Recurring patrons in range</div>
         </div>
-        {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+        <ChartTypeSwitcher chartKey="monthly_supporter_base" allowedTypes={['bar','line']}/>
       </div>
       {chartData.length === 0
         ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No patron data in range</div>
@@ -1594,12 +1685,15 @@ function PatronBaseChartCard({ patronData, dateRange, chartType='bar', editMode=
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-patron-base" editMode={editMode}/>
     </div>
   )
 }
 
-// Chart 3: Monthly Giving vs Budget — income actual vs budget, with cumulative toggle
-function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, chartType='line', editMode=false, onChangeType, onRemove }) {
+// Chart 3: Monthly Giving vs Budget Scenario — income actual vs budget, with cumulative toggle
+function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('monthly_giving_vs_budget')
   const [mode, setMode] = useState('monthly')
   const { startDate, endDate } = dateRange
   const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
@@ -1662,15 +1756,15 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
   }
 
   return (
-    <div className="relative bg-white rounded-2xl border border-gray-100 p-5" style={{boxShadow:'var(--shadow-sm)'}}>
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
       {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Giving vs Budget</div>
+          <div className="text-xs font-semibold text-gray-700 mb-0.5">Monthly Giving vs Budget Scenario</div>
           <div className="text-[10px] text-gray-400">Actual income vs {scenario||'budget'}</div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {editMode && <ChartTypeToggle type={chartType} onChange={onChangeType}/>}
+          <ChartTypeSwitcher chartKey="monthly_giving_vs_budget" allowedTypes={['line','area']}/>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             {['monthly','cumulative'].map(m=>(
               <button key={m} onClick={()=>setMode(m)}
@@ -1692,6 +1786,7 @@ function MonthlyGivingVsBudgetCard({ actuals, budgetFlat, scenario, dateRange, c
             }
           </ResponsiveContainer>
       }
+      <ContextNote noteId="exec-chart-giving-vs-budget" editMode={editMode}/>
     </div>
   )
 }
@@ -2241,21 +2336,34 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   // Save state
   const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
   const [saveBanner, setSaveBanner] = useState(null)   // { type: 'success'|'error', message: string }
-  const saveTimerRef  = useRef(null)
+  const saveTimerRef   = useRef(null)
   const bannerTimerRef = useRef(null)
+  // Accumulates all key-value changes since the last save so that rapid
+  // back-to-back update() calls (e.g. title + overallSummary in generateSection)
+  // are all captured in a single debounced write — avoids stale-closure loss.
+  const pendingRef = useRef({})
 
   const summary = summaries[currentMonth] || null
+
+  // Reset pending changes whenever the user switches months
+  useEffect(() => { pendingRef.current = {} }, [currentMonth])
 
   // ── Save helpers ────────────────────────────────────────────────────────────
   async function doSave(monthKey, summaryData) {
     if (!onSave || !summaryData) return
     setSaveStatus('saving')
-    const { error } = await onSave(monthKey, summaryData)
-    if (error) {
+    const result = await onSave(monthKey, summaryData)
+    if (result?.skipped) {
+      // Nothing to save yet (content is still empty) — silently revert status
+      setSaveStatus('idle')
+      return
+    }
+    if (result?.error) {
       setSaveStatus('error')
       setSaveBanner({ type: 'error', message: 'Save failed — please try again' })
     } else {
       setSaveStatus('saved')
+      pendingRef.current = {} // changes are now persisted
       const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       setSaveBanner({ type: 'success', message: `Summary saved ✓  ${ts}` })
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current)
@@ -2265,12 +2373,18 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 
   function update(key, value) {
     onUpdateSummary(currentMonth, key, value)
+    // Accumulate this change so later calls in the same tick aren't lost
+    pendingRef.current = { ...pendingRef.current, [key]: value }
     // Auto-save: debounce 2.5s after last edit
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     setSaveStatus('idle')
-    // Guard: if summary is still initialising, pull fresh from state in the closure
-    const updated = { ...(summary || {}), [key]: value }
-    saveTimerRef.current = setTimeout(() => doSave(currentMonth, updated), 2500)
+    // Merge base state with ALL pending changes to avoid stale-closure loss
+    // when update() is called multiple times before React re-renders
+    const pending = { ...pendingRef.current }
+    saveTimerRef.current = setTimeout(() => {
+      const latest = { ...(summary || {}), ...pending }
+      doSave(currentMonth, latest)
+    }, 2500)
   }
 
   function updateFinancials(cat, field, val) {
@@ -2343,8 +2457,20 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
       const parsed = parseAIResponse(raw)
 
       if (section === 'overall') {
-        update('title', parsed.headline || '')
-        update('overallSummary', parsed.narrative || '')
+        const headline = parsed.headline?.trim() || ''
+        const narrative = parsed.narrative?.trim() || ''
+        if (!headline && !narrative) throw new Error('AI returned empty headline and narrative')
+        // Batch both fields into a single pending snapshot so the debounced
+        // auto-save captures both — avoids stale-closure loss from two rapid calls
+        onUpdateSummary(currentMonth, 'title', headline)
+        onUpdateSummary(currentMonth, 'overallSummary', narrative)
+        pendingRef.current = { ...pendingRef.current, title: headline, overallSummary: narrative }
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+        setSaveStatus('idle')
+        const pending = { ...pendingRef.current }
+        saveTimerRef.current = setTimeout(() => {
+          doSave(currentMonth, { ...(summary || {}), ...pending })
+        }, 2500)
       } else if (section === 'takeaways') {
         const kts = (parsed.takeaways || []).map((t, i) => ({
           id: 'kt-ai-' + Date.now() + '-' + i,
@@ -2366,7 +2492,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
         update('monthlyActivity', parsed.monthly_activity || '')
       }
     } catch (err) {
-      setGenError(section, 'Generation failed — check your connection and try again')
+      setGenError(section, 'Summary generation failed — please try again')
       console.error('AI generation error:', err)
     } finally {
       setGen(section, false)
@@ -2871,6 +2997,281 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
           }}
           onClose={()=>setShowAddKPI(false)}/>
       )}
+
+      {/* Comment pin FAB — carries current summary month as source_period */}
+      <CommentPinFAB
+        page="elt-summary"
+        sourceDashboard="Executive"
+        sourcePage="Summary"
+        sourcePeriod={monthLabelToPeriod(currentMonth)}
+      />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin-sourced chart cards — available to add to the exec dashboard
+// ─────────────────────────────────────────────────────────────────────────────
+
+function eltPeriodLabel(ym) {
+  if (!ym) return ''
+  const [y, m] = ym.split('-')
+  return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleString('en-US', { month:'short' })
+}
+function eltFmtCompact(v) {
+  if (v == null) return '—'
+  const abs = Math.abs(v)
+  if (abs >= 1e6) return `$${(v/1e6).toFixed(1)}M`
+  if (abs >= 1e3) return `$${(v/1e3).toFixed(0)}K`
+  return `$${Math.round(v)}`
+}
+const ELT_AXIS = { fontSize:10, fill:'#9CA3AF' }
+const ELT_TIP  = { backgroundColor:'#fff', border:'1px solid #F3F4F6', borderRadius:'10px', fontSize:12, boxShadow:'0 4px 16px rgba(0,0,0,0.08)' }
+
+// Net Position by Month — bar chart (fixed type, no switcher)
+function ExecNetPositionChart({ actuals, incomeMonths, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const chartData = useMemo(() => {
+    const expRange = filterActualsByRange(actuals, startDate, endDate).filter(t => t.record_type !== 'income')
+    const expByP = {}
+    for (const t of expRange) {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null); if (!p) continue
+      expByP[p] = (expByP[p] || 0) + Math.abs(t.amount || 0)
+    }
+    const incByP = {}
+    const incRange = (incomeMonths || []).filter(m => {
+      const p = m.period || (m.date ? m.date.slice(0,7) : null)
+      return p && p >= startP && p <= endP
+    })
+    for (const m of incRange) {
+      const p = m.period || (m.date ? m.date.slice(0,7) : null); if (!p) continue
+      incByP[p] = (incByP[p] || 0) + (m.contributions + m.merch + m.other)
+    }
+    const periods = [...new Set([...Object.keys(incByP), ...Object.keys(expByP)])].filter(p => p >= startP && p <= endP).sort()
+    return periods.map(p => ({ label: eltPeriodLabel(p), net: (incByP[p]||0) - (expByP[p]||0) }))
+  }, [actuals, incomeMonths, startDate, endDate, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52} domain={[dataMin => Math.min(0, dataMin), dataMax => Math.max(0, dataMax)]}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Net']}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Net Position by Month</div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="4 4"/>
+              <Bar dataKey="net" radius={[3,3,0,0]}>
+                {chartData.map((d,i) => <Cell key={i} fill={d.net >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative}/>)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+      }
+      <ContextNote noteId="exec-chart-net-position-by-month" editMode={editMode}/>
+    </div>
+  )
+}
+
+// Cash Position — line chart (fixed type, no switcher)
+function ExecCashPositionChart({ cashData, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const chartData = useMemo(() =>
+    cashData.filter(r => r.period >= startP && r.period <= endP)
+      .sort((a,b) => a.period.localeCompare(b.period))
+      .map(r => ({ label: eltPeriodLabel(r.period), cash: r.cash_balance, floor: r.reserve_floor }))
+  , [cashData, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={(v,n) => [eltFmtCompact(v), n]}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Cash Position</div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No cash flow data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+              <Line type="monotone" dataKey="cash"  name="Cash Balance"  stroke={ORG_COLORS.primary} strokeWidth={2} dot={false} activeDot={{r:4}}/>
+              <Line type="monotone" dataKey="floor" name="Reserve Floor" stroke={STATUS_COLORS.negative} strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
+            </LineChart>
+          </ResponsiveContainer>
+      }
+      <ContextNote noteId="exec-chart-cash-position" editMode={editMode}/>
+    </div>
+  )
+}
+
+// Cash Position Above Floor — bar chart (fixed type, no switcher)
+function ExecCashAboveFloorChart({ cashData, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const chartData = useMemo(() =>
+    cashData.filter(r => r.period >= startP && r.period <= endP)
+      .sort((a,b) => a.period.localeCompare(b.period))
+      .map(r => ({ label: eltPeriodLabel(r.period), above: Math.max(0, (r.cash_balance||0) - (r.reserve_floor||0)) }))
+  , [cashData, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={v=>[eltFmtCompact(v),'Above Floor']}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Cash Position Above Floor</div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No cash flow data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+              {grid}{xa}{ya}{tip}
+              <Bar dataKey="above" name="Above Floor" fill={STATUS_COLORS.positive} radius={[3,3,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+      }
+      <ContextNote noteId="exec-chart-cash-above-floor" editMode={editMode}/>
+    </div>
+  )
+}
+
+// Team Spend Comparison — bar or line (from context)
+function ExecTeamSpendChart({ actuals, dateRange, editMode=false, onRemove }) {
+  const { getChartType } = useChartPreferences()
+  const chartType = getChartType('team_spend_comparison')
+  const { startDate, endDate } = dateRange
+  const startP = startDate.slice(0,7), endP = endDate.slice(0,7)
+  const { chartData, teams } = useMemo(() => {
+    const expRange = filterActualsByRange(actuals, startDate, endDate).filter(t => t.record_type !== 'income')
+    const byPT = {}, teamSet = new Set()
+    for (const t of expRange) {
+      const p = t.period || (t.date ? t.date.slice(0,7) : null); if (!p || p < startP || p > endP) continue
+      const team = t.team_name || 'Unknown'
+      teamSet.add(team)
+      if (!byPT[p]) byPT[p] = {}
+      byPT[p][team] = (byPT[p][team] || 0) + Math.abs(t.amount || 0)
+    }
+    const teams = [...teamSet].sort()
+    const data = Object.entries(byPT).sort(([a],[b]) => a.localeCompare(b)).map(([p,tm]) => ({ label:eltPeriodLabel(p), ...tm }))
+    return { chartData:data, teams }
+  }, [actuals, startDate, endDate, startP, endP])
+  const grid = <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false}/>
+  const xa   = <XAxis dataKey="label" tick={ELT_AXIS} axisLine={false} tickLine={false}/>
+  const ya   = <YAxis tick={ELT_AXIS} tickFormatter={eltFmtCompact} axisLine={false} tickLine={false} width={52}/>
+  const tip  = <Tooltip contentStyle={ELT_TIP} formatter={(v,n) => [eltFmtCompact(v), n]}/>
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs font-semibold text-gray-700">Team Spend Comparison</div>
+        <ChartTypeSwitcher chartKey="team_spend_comparison" allowedTypes={['bar','line']}/>
+      </div>
+      {chartData.length === 0
+        ? <div className="flex items-center justify-center h-44 text-gray-300 text-xs">No data in range</div>
+        : <ResponsiveContainer width="100%" height={200}>
+            {chartType === 'line'
+              ? <LineChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                  {grid}{xa}{ya}{tip}
+                  <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                  {teams.map(t => <Line key={t} type="monotone" dataKey={t} name={t} stroke={getTeamColor(t)} strokeWidth={2} dot={false} activeDot={{r:3}}/>)}
+                </LineChart>
+              : <BarChart data={chartData} margin={{top:4,right:4,left:0,bottom:0}}>
+                  {grid}{xa}{ya}{tip}
+                  <Legend wrapperStyle={{fontSize:10,paddingTop:6}}/>
+                  {teams.map((t,i) => <Bar key={t} dataKey={t} name={t} stackId="a" fill={getTeamColor(t)} radius={i===teams.length-1?[3,3,0,0]:[0,0,0,0]}/>)}
+                </BarChart>
+            }
+          </ResponsiveContainer>
+      }
+      <ContextNote noteId="exec-chart-team-spend" editMode={editMode}/>
+    </div>
+  )
+}
+
+// Budget Watch Areas — progress bars (no chart type, fixed)
+function ExecBudgetWatchChart({ actuals, budgetFlat, scenario, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const inRange    = useMemo(() => filterActualsByRange(actuals, startDate, endDate), [actuals, startDate, endDate])
+  const budgetByCat= useMemo(() => calcBudgetByCategory(budgetFlat, scenario, startDate, endDate), [budgetFlat, scenario, startDate, endDate])
+  const byCat      = useMemo(() => inRange.reduce((acc,t) => { acc[t.category] = (acc[t.category]||0) + t.amount; return acc }, {}), [inRange])
+  const alerts     = useMemo(() =>
+    Object.entries(budgetByCat)
+      .map(([cat,bud]) => ({ cat, bud, actual:byCat[cat]||0, pct: bud > 0 ? ((byCat[cat]||0)/bud*100) : 0 }))
+      .filter(r => r.pct >= 80).sort((a,b) => b.pct - a.pct).slice(0,5)
+  , [budgetByCat, byCat])
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Budget Watch Areas</div>
+      {alerts.length === 0
+        ? <div className="text-xs text-gray-400 text-center py-4">All categories under 80% of budget</div>
+        : alerts.map(({cat,bud,actual,pct}) => {
+            const c = pct > 100 ? STATUS_COLORS.negative : STATUS_COLORS.warning
+            return (
+              <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor:c}}/>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
+                  <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                    <div className="h-1 rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:c}}/>
+                  </div>
+                </div>
+                <div className="text-xs font-semibold flex-shrink-0" style={{color:c}}>{Math.round(pct)}%</div>
+              </div>
+            )
+          })
+      }
+      <ContextNote noteId="exec-chart-budget-watch" editMode={editMode}/>
+    </div>
+  )
+}
+
+// Patron Watch Areas — text signals (no chart type, fixed)
+function ExecPatronWatchChart({ patronData, dateRange, editMode=false, onRemove }) {
+  const { startDate, endDate } = dateRange
+  const startM = startDate.slice(0,7), endM = endDate.slice(0,7)
+  const signals = useMemo(() => {
+    const inRange = patronData.filter(p => p.period >= startM && p.period <= endM).sort((a,b) => a.period.localeCompare(b.period))
+    if (inRange.length < 2) return []
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    function mLabel(period) { const [y,m] = period.split('-'); return MN[parseInt(m)-1]+' '+y }
+    const alerts = []
+    let decline = 0, decMonths = []
+    for (let i = 1; i < inRange.length; i++) {
+      const prev = inRange[i-1].new_patrons_total||0, curr = inRange[i].new_patrons_total||0
+      if (curr < prev) { decline++; if (decline===1) decMonths=[inRange[i-1].period,inRange[i].period]; else decMonths[1]=inRange[i].period }
+      else { decline=0; decMonths=[] }
+      if (decline >= 2) { alerts.push({ level:'warn', text:`New supporters declining: ${mLabel(decMonths[0])} → ${mLabel(decMonths[1])}` }); break }
+    }
+    const last = inRange[inRange.length-1], prev2 = inRange[inRange.length-2]
+    if (last && prev2) {
+      const growth = prev2.recurring_patron_count > 0 ? ((last.recurring_patron_count - prev2.recurring_patron_count)/prev2.recurring_patron_count*100) : 0
+      if (growth < -2) alerts.push({ level:'warn', text:`Recurring base down ${Math.abs(growth).toFixed(1)}% in ${mLabel(last.period)}` })
+      else if (growth > 5) alerts.push({ level:'ok', text:`Strong growth: +${growth.toFixed(1)}% recurring supporters in ${mLabel(last.period)}` })
+    }
+    return alerts
+  }, [patronData, startM, endM])
+  return (
+    <div className="relative bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',marginBottom:'16px'}}>
+      {editMode && <button onClick={onRemove} className="absolute top-2 right-2 z-10 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
+      <div className="text-xs font-semibold text-gray-700 mb-3">Patron Watch Areas</div>
+      {patronData.length === 0
+        ? <div className="text-xs text-gray-400 text-center py-4">No patron data imported</div>
+        : signals.length === 0
+          ? <div className="text-xs text-gray-400 text-center py-4">All signals healthy</div>
+          : signals.map((s,i) => (
+              <div key={i} className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
+                <div className="w-2 h-2 rounded-full mt-1 flex-shrink-0" style={{backgroundColor: s.level==='ok' ? STATUS_COLORS.positive : STATUS_COLORS.warning}}/>
+                <p className="text-xs text-gray-700">{s.text}</p>
+              </div>
+            ))
+      }
+      <ContextNote noteId="exec-chart-patron-watch" editMode={editMode}/>
     </div>
   )
 }
@@ -2882,18 +3283,49 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
 const DEFAULT_KPI_CARDS      = ['giving','expenses','net-position','cash']
 const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 
-// Chart catalog — preset charts that can be added / removed
+// Chart catalog — full library: exec defaults + all admin charts
 const CHART_CATALOG = [
-  { id:'new-patrons-yoy', label:'New Supporters YoY',     description:'Year-over-year comparison of new supporters by month', defaultType:'line' },
-  { id:'patron-base',     label:'Monthly Supporter Base', description:'Recurring patron count across the selected date range', defaultType:'bar' },
-  { id:'giving-vs-budget',label:'Giving vs Budget',       description:'Monthly income actuals vs budget/scenario with cumulative toggle', defaultType:'line' },
+  // ── Exec defaults ──
+  { id:'new-patrons-yoy',        label:'New Supporters by Month',          description:'Year-over-year comparison of new supporters by month',          isDefault:true  },
+  { id:'patron-base',            label:'Monthly Supporter Base',           description:'Recurring patron count across the selected date range',          isDefault:true  },
+  { id:'giving-vs-budget',       label:'Monthly Giving vs Budget Scenario',description:'Monthly income actuals vs budget/scenario with cumulative toggle', isDefault:true },
+  // ── From admin ──
+  { id:'net-position-by-month',  label:'Net Position by Month',            description:'Monthly net position (income minus expenses) as a bar chart'               },
+  { id:'cash-position',          label:'Cash Position',                    description:'Cash balance vs reserve floor over time'                                    },
+  { id:'cash-position-above-floor',label:'Cash Position Above Floor',      description:'Monthly gap between cash balance and reserve floor'                         },
+  { id:'team-spend',             label:'Team Spend Comparison',            description:'Expense spend by team per month — stacked or grouped'                       },
+  { id:'budget-watch-areas',     label:'Budget Watch Areas',               description:'Categories approaching or over budget — shows top 5 alerts'                 },
+  { id:'patron-watch-areas',     label:'Patron Watch Areas',               description:'Patron health signals: declining new sign-ups, churn risk, growth stalls'   },
 ]
 
 const DEFAULT_TREND_CHARTS = [
-  { id:'new-patrons-yoy',  chartType:'line' },
-  { id:'patron-base',      chartType:'bar'  },
-  { id:'giving-vs-budget', chartType:'line' },
+  { id:'new-patrons-yoy'  },
+  { id:'patron-base'      },
+  { id:'giving-vs-budget' },
 ]
+
+// ── Layout persistence helpers (localStorage, per-browser = per-user) ─────────
+const LAYOUT_KEY = 'elt_dashboard_layout'
+
+function loadLayout() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+function saveLayout(layout) {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch {}
+}
+
+function getSection(layout, section, defaults) {
+  if (!layout[section]) return defaults
+  const hidden = new Set(layout[section])
+  return defaults.filter(item => {
+    const id = typeof item === 'string' ? item : item.id
+    return !hidden.has(id)
+  })
+}
 
 function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
   const { budgetFlat, availableScenarios } = useApp()
@@ -2908,9 +3340,11 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   const [editKPI,            setEditKPI]            = useState(false)
   const [editPatronMetrics,  setEditPatronMetrics]  = useState(false)
   const [editCharts,         setEditCharts]         = useState(false)
-  const [kpiCards,           setKpiCards]           = useState(DEFAULT_KPI_CARDS)
-  const [patronMetricCards,  setPatronMetricCards]  = useState(DEFAULT_PATRON_METRICS)
-  const [trendCharts,        setTrendCharts]        = useState(DEFAULT_TREND_CHARTS)
+
+  // Initialize from localStorage so removals persist across refreshes
+  const [kpiCards,           setKpiCards]           = useState(() => getSection(loadLayout(), 'kpi',          DEFAULT_KPI_CARDS))
+  const [patronMetricCards,  setPatronMetricCards]  = useState(() => getSection(loadLayout(), 'patron',       DEFAULT_PATRON_METRICS))
+  const [trendCharts,        setTrendCharts]        = useState(() => getSection(loadLayout(), 'charts',       DEFAULT_TREND_CHARTS))
   const [showAddKPI,         setShowAddKPI]         = useState(false)
   const [showAddPatronMetric,setShowAddPatronMetric]= useState(false)
   const [showAddChart,       setShowAddChart]       = useState(false)
@@ -2928,6 +3362,36 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       setPatronData(patron || [])
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist layout changes to localStorage whenever cards/charts change
+  useEffect(() => {
+    const layout = loadLayout()
+    const hiddenKpi = DEFAULT_KPI_CARDS.filter(id => !kpiCards.includes(id))
+    if (hiddenKpi.length) layout.kpi = hiddenKpi; else delete layout.kpi
+    saveLayout(layout)
+  }, [kpiCards])
+
+  useEffect(() => {
+    const layout = loadLayout()
+    const hiddenPatron = DEFAULT_PATRON_METRICS.filter(id => !patronMetricCards.includes(id))
+    if (hiddenPatron.length) layout.patron = hiddenPatron; else delete layout.patron
+    saveLayout(layout)
+  }, [patronMetricCards])
+
+  useEffect(() => {
+    const layout = loadLayout()
+    const defaultIds = DEFAULT_TREND_CHARTS.map(c => c.id)
+    const hiddenCharts = defaultIds.filter(id => !trendCharts.find(c => c.id === id))
+    if (hiddenCharts.length) layout.charts = hiddenCharts; else delete layout.charts
+    saveLayout(layout)
+  }, [trendCharts])
+
+  function resetLayout() {
+    localStorage.removeItem(LAYOUT_KEY)
+    setKpiCards(DEFAULT_KPI_CARDS)
+    setPatronMetricCards(DEFAULT_PATRON_METRICS)
+    setTrendCharts(DEFAULT_TREND_CHARTS)
+  }
 
   const d = useMemo(
     () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, cashData, patronData) || EMPTY_ELT,
@@ -3006,31 +3470,25 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
   function renderKPICard(cardId) {
     if(cardId==='giving') {
       const d1=totalGiving-totalForecast,d2=totalGiving-totalPriorGiv
+      // Under forecast → red top border; over → green
+      const topBorder = totalForecast > 0 ? (totalGiving >= totalForecast ? STATUS_COLORS.positive : STATUS_COLORS.negative) : null
       return <KPICard key={cardId} title={`Total Giving · ${rangeLabel}`} value={formatCurrency(totalGiving)}
         cmp1Label="vs Forecast" cmp1Value={totalForecast} cmp1Delta={d1} cmp1Pct={formatPercent(d1/totalForecast*100,{showSign:true})}
         cmp2Label="vs Prior Year" cmp2Value={totalPriorGiv} cmp2Delta={d2} cmp2Pct={formatPercent(d2/totalPriorGiv*100,{showSign:true})}
-        editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
+        topBorderColor={topBorder} editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
     }
     if(cardId==='expenses') {
       const d1=totalExpenses-totalBudgetExp,d2=totalExpenses-totalPriorExp
+      // Over budget → red; under → green
+      const topBorder = totalBudgetExp > 0 ? (totalExpenses > totalBudgetExp ? STATUS_COLORS.negative : STATUS_COLORS.positive) : null
       return <KPICard key={cardId} title={`Expenses · ${rangeLabel}`} value={formatCurrency(totalExpenses)}
         cmp1Label="vs Budget" cmp1Value={totalBudgetExp} cmp1Delta={d1} cmp1Pct={formatPercent(d1/totalBudgetExp*100,{showSign:true})}
         cmp2Label="vs Prior Year" cmp2Value={totalPriorExp} cmp2Delta={d2} cmp2Pct={formatPercent(d2/totalPriorExp*100,{showSign:true})}
-        inverse editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
+        topBorderColor={topBorder} inverse editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
     }
     if(cardId==='net-position') {
-      const d1=netPosition-netForecast,d2=netPosition-netPriorYear
-      return <NetPositionCard key={cardId} value={netPosition}
-        cmp1Delta={d1} cmp1Pct={formatPercent(d1/Math.abs(netForecast)*100,{showSign:true})} cmp1Value={netForecast}
-        cmp2Delta={d2} cmp2Pct={formatPercent(d2/Math.abs(netPriorYear)*100,{showSign:true})} cmp2Value={netPriorYear}
-        breakdown={{lines:[
-          {label:'Contributions',value:d.giving.contributions},
-          {label:'Merchandise Revenue',value:d.giving.merchandiseRevenue},
-          {label:'Other Income',value:d.giving.otherIncome},
-          {label:'Total Income',value:totalGiving,isTotal:true},
-          {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
-        ]}}
-        editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!==cardId))}/>
+      // Net Position renders separately as hero — skip in grid
+      return null
     }
     if(cardId==='cash') {
       const d1=d.cash.current-d.cash.priorMonth,d2=d.cash.current-d.cash.priorYear
@@ -3057,7 +3515,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
     }
     if(cardId==='avg-gift'||cardId==='avg-gift-p') return <PatronMetricCard key={cardId} label="Avg Gift Size" mainValue={`$${p.avgGift.toFixed(2)}`} sub1Label="vs Prior Year" sub1Delta={p.avgGift-p.avgGiftPriorYear} sub1Base={p.avgGiftPriorYear} sub1Format="currency" sub2Label={null} sub2Delta={null} sub2Base={null} sub2Format="plain" editMode={editPatronMetrics} onRemove={removeMetric}/>
     if(cardId==='retention') return (
-      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
+      <div key={cardId} className="relative bg-white rounded-xl p-6 flex-1 min-w-[180px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Retention Rate</div>
         <div className="text-3xl font-bold text-gray-900 mb-2">94.2%</div>
@@ -3065,7 +3523,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       </div>
     )
     if(cardId==='recurring-ratio') return (
-      <div key={cardId} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex-1 min-w-[180px]">
+      <div key={cardId} className="relative bg-white rounded-xl p-6 flex-1 min-w-[180px]" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         {editPatronMetrics&&<button onClick={removeMetric} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"><X size={11}/></button>}
         <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Recurring Mix</div>
         <div className="text-3xl font-bold text-gray-900 mb-2">82.4%</div>
@@ -3109,19 +3567,60 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       {/* KPI Section */}
       <section>
         <SectionHeader title="Key Metrics" editMode={editKPI} onToggleEdit={()=>setEditKPI(v=>!v)} onAdd={()=>setShowAddKPI(true)}/>
-        <div className="flex gap-4 flex-wrap">
-          {kpiCards.map(id=>renderKPICard(id))}
-          {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
+
+        {/* Net Position — full-width hero (always above the grid) */}
+        {kpiCards.includes('net-position') && (() => {
+          const d1=netPosition-netForecast, d2=netPosition-netPriorYear
+          return (
+            <div className="mb-4">
+              <NetPositionCard value={netPosition}
+                cmp1Delta={d1} cmp1Pct={formatPercent(d1/Math.abs(netForecast||1)*100,{showSign:true})} cmp1Value={netForecast}
+                cmp2Delta={d2} cmp2Pct={formatPercent(d2/Math.abs(netPriorYear||1)*100,{showSign:true})} cmp2Value={netPriorYear}
+                breakdown={{lines:[
+                  {label:'Contributions',value:d.giving.contributions},
+                  {label:'Merchandise Revenue',value:d.giving.merchandiseRevenue},
+                  {label:'Other Income',value:d.giving.otherIncome},
+                  {label:'Total Income',value:totalGiving,isTotal:true},
+                  {label:'Total Expenses',value:totalExpenses,isSubtract:true,isTotal:true},
+                ]}}
+                editMode={editKPI} onRemove={()=>setKpiCards(p=>p.filter(c=>c!=='net-position'))}/>
+              <ContextNote noteId="exec-kpi-net-position" editMode={editKPI}/>
+            </div>
+          )
+        })()}
+
+        {/* Driver cards grid (excluding net-position) */}
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
+          {kpiCards.map(id => {
+            const card = renderKPICard(id)
+            if (!card) return null
+            return (
+              <div key={id} className="flex flex-col">
+                {card}
+                <ContextNote noteId={`exec-kpi-${id}`} editMode={editKPI}/>
+              </div>
+            )
+          })}
+          {editKPI&&<button onClick={()=>setShowAddKPI(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 text-gray-300 hover:text-gray-500"><Plus size={20}/><span className="text-xs font-medium">Add card</span></button>}
         </div>
       </section>
 
       {/* Supporter Metrics — KPI cards */}
       <section>
         <SectionHeader title="Supporter Metrics" editMode={editPatronMetrics} onToggleEdit={()=>setEditPatronMetrics(v=>!v)} onAdd={()=>setShowAddPatronMetric(true)}/>
-        <div className="flex gap-4 flex-wrap">
-          {patronMetricCards.map(id=>renderPatronMetricCard(id))}
+        <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
+          {patronMetricCards.map(id => {
+            const card = renderPatronMetricCard(id)
+            if (!card) return null
+            return (
+              <div key={id} className="flex flex-col">
+                {card}
+                <ContextNote noteId={`exec-patron-${id}`} editMode={editPatronMetrics}/>
+              </div>
+            )
+          })}
           {editPatronMetrics&&(
-            <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 min-w-[160px] text-gray-300 hover:text-gray-500">
+            <button onClick={()=>setShowAddPatronMetric(true)} className="flex flex-col items-center justify-center gap-2 bg-white rounded-2xl border-2 border-dashed border-gray-200 hover:border-gray-400 transition-all p-5 text-gray-300 hover:text-gray-500">
               <Plus size={20}/><span className="text-xs font-medium">Add metric</span>
             </button>
           )}
@@ -3131,21 +3630,44 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
       {/* Trend Charts — editable preset charts */}
       <section>
         <SectionHeader title="Trend Charts" editMode={editCharts} onToggleEdit={()=>setEditCharts(v=>!v)} onAdd={()=>setShowAddChart(true)}/>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
           {trendCharts.map(tc => {
-            const updateType = t => setTrendCharts(p => p.map(c => c.id===tc.id ? {...c, chartType:t} : c))
-            const removeChart = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
+            const removeChart  = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
             if (tc.id === 'new-patrons-yoy') return (
               <NewPatronChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
-                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+                editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'patron-base') return (
               <PatronBaseChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
-                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+                editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'giving-vs-budget') return (
               <MonthlyGivingVsBudgetCard key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
-                chartType={tc.chartType} editMode={editCharts} onChangeType={updateType} onRemove={removeChart}/>
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'net-position-by-month') return (
+              <ExecNetPositionChart key={tc.id} actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'cash-position') return (
+              <ExecCashPositionChart key={tc.id} cashData={cashData} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'cash-position-above-floor') return (
+              <ExecCashAboveFloorChart key={tc.id} cashData={cashData} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'team-spend') return (
+              <ExecTeamSpendChart key={tc.id} actuals={actuals} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'budget-watch-areas') return (
+              <ExecBudgetWatchChart key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
+            )
+            if (tc.id === 'patron-watch-areas') return (
+              <ExecPatronWatchChart key={tc.id} patronData={patronData} dateRange={dateRange}
+                editMode={editCharts} onRemove={removeChart}/>
             )
             return null
           })}
@@ -3156,10 +3678,21 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
             </button>
           )}
         </div>
+        {(editKPI || editPatronMetrics || editCharts) && (
+          <div className="mt-4 flex justify-end">
+            <button onClick={resetLayout}
+              className="text-xs text-gray-400 hover:text-red-500 underline underline-offset-2 transition-colors">
+              Reset all sections to default
+            </button>
+          </div>
+        )}
       </section>
 
       {/* P&L */}
-      <section><PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/></section>
+      <section>
+        <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
+        <ContextNote noteId="exec-pl-section" editMode={editCharts}/>
+      </section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
@@ -3169,23 +3702,56 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         onClose={()=>setShowAddPatronMetric(false)}/>}
       {showAddChart&&(
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setShowAddChart(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-800">Add Trend Chart</h3>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold text-gray-800">Chart Library</h3>
               <button onClick={()=>setShowAddChart(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
-            <div className="space-y-2">
-              {CHART_CATALOG.map(c => {
+            <p className="text-[11px] text-gray-400 mb-4">All charts can be removed via × in edit mode. Default charts reappear when you reset layout.</p>
+            <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
+              {/* Default charts */}
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Default Charts</div>
+              {CHART_CATALOG.filter(c=>c.isDefault).map(c => {
                 const already = trendCharts.some(tc=>tc.id===c.id)
                 return (
                   <button key={c.id} disabled={already}
-                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id,chartType:c.defaultType}]);setShowAddChart(false)}}
-                    className={`w-full text-left p-3.5 rounded-xl border-2 transition-all ${already?'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed':'border-gray-200 hover:border-teal-400 hover:bg-teal-50'}`}>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-sm font-semibold text-gray-800">{c.label}</span>
-                      {already && <span className="text-[10px] text-gray-400 font-medium">Already added</span>}
+                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id}]);setShowAddChart(false)}}
+                    className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
+                      already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-200 hover:border-teal-400 hover:bg-teal-50'
+                    }`}>
+                    <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
+                      {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
                     </div>
-                    <p className="text-xs text-gray-500">{c.description}</p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-800">{c.label}</span>
+                        {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
+                      </div>
+                      <p className="text-xs text-gray-500">{c.description}</p>
+                    </div>
+                  </button>
+                )
+              })}
+              {/* Addable charts */}
+              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-4 mb-2">From Admin Dashboard</div>
+              {CHART_CATALOG.filter(c=>!c.isDefault).map(c => {
+                const already = trendCharts.some(tc=>tc.id===c.id)
+                return (
+                  <button key={c.id} disabled={already}
+                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id}]);setShowAddChart(false)}}
+                    className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
+                      already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-200 hover:border-teal-400 hover:bg-teal-50'
+                    }`}>
+                    <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
+                      {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-800">{c.label}</span>
+                        {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
+                      </div>
+                      <p className="text-xs text-gray-500">{c.description}</p>
+                    </div>
                   </button>
                 )
               })}
@@ -3193,6 +3759,9 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
           </div>
         </div>
       )}
+
+      {/* Comment pin FAB */}
+      <CommentPinFAB page="elt-dashboard" sourceDashboard="Executive" sourcePage="Dashboard" />
     </div>
   )
 }
@@ -3456,7 +4025,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
         <div className="flex-1 overflow-hidden flex flex-col">
 
           {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3 px-6 pt-5 pb-4 flex-shrink-0">
+          <div className="grid grid-cols-2 min-[1100px]:grid-cols-3 gap-3 px-6 pt-5 pb-4 flex-shrink-0">
             <div className="bg-gray-50 rounded-xl p-3 text-center">
               <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Actual</div>
               <div className="text-lg font-bold text-gray-900">{formatCurrency(scaledTeam.actual)}</div>
@@ -3756,7 +4325,11 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
     let unassigned = 0
     const deptCodes = new Set()
     for (const t of actuals) {
-      if (!t.date || t.date < startDate || t.date > endDate) continue
+      // Use period (YYYY-MM) for range check — same logic as filterActualsByRange — so
+      // transactions with a period but no date are not silently dropped, keeping this
+      // total consistent with the P&L and Admin views.
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!p || p < startM || p > endM) continue
       if (t.record_type === 'income') continue
       if (!t.team_name) {
         unassigned += Math.abs(t.amount || 0)
@@ -3769,7 +4342,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       if (t.team_id && !idMap[name]) idMap[name] = t.team_id
     }
     return { teamActualMap: actualMap, teamIdMap: idMap, unassignedActual: unassigned, unassignedDeptCodes: deptCodes }
-  }, [actuals, startDate, endDate])
+  }, [actuals, startM, endM])
 
   // Build per-team budget (selected scenario, in date range).
   // Budget rows without a team_name are tallied as unassigned budget.
@@ -3968,29 +4541,36 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
       </div>
 
       {/* 4 KPI summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
         {[
           { label:`Total Actuals · ${rangeLabel}`, value: formatCurrency(totalActual), sub: null, positive: true },
           { label:`Total Budget · ${rangeLabel}`,  value: formatCurrency(totalBudget), sub: null, positive: true },
           { label:`Variance · ${rangeLabel}`, value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
             sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
             positive: totalVariance <= 0 },
-          { label:'Teams Over Budget', value: String(overBudget),
-            sub: `${teams.length - overBudget} of ${teams.length} within budget`,
+          { label:'Teams Over Budget', value: `${overBudget} of ${teams.length}`,
+            sub: overBudget === 0 ? 'All teams within budget ✓' : `${overBudget} team${overBudget!==1?'s':''} over budget`,
             positive: overBudget === 0 },
         ].map((card,i) => (
-          <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div key={i} className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
-            <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>
-              {card.value}
-            </div>
-            {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+            {i === 3 ? (
+              <>
+                <div className={`text-3xl font-bold tabular-nums mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-xs font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>{card.sub}</div>}
+              </>
+            ) : (
+              <>
+                <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+              </>
+            )}
           </div>
         ))}
       </div>
 
       {/* Teams table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl overflow-hidden" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
@@ -4101,7 +4681,8 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
             // Aggregate unassigned actuals by specific warn type
             const map = {}
             for (const t of actuals) {
-              if (!t.date || t.date < startDate || t.date > endDate) continue
+              const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+              if (!p || p < startM || p > endM) continue
               if (t.record_type === 'income') continue
               if (t.team_name) continue  // assigned — skip
               for (const w of (t._warnings || [])) {
@@ -4127,6 +4708,13 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
     {selectedTeam && (
       <TeamDetailDrawer team={selectedTeam} globalDateRange={dateRange} onClose={() => setSelectedTeam(null)}/>
     )}
+
+    <CommentPinFAB
+      page="elt-teams"
+      sourceDashboard="Executive"
+      sourcePage="Teams"
+      rightClassName="right-6"
+    />
     </>
   )
 }
@@ -4151,27 +4739,50 @@ function docMonthToDate(month, year) {
 }
 
 function DocumentsTab({ orgConfig }) {
-  const pickerRef = useRef(null)
+  const pickerRef    = useRef(null)
   const fileInputRef = useRef(null)
 
-  const [docs, setDocs] = useState([
-    { id:1, displayName:'Statement of Activity – April 2026', fileType:'pdf', type:'Statement of Activity', month:'April', year:2026, size:'245 KB', uploadedAt:'2026-04-22' },
-    { id:2, displayName:'Balance Sheet – Q2 FY2026',          fileType:'pdf', type:'Balance Sheet',         month:'March', year:2026, size:'189 KB', uploadedAt:'2026-03-21' },
-    { id:3, displayName:'Cash Flow Statement – YTD',          fileType:'xlsx',type:'Cash Flow Statement',   month:'April', year:2026, size:'312 KB', uploadedAt:'2026-04-30' },
-  ])
+  // ── Persistent docs from Supabase ──
+  const [docs,      setDocs]      = useState([])
+  const [docsLoading, setDocsLoading] = useState(true)
 
-  // Upload modal state
-  const [showUpload,  setShowUpload]  = useState(false)
-  const [upName,      setUpName]      = useState('')
-  const [upType,      setUpType]      = useState(DOC_TYPES[0])
-  const [upMonth,     setUpMonth]     = useState('April')
-  const [upYear,      setUpYear]      = useState(new Date().getFullYear())
-  const [upFileType,  setUpFileType]  = useState('pdf')
-  const [upFileName,  setUpFileName]  = useState('')
-  const [isDragOver,  setIsDragOver]  = useState(false)
+  useEffect(() => {
+    async function load() {
+      setDocsLoading(true)
+      const { data } = await supabase
+        .from('financial_documents')
+        .select('*')
+        .eq('org_id', ORG_ID)
+        .order('created_at', { ascending: false })
+      setDocs(data || [])
+      setDocsLoading(false)
+    }
+    load()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Upload modal state ──
+  const [showUpload, setShowUpload] = useState(false)
+  const [upFile,     setUpFile]     = useState(null)   // actual File object
+  const [upName,     setUpName]     = useState('')
+  const [upType,     setUpType]     = useState(DOC_TYPES[0])
+  const [upMonth,    setUpMonth]    = useState(MONTH_NAMES[new Date().getMonth()])
+  const [upYear,     setUpYear]     = useState(new Date().getFullYear())
+  const [upFileType, setUpFileType] = useState('pdf')
+  const [upFileName, setUpFileName] = useState('')
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [uploading,  setUploading]  = useState(false)
+  const [upError,    setUpError]    = useState(null)
+
+  function formatFileSize(bytes) {
+    if (!bytes) return 'Unknown'
+    if (bytes < 1024)        return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  }
 
   function openWithFile(file) {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf'
+    setUpFile(file)
     setUpFileName(file.name)
     if (DOC_FILE_TYPES.includes(ext)) setUpFileType(ext)
     setUpName(file.name.replace(/\.[^.]+$/, ''))
@@ -4185,7 +4796,76 @@ function DocumentsTab({ orgConfig }) {
     if (file) openWithFile(file)
   }
 
-  // Date range filter (local to documents)
+  function resetUploadForm() {
+    setUpFile(null); setUpName(''); setUpType(DOC_TYPES[0])
+    setUpFileName(''); setUpFileType('pdf'); setUpError(null)
+  }
+
+  async function handleUpload() {
+    if (!upName.trim() || uploading) return
+    setUploading(true)
+    setUpError(null)
+
+    let file_url     = null
+    let storage_path = null
+    let file_size    = 'Unknown'
+
+    if (upFile) {
+      const safe = upFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${ORG_ID}/${Date.now()}-${safe}`
+      const { data: uploaded, error: uploadErr } = await supabase.storage
+        .from('financial-documents')
+        .upload(path, upFile, { upsert: false })
+
+      if (uploadErr) {
+        setUpError(`Upload failed: ${uploadErr.message}`)
+        setUploading(false)
+        return
+      }
+      storage_path = uploaded.path
+      const { data: urlData } = supabase.storage
+        .from('financial-documents')
+        .getPublicUrl(storage_path)
+      file_url  = urlData?.publicUrl || null
+      file_size = formatFileSize(upFile.size)
+    }
+
+    const { data: newDoc, error: dbErr } = await supabase
+      .from('financial_documents')
+      .insert([{
+        org_id:       ORG_ID,
+        display_name: upName.trim(),
+        file_type:    upFileType,
+        doc_type:     upType,
+        month:        upMonth,
+        year:         Number(upYear),
+        file_size,
+        uploaded_at:  new Date().toISOString().slice(0, 10),
+        file_url,
+        storage_path,
+      }])
+      .select()
+      .single()
+
+    setUploading(false)
+    if (dbErr) { setUpError(`Save failed: ${dbErr.message}`); return }
+    if (newDoc) setDocs(prev => [newDoc, ...prev])
+    setShowUpload(false)
+    resetUploadForm()
+  }
+
+  async function removeDoc(id) {
+    const doc = docs.find(d => d.id === id)
+    if (!doc) return
+    if (doc.storage_path) {
+      await supabase.storage.from('financial-documents').remove([doc.storage_path])
+    }
+    await supabase.from('financial_documents').delete()
+      .eq('id', id).eq('org_id', ORG_ID)
+    setDocs(prev => prev.filter(d => d.id !== id))
+  }
+
+  // ── Date range filter ──
   const [showPicker,   setShowPicker]   = useState(false)
   const [filterPreset, setFilterPreset] = useState('all')
   const [filterRange,  setFilterRange]  = useState(null)
@@ -4197,9 +4877,8 @@ function DocumentsTab({ orgConfig }) {
   }, [])
 
   function applyDocPreset(preset) {
-    const range = getELTPresetRange(preset, orgConfig)
     setFilterPreset(preset)
-    setFilterRange(range)
+    setFilterRange(getELTPresetRange(preset, orgConfig))
     setShowPicker(false)
   }
   function applyDocCustom(s, e) {
@@ -4213,27 +4892,6 @@ function DocumentsTab({ orgConfig }) {
     return d >= new Date(filterRange.startDate) && d <= new Date(filterRange.endDate)
   })
 
-  function handleUpload() {
-    if (!upName.trim()) return
-    const newDoc = {
-      id: Date.now(),
-      displayName: upName.trim(),
-      fileType: upFileType,
-      type: upType,
-      month: upMonth,
-      year: Number(upYear),
-      size: upFileName ? `${Math.round(Math.random()*400+50)} KB` : 'Unknown',
-      uploadedAt: new Date().toISOString().slice(0,10),
-    }
-    setDocs(prev => [newDoc, ...prev])
-    setShowUpload(false)
-    setUpName(''); setUpType(DOC_TYPES[0]); setUpFileName('')
-  }
-
-  function removeDoc(id) {
-    setDocs(prev => prev.filter(d => d.id !== id))
-  }
-
   const filterLabel = filterPreset === 'all' ? 'All time' : presetLabel(filterPreset)
 
   return (
@@ -4243,7 +4901,9 @@ function DocumentsTab({ orgConfig }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] mb-0.5" style={{color:'var(--neutral-60)'}}>Financial Documents</p>
-          <p className="text-xs text-gray-400">{filteredDocs.length} of {docs.length} documents{filterPreset!=='all'?' in selected period':''}</p>
+          <p className="text-xs text-gray-400">
+            {docsLoading ? 'Loading…' : `${filteredDocs.length} of ${docs.length} document${docs.length!==1?'s':''}${filterPreset!=='all'?' in selected period':''}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Date range filter */}
@@ -4280,36 +4940,43 @@ function DocumentsTab({ orgConfig }) {
       </div>
 
       {/* Document list */}
-      {filteredDocs.length > 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+      {docsLoading ? (
+        <div className="bg-white rounded-xl p-10 text-center mb-4" style={{border:'1px solid rgba(0,0,0,0.06)'}}>
+          <p className="text-sm text-gray-400">Loading documents…</p>
+        </div>
+      ) : filteredDocs.length > 0 ? (
+        <div className="bg-white rounded-xl overflow-hidden mb-4" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
           {filteredDocs.map((doc, i) => {
-            const ic = docIcon(doc.fileType)
+            const ic = docIcon(doc.file_type)
             return (
-              <div key={doc.id}
-                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''}`}>
+              <a key={doc.id}
+                href={doc.file_url || undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors group ${i>0?'border-t border-gray-50':''} ${doc.file_url ? 'cursor-pointer' : 'cursor-default'}`}>
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${ic.bg}`}>
                   <FileText size={15} className={ic.fg}/>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-800 truncate">{doc.displayName}</div>
+                  <div className="text-sm font-medium text-gray-800 truncate">{doc.display_name}</div>
                   <div className="text-xs text-gray-400 mt-0.5">
-                    {doc.type} · {doc.month} {doc.year} · {doc.size}
-                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.fileType}</span>
+                    {doc.doc_type} · {doc.month} {doc.year} · {doc.file_size}
+                    <span className={`ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${ic.bg} ${ic.fg}`}>{doc.file_type}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploadedAt}</span>
-                  <button onClick={() => removeDoc(doc.id)}
+                  <span className="text-[10px] text-gray-400 hidden group-hover:block">Uploaded {doc.uploaded_at}</span>
+                  <button onClick={e => { e.preventDefault(); e.stopPropagation(); removeDoc(doc.id) }}
                     className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all">
                     <Trash2 size={13}/>
                   </button>
                 </div>
-              </div>
+              </a>
             )
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center mb-4">
+        <div className="bg-white rounded-xl p-12 text-center mb-4" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
           <FileText size={32} className="mx-auto mb-3 text-gray-200"/>
           <p className="text-sm font-medium text-gray-500 mb-1">
             {filterPreset==='all' ? 'No documents yet' : `No documents for ${filterLabel}`}
@@ -4338,17 +5005,17 @@ function DocumentsTab({ orgConfig }) {
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[440px] p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-semibold text-gray-900">Upload Document</h3>
-              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+              <button onClick={() => { setShowUpload(false); resetUploadForm() }} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
             <div className="space-y-4">
-              {/* File picker (cosmetic) */}
+              {/* File picker */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">File</label>
                 <div onClick={() => fileInputRef.current?.click()}
                   className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:border-gray-400 transition-colors">
                   <Upload size={16} className="text-gray-300 flex-shrink-0"/>
-                  <span className="text-sm text-gray-400">{upFileName || 'Click to choose a file…'}</span>
-                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.csv" className="hidden"
+                  <span className="text-sm text-gray-400 truncate">{upFileName || 'Click to choose a file…'}</span>
+                  <input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.csv" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) openWithFile(f) }}/>
                 </div>
               </div>
@@ -4396,16 +5063,20 @@ function DocumentsTab({ orgConfig }) {
                   ))}
                 </div>
               </div>
+              {/* Error */}
+              {upError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{upError}</div>
+              )}
               {/* Actions */}
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setShowUpload(false)}
-                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors">
+                <button onClick={() => { setShowUpload(false); resetUploadForm() }} disabled={uploading}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50">
                   Cancel
                 </button>
-                <button onClick={handleUpload} disabled={!upName.trim()}
+                <button onClick={handleUpload} disabled={!upName.trim() || uploading}
                   className="flex-1 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-40 transition-opacity"
                   style={{backgroundColor:'var(--color-primary)'}}>
-                  Add Document
+                  {uploading ? (upFile ? 'Uploading…' : 'Saving…') : 'Add Document'}
                 </button>
               </div>
             </div>
@@ -4605,7 +5276,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
     <div className="space-y-4">
 
       {/* Sections */}
-      <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Sections to Include</div>
         <p className="text-[10px] mb-3" style={{color:'var(--fg-3)'}}>Choose which pages appear in the exported PDF.</p>
         <div className="space-y-2">
@@ -4644,7 +5315,7 @@ function ExportPanel({ dateRange, orgConfig, summaries }) {
       </div>
 
       {/* Reporting period */}
-      <div className="bg-white rounded-2xl p-5" style={{border:'1px solid var(--neutral-10)',boxShadow:'var(--shadow-sm)'}}>
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Reporting Period</div>
         <p className="text-[10px] mb-3" style={{color:'var(--fg-3)'}}>Shown on the report cover. Defaults to the dashboard's current date range — edit it here without changing the main view.</p>
 
@@ -4829,12 +5500,15 @@ function PeriodRangeSelect({ startPeriod, endPeriod, onChange }) {
 
 function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
   const tpl = IMPORT_TEMPLATES[typeKey]
+  const { comments, updateComment } = useApp()
   const [mode, setMode]               = useState('append') // 'append' | 'replace'
   const [replaceScope, setReplaceScope] = useState('all')   // 'all' | 'period'
   const [startPeriod, setStartPeriod] = useState('2026-01')
   const [endPeriod,   setEndPeriod]   = useState('2026-04')
   const [fileName,    setFileName]    = useState('')
   const [status,      setStatus]      = useState(null) // 'success' | null
+  const [showCommentWarning, setShowCommentWarning] = useState(false)
+  const [commentCounts, setCommentCounts]           = useState({ tx: 0, general: 0 })
   const fileRef = useRef(null)
 
   function handleFileChange(e) {
@@ -4844,8 +5518,59 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
     setStatus(null)
   }
 
+  function getAffectedComments() {
+    // Find comments that would be affected by this replace operation
+    const txComments = comments.filter(c => {
+      if (!c.anchor?.txRef) return false
+      if (mode !== 'replace') return false
+      if (replaceScope === 'all') return true
+      const txDate = c.anchor.txRef?.date || ''
+      const txPeriod = txDate.slice(0, 7)
+      return txPeriod >= startPeriod && txPeriod <= endPeriod
+    })
+    const generalComments = comments.filter(c => {
+      if (c.anchor?.txRef) return false
+      if (mode !== 'replace') return false
+      if (replaceScope === 'period') {
+        const ts = (c.timestamp || '').slice(0, 7)
+        return ts >= startPeriod && ts <= endPeriod
+      }
+      return false // general comments never affected by replace all
+    })
+    return { txComments, generalComments }
+  }
+
   function handleImport() {
     if (!fileName) return
+    if (mode === 'replace') {
+      const { txComments, generalComments } = getAffectedComments()
+      if (txComments.length > 0) {
+        setCommentCounts({ tx: txComments.length, general: generalComments.length })
+        setShowCommentWarning(true)
+        return
+      }
+    }
+    runImport()
+  }
+
+  function runImport() {
+    // Mark orphaned: any transaction-level comment that was at risk
+    if (mode === 'replace') {
+      const { txComments } = getAffectedComments()
+      txComments.forEach(c => {
+        // Attempt ID match: not possible in simulated import, so all become orphaned
+        updateComment(c.id, {
+          orphaned: true,
+          original_transaction_context: {
+            name:   c.anchor.txRef.vendor || c.anchor.txRef.department || '—',
+            amount: c.anchor.txRef.amount,
+            date:   c.anchor.txRef.date,
+            vendor: c.anchor.txRef.vendor,
+          },
+        })
+      })
+    }
+    setShowCommentWarning(false)
     // Simulated import — real backend would process the file
     setTimeout(() => setStatus('success'), 600)
   }
@@ -4858,7 +5583,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
   return (
     <div className="space-y-4">
       {/* Description */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-xs font-semibold text-gray-700 mb-0.5">{tpl.label}</div>
         <div className="text-xs text-gray-400 mb-4">{tpl.description}</div>
 
@@ -4883,7 +5608,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
       </div>
 
       {/* Download templates */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Download Templates</div>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -4900,7 +5625,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
       </div>
 
       {/* Import mode */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Import Mode</div>
         <div className="flex gap-2 mb-4">
           {[{id:'append',label:'Append',desc:'Add new periods without touching existing data'},
@@ -4940,7 +5665,7 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
       </div>
 
       {/* File upload + import */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
         <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Upload File</div>
         <div onClick={() => fileRef.current?.click()}
           className="flex items-center gap-3 border-2 border-dashed border-gray-200 rounded-xl px-4 py-4 cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors mb-4">
@@ -4967,6 +5692,42 @@ function ImportTypePanel({ typeKey, summaries, onAddSummary }) {
           {mode === 'append' ? 'Append Data' : 'Replace Data'}
         </button>
       </div>
+
+      {/* Comment protection warning dialog */}
+      {showCommentWarning && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={20} className="text-amber-600"/>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Comments exist for this period</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Replacing data may orphan attached comments</p>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 mb-4 space-y-2 text-xs text-gray-600">
+              <p>You have <strong>{commentCounts.tx}</strong> comment{commentCounts.tx !== 1 ? 's' : ''} attached to transactions{commentCounts.general > 0 ? ` and ${commentCounts.general} general comment${commentCounts.general !== 1 ? 's' : ''}` : ''} in this date range.</p>
+              <ul className="space-y-1 mt-2">
+                <li className="flex items-start gap-2"><span className="text-gray-400 mt-0.5">·</span>Transaction comments will attempt to reattach to matching transactions in the new import.</li>
+                <li className="flex items-start gap-2"><span className="text-gray-400 mt-0.5">·</span>Comments that cannot be reattached will be preserved as orphaned with original context.</li>
+                <li className="flex items-start gap-2"><span className="text-gray-400 mt-0.5">·</span>General comments will not be affected.</li>
+              </ul>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={()=>setShowCommentWarning(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={runImport}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
+                style={{backgroundColor:'var(--color-primary)'}}>
+                Continue with Import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -5012,7 +5773,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
       ) : activeImport === 'narrative' ? (
         /* Monthly Summary sub-tab (existing behavior) */
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Create or Link Monthly Summary</div>
             <div className="flex gap-3">
               <select value={summaryMonth} onChange={e=>setSummaryMonth(e.target.value)}
@@ -5029,7 +5790,7 @@ function ELTImportTab({ summaries, onUpdateSummary, onAddSummary, dateRange, org
               <p className="text-xs mt-2" style={{color:'var(--neutral-60)'}}>✓ Summary exists for {summaryMonth}. Switch to the Summary tab to edit it.</p>
             )}
           </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Existing Summaries</div>
             {existingMonths.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No summaries yet.</p>
@@ -5128,8 +5889,16 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
+  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario, applyPreset: appApplyPreset, applyCustomRange } = useApp()
+  const location = useLocation()
   const [activeTab, setActiveTab] = useState('dashboard')
+
+  // Switch to comments tab when navigated here with switchToComments state (e.g. from a comment pin)
+  useEffect(() => {
+    if (location.state?.switchToComments) {
+      setActiveTab('comments')
+    }
+  }, [location.state])
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
   const [activeBudget, setActiveBudget] = useState(selectedScenario)
@@ -5174,8 +5943,15 @@ export default function ELTDashboard() {
     loadSavedSummaries()
   }, [orgConfig.name]) // re-run when org loads (name changes from default)
 
-  function applyPreset(preset) { setDateRange({preset,...getELTPresetRange(preset,orgConfig)}) }
-  function applyCustom(s,e)    { setDateRange({preset:'custom',startDate:s,endDate:e}) }
+  function applyPreset(preset) {
+    const r = getELTPresetRange(preset, orgConfig)
+    setDateRange({ preset, ...r })
+    appApplyPreset(preset)   // keep AppContext in sync so BriefingPage matches
+  }
+  function applyCustom(s, e) {
+    setDateRange({ preset:'custom', startDate:s, endDate:e })
+    applyCustomRange(s, e)   // keep AppContext in sync
+  }
 
   function handleUpdateSummary(month, key, value) {
     setSummaries(prev => ({ ...prev, [month]: { ...prev[month], [key]: value } }))
@@ -5187,6 +5963,25 @@ export default function ELTDashboard() {
   async function handleSaveSummary(month, summary) {
     const period = monthLabelToPeriod(month)
     if (!period || !ORG_ID) return { error: 'Missing org or period' }
+
+    // Fix 8: Only save if the summary has meaningful content.
+    // An empty row (both headline and narrative null/empty) is never written to DB.
+    // Return { skipped: true } — a sentinel that doSave recognises as "nothing to
+    // save yet", so it reverts to idle without showing a "Save failed" banner.
+    const headline  = summary?.title         || ''
+    const narrative = summary?.overallSummary || ''
+    if (!headline.trim() && !narrative.trim()) {
+      return { skipped: true }
+    }
+
+    // Fix 8: Clean up any existing empty ghost row for this period before upserting.
+    await supabase
+      .from('monthly_summaries')
+      .delete()
+      .eq('org_id', ORG_ID)
+      .eq('period', period)
+      .is('overall_headline', null)
+
     const payload = summaryToDBRow(ORG_ID, period, summary)
     const { data, error } = await supabase
       .from('monthly_summaries')

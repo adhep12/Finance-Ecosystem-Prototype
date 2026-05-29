@@ -64,17 +64,17 @@ function setSidebarCSSVar(expanded, narrow = false) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Sidebar() {
-  // Read initial expanded state synchronously — prevents margin-left flash
+  // Start expanded when viewport >= 1100px; collapsed below that
   const [expanded, setExpanded] = useState(() => {
-    const saved = localStorage.getItem('sidebar_state')
-    const isExpanded = saved !== 'collapsed'
-    // Set CSS var immediately so content wrapper already has the right margin
-    const narrow = typeof window !== 'undefined' && window.innerWidth < 1024
-    setSidebarCSSVar(isExpanded, narrow)
-    return isExpanded
+    const shouldExpand = typeof window === 'undefined' || window.innerWidth >= 1100
+    setSidebarCSSVar(shouldExpand, !shouldExpand)
+    return shouldExpand
   })
 
   const [teamsOpen, setTeamsOpen] = useState(() => readLS('teams_nav_expanded', false))
+  const [teamsFlyout, setTeamsFlyout] = useState(false)
+  const teamsButtonRef = useRef(null)
+  const [teamsFlyoutTop, setTeamsFlyoutTop] = useState(100)
 
   // Tooltip: { id: string, label: string, top: number } | null
   const [tooltip, setTooltip]     = useState(null)
@@ -107,21 +107,23 @@ export default function Sidebar() {
     if (activeTeamId) writeLS('last_team_id', activeTeamId)
   }, [activeTeamId])
 
-  // ── Responsive: sync CSS variable on window resize ───────────────────────
+  // ── Responsive: auto-collapse below 1100px, auto-expand above 1100px ──────
   useEffect(() => {
     function onResize() {
-      setSidebarCSSVar(expanded, window.innerWidth < 1024)
+      const shouldExpand = window.innerWidth >= 1100
+      setExpanded(shouldExpand)
+      setSidebarCSSVar(shouldExpand, !shouldExpand)
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [expanded])
+  }, [])
 
   // ── Toggle sidebar ────────────────────────────────────────────────────────
   function toggle() {
     const next = !expanded
     setExpanded(next)
     localStorage.setItem('sidebar_state', next ? 'expanded' : 'collapsed')
-    setSidebarCSSVar(next, window.innerWidth < 1024)
+    setSidebarCSSVar(next, window.innerWidth < 1100)
   }
 
   // ── Tooltip helpers (collapsed mode) ─────────────────────────────────────
@@ -163,7 +165,7 @@ export default function Sidebar() {
     return { backgroundColor: orgConfig?.primaryColor || '#00B3E5' }
   }
 
-  const visualW = window.innerWidth < 1024 ? W_COLLAPSED : (expanded ? W_EXPANDED : W_COLLAPSED)
+  const visualW = expanded ? W_EXPANDED : W_COLLAPSED
 
   return (
     <>
@@ -213,9 +215,12 @@ export default function Sidebar() {
 
           {/* Teams */}
           <button
+            ref={teamsButtonRef}
             onClick={() => {
-              if (!expanded || window.innerWidth < 1024) {
-                handleTeamsCollapsedClick()
+              if (!expanded) {
+                const rect = teamsButtonRef.current?.getBoundingClientRect()
+                setTeamsFlyoutTop(rect?.top ?? 100)
+                setTeamsFlyout(f => !f)
               } else {
                 const next = !teamsOpen
                 setTeamsOpen(next)
@@ -292,10 +297,10 @@ export default function Sidebar() {
             {expanded && <span className="text-sm font-medium flex-1 text-left truncate">Settings</span>}
           </button>
 
-          {/* Collapse toggle — desktop only (hidden < 1024px) */}
+          {/* Collapse / expand toggle */}
           <button
             onClick={toggle}
-            className="hidden lg:flex w-full items-center justify-center py-2 rounded-lg text-gray-400
+            className="flex w-full items-center justify-center py-2 rounded-lg text-gray-400
               hover:text-gray-600 hover:bg-gray-50 transition-colors"
             title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
           >
@@ -317,6 +322,33 @@ export default function Sidebar() {
             {tooltip.label}
           </div>
         </div>
+      )}
+
+      {/* Teams flyout — collapsed mode only */}
+      {!expanded && teamsFlyout && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setTeamsFlyout(false)}/>
+          <div
+            className="fixed z-[60] bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 min-w-[180px]"
+            style={{ left: W_COLLAPSED + 8, top: teamsFlyoutTop }}
+          >
+            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">Teams</div>
+            {teams.map(t => {
+              const isActive = t.id === activeTeamId
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => { navigate(`/team/${t.id}/briefing`); setTeamsFlyout(false) }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left
+                    ${isActive ? 'bg-gray-50 text-gray-900 font-semibold' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
+                >
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: teamColor(t.team_name) }}/>
+                  {t.team_name}
+                </button>
+              )
+            })}
+          </div>
+        </>
       )}
     </>
   )
