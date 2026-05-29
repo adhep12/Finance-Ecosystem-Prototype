@@ -946,6 +946,52 @@ export default function MasterTransactionsEditor({ orgSettings }) {
     if (showDeleted) loadDeleted()
   }
 
+  // ── Budget inline edit / delete ─────────────────────────────────────────────
+  async function handleBudgetFieldEdit(row, field, newVal) {
+    const changes = { [field]: newVal }
+    const { error: err } = await dbUpdate('budgets', row.id, changes, row)
+    if (err) { showToast('Save failed: ' + err.message, 'error'); return }
+    updateBudgetRow(row.id, changes, row)
+    showToast('Budget line updated')
+  }
+
+  async function handleBudgetDelete(row) {
+    const label = `${row.category || '—'} · ${row.period || '—'}`
+    if (!confirm(`Delete this budget line (${label}, ${formatCurrency(row.amount)})?\nIt will be soft-deleted and hidden.`)) return
+    await deleteBudgetRow(row.id)
+    showToast('Budget line deleted')
+  }
+
+  // ── Patron inline edit / delete ──────────────────────────────────────────────
+  async function handlePatronFieldEdit(row, field, newVal) {
+    const changes = { [field]: newVal }
+    const { error: err } = await dbUpdate('patron_data', row.id, changes, row)
+    if (err) { showToast('Save failed: ' + err.message, 'error'); return }
+    updatePatronRow(row.id, changes, row)
+    showToast('Patron data updated')
+  }
+
+  async function handlePatronDelete(row) {
+    if (!confirm(`Delete patron data for ${row.period}?`)) return
+    await deletePatronRow(row.id)
+    showToast('Patron data deleted')
+  }
+
+  // ── Cash flow inline edit / delete ────────────────────────────────────────────
+  async function handleCashFlowFieldEdit(row, field, newVal) {
+    const changes = { [field]: newVal }
+    const { error: err } = await dbUpdate('cash_flow', row.id, changes, row)
+    if (err) { showToast('Save failed: ' + err.message, 'error'); return }
+    updateCashFlowRow(row.id, changes, row)
+    showToast('Cash flow updated')
+  }
+
+  async function handleCashFlowDelete(row) {
+    if (!confirm(`Delete cash flow data for ${row.period}?`)) return
+    await deleteCashFlowRow(row.id)
+    showToast('Cash flow deleted')
+  }
+
   async function handleRestore(row) {
     const { error: err } = await supabase
       .from('transactions')
@@ -1408,6 +1454,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                       <BH col="scenario">Scenario</BH>
                       <BH col="amount" right>Amount</BH>
                       <th className="text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-400">Period Type</th>
+                      <th className="w-10"/>
                     </tr>
                   )
                 })()}
@@ -1419,19 +1466,36 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                   </td></tr>
                 )}
                 {budgetPageRows.map((row, i) => (
-                  <tr key={i} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                    <td className="px-4 py-1.5 font-mono text-xs text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
-                    <td className="px-4 py-1.5 text-xs text-gray-700">{row.dept_name || row.department || '—'}</td>
-                    <td className="px-4 py-1.5 text-xs text-gray-700">{row.category || '—'}</td>
-                    <td className="px-4 py-1.5 text-xs">
-                      <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700">
-                        {row.scenario || '—'}
-                      </span>
+                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    <td className="px-3 py-1 text-xs">
+                      <EditCell value={row.period} type="month"
+                        onChange={v => handleBudgetFieldEdit(row, 'period', v)}/>
                     </td>
-                    <td className="px-4 py-1.5 text-right font-mono text-xs font-semibold text-gray-800 tabular-nums whitespace-nowrap">
-                      {formatCurrency(row.amount || 0)}
+                    <td className="px-3 py-1 text-xs text-gray-500">{row.dept_name || row.department || '—'}</td>
+                    <td className="px-3 py-1 text-xs">
+                      <EditCell value={row.category || ''} placeholder="Category"
+                        onChange={v => handleBudgetFieldEdit(row, 'category', v)}/>
                     </td>
-                    <td className="px-4 py-1.5 text-xs text-gray-500">{row.period_type || '—'}</td>
+                    <td className="px-3 py-1 text-xs">
+                      <EditCell value={row.scenario || ''} placeholder="Scenario"
+                        onChange={v => handleBudgetFieldEdit(row, 'scenario', v)}/>
+                    </td>
+                    <td className="px-3 py-1 text-xs">
+                      <EditCell value={row.amount ?? ''} numeric type="number"
+                        displayValue={<span className="font-mono font-semibold tabular-nums">{formatCurrency(row.amount || 0)}</span>}
+                        onChange={v => handleBudgetFieldEdit(row, 'amount', v)}/>
+                    </td>
+                    <td className="px-3 py-1 text-xs">
+                      <EditCell value={row.period_type || 'monthly'} type="select"
+                        options={[{value:'monthly',label:'monthly'},{value:'quarterly',label:'quarterly'},{value:'annual',label:'annual'}]}
+                        onChange={v => handleBudgetFieldEdit(row, 'period_type', v)}/>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <button onClick={() => handleBudgetDelete(row)} title="Delete"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-100 text-red-400">
+                        <Trash2 size={11}/>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1503,20 +1567,36 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                   <tr><td colSpan={11} className="px-5 py-12 text-center text-gray-400 text-sm">No patron data yet. Click Add to create a record.</td></tr>
                 ) : [...(patronData || [])].sort((a, b) => b.period.localeCompare(a.period)).map((row, i) => (
                   <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                    <td className="px-3 py-2 font-mono text-gray-600">{row.period}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.total_active_patrons ?? '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.new_patrons_total ?? '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.new_patrons_recurring ?? '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.new_patrons_spontaneous ?? '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.recurring_patron_count ?? '—'}</td>
-                    <td className="px-3 py-2 font-mono tabular-nums">{row.recurring_giving_total != null ? formatCurrency(row.recurring_giving_total) : '—'}</td>
-                    <td className="px-3 py-2 font-mono tabular-nums">{row.spontaneous_giving_total != null ? formatCurrency(row.spontaneous_giving_total) : '—'}</td>
-                    <td className="px-3 py-2 font-mono tabular-nums">{row.avg_gift_size != null ? formatCurrency(row.avg_gift_size) : '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.retention_rate != null ? `${(row.retention_rate * 100).toFixed(1)}%` : '—'}</td>
-                    <td className="px-2 py-2 text-center">
-                      <button className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-blue-100 text-blue-400"
-                        onClick={() => setEditModal({ mode: 'patron', row })}>
-                        <Edit2 size={11}/>
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.period} type="month" onChange={v => handlePatronFieldEdit(row, 'period', v)}/>
+                    </td>
+                    {[
+                      ['total_active_patrons','integer'],['new_patrons_total','integer'],
+                      ['new_patrons_recurring','integer'],['new_patrons_spontaneous','integer'],
+                      ['recurring_patron_count','integer'],
+                    ].map(([field]) => (
+                      <td key={field} className="px-2 py-1 text-xs">
+                        <EditCell value={row[field] ?? ''} numeric type="number"
+                          displayValue={<span className="tabular-nums">{row[field] ?? '—'}</span>}
+                          onChange={v => handlePatronFieldEdit(row, field, parseInt(v, 10))}/>
+                      </td>
+                    ))}
+                    {['recurring_giving_total','spontaneous_giving_total','avg_gift_size'].map(field => (
+                      <td key={field} className="px-2 py-1 text-xs">
+                        <EditCell value={row[field] ?? ''} numeric type="number"
+                          displayValue={<span className="font-mono tabular-nums">{row[field] != null ? formatCurrency(row[field]) : '—'}</span>}
+                          onChange={v => handlePatronFieldEdit(row, field, parseFloat(v))}/>
+                      </td>
+                    ))}
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.retention_rate ?? ''} numeric type="number"
+                        displayValue={<span className="tabular-nums">{row.retention_rate != null ? `${(row.retention_rate*100).toFixed(1)}%` : '—'}</span>}
+                        onChange={v => handlePatronFieldEdit(row, 'retention_rate', parseFloat(v))}/>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <button onClick={() => handlePatronDelete(row)} title="Delete"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-100 text-red-400">
+                        <Trash2 size={11}/>
                       </button>
                     </td>
                   </tr>
@@ -1542,15 +1622,33 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                   <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">No cash flow data yet. Click Add to create a record.</td></tr>
                 ) : [...(cashFlowData || [])].sort((a, b) => b.period.localeCompare(a.period)).map((row, i) => (
                   <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                    <td className="px-3 py-2 font-mono text-gray-600">{row.period}</td>
-                    <td className="px-3 py-2 font-mono font-semibold text-gray-800 tabular-nums">{formatCurrency(row.cash_balance)}</td>
-                    <td className="px-3 py-2 font-mono text-gray-600 tabular-nums">{row.prior_month_balance != null ? formatCurrency(row.prior_month_balance) : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-600 tabular-nums">{row.prior_year_balance != null ? formatCurrency(row.prior_year_balance) : '—'}</td>
-                    <td className="px-3 py-2 font-mono text-gray-600 tabular-nums">{row.reserve_floor != null ? formatCurrency(row.reserve_floor) : <span className="text-gray-400 italic">org default</span>}</td>
-                    <td className="px-2 py-2 text-center">
-                      <button className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-blue-100 text-blue-400"
-                        onClick={() => setEditModal({ mode: 'cashflow', row })}>
-                        <Edit2 size={11}/>
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.period} type="month" onChange={v => handleCashFlowFieldEdit(row, 'period', v)}/>
+                    </td>
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.cash_balance ?? ''} type="number"
+                        displayValue={<span className="tabular-nums font-semibold">{formatCurrency(row.cash_balance)}</span>}
+                        onChange={v => handleCashFlowFieldEdit(row, 'cash_balance', parseFloat(v))}/>
+                    </td>
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.prior_month_balance ?? ''} type="number"
+                        displayValue={<span className="tabular-nums">{row.prior_month_balance != null ? formatCurrency(row.prior_month_balance) : '—'}</span>}
+                        onChange={v => handleCashFlowFieldEdit(row, 'prior_month_balance', parseFloat(v))}/>
+                    </td>
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.prior_year_balance ?? ''} type="number"
+                        displayValue={<span className="tabular-nums">{row.prior_year_balance != null ? formatCurrency(row.prior_year_balance) : '—'}</span>}
+                        onChange={v => handleCashFlowFieldEdit(row, 'prior_year_balance', parseFloat(v))}/>
+                    </td>
+                    <td className="px-2 py-1 text-xs">
+                      <EditCell value={row.reserve_floor ?? ''} type="number"
+                        displayValue={<span className="tabular-nums">{row.reserve_floor != null ? formatCurrency(row.reserve_floor) : <span className="text-gray-400 italic">org default</span>}</span>}
+                        onChange={v => handleCashFlowFieldEdit(row, 'reserve_floor', v === '' ? null : parseFloat(v))}/>
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <button onClick={() => handleCashFlowDelete(row)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-100 text-red-400">
+                        <Trash2 size={11}/>
                       </button>
                     </td>
                   </tr>
