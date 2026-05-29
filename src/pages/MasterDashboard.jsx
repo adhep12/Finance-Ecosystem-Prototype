@@ -2591,14 +2591,16 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
   }, [actuals, startP, endP])
 
   // ── Budget by team ─────────────────────────────────────────────────────────
-  const budgetByTeam = useMemo(() => {
+  const { budgetByTeam, unassignedBudget } = useMemo(() => {
     const m = {}
+    let unassigned = 0
     for (const b of budgetFlat) {
-      if (b.scenario!==scenario||b.record_type==='income'||!b.team_name) continue
+      if (b.scenario!==scenario||b.record_type==='income') continue
       if (!b.period||b.period<startP||b.period>endP) continue
+      if (!b.team_name) { unassigned += Math.abs(b.amount||0); continue }
       m[b.team_name] = (m[b.team_name]||0) + Math.abs(b.amount||0)
     }
-    return m
+    return { budgetByTeam: m, unassignedBudget: unassigned }
   }, [budgetFlat, scenario, startP, endP])
 
   // ── Unresolved warning map — transactions in range with _warnings ─────────
@@ -2671,7 +2673,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 
   // ── Summary stats ──────────────────────────────────────────────────────────
   const totalActual   = teams.reduce((s,t) => s+t.actual,   0)
-  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0)
+  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0) + unassignedBudget
   const totalVariance = totalActual - totalBudget
   const teamsOver     = teams.filter(t => t.status === 'over').length
 
