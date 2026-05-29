@@ -22,6 +22,7 @@ import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
 import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
+import { ChartSlot } from '../components/ChartSlot'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -3634,15 +3635,21 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
           {trendCharts.map(tc => {
             const removeChart  = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
             if (tc.id === 'new-patrons-yoy') return (
-              <NewPatronChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
+              <ChartSlot key={tc.id} slotId="new-patrons-yoy"
+                patronData={patronData} actuals={actuals} budgetFlat={budgetFlat}
+                cashData={cashData} dateRange={dateRange} scenario={scenario}
                 editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'patron-base') return (
-              <PatronBaseChartCard key={tc.id} patronData={patronData} dateRange={dateRange}
+              <ChartSlot key={tc.id} slotId="patron-base"
+                patronData={patronData} actuals={actuals} budgetFlat={budgetFlat}
+                cashData={cashData} dateRange={dateRange} scenario={scenario}
                 editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'giving-vs-budget') return (
-              <MonthlyGivingVsBudgetCard key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
+              <ChartSlot key={tc.id} slotId="giving-vs-budget"
+                patronData={patronData} actuals={actuals} budgetFlat={budgetFlat}
+                cashData={cashData} dateRange={dateRange} scenario={scenario}
                 editMode={editCharts} onRemove={removeChart}/>
             )
             if (tc.id === 'net-position-by-month') return (
