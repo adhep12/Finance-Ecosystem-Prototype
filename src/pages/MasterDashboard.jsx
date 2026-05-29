@@ -1251,11 +1251,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
-  const { orgConfig } = useApp()
-
-  // ── Remote data ─────────────────────────────────────────────────────────
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
+  const { orgConfig, cashFlowData, patronData } = useApp()
 
   // ── Edit layout state ────────────────────────────────────────────────────
   const [editMode,     setEditMode]     = useState(false)
@@ -1264,18 +1260,13 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
   const [showPicker,   setShowPicker]   = useState(null) // { section: 'financial_health' }
   const [confirmRemove, setConfirmRemove] = useState(null) // { cardKey, section }
 
-  // ── Load all data on mount ───────────────────────────────────────────────
+  // ── Load dashboard layout on mount ──────────────────────────────────────
   useEffect(() => {
-    Promise.all([
-      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
-      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-      supabase.from('org_dashboard_layout').select('*')
-        .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview'),
-    ]).then(([cashRes, patronRes, layoutRes]) => {
-      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
-      if (!patronRes.error) setPatronData(patronRes.data || [])
-      if (!layoutRes.error) setAddedCards(layoutRes.data || [])
-    }).catch(err => console.error('[OverviewTab] data load error:', err))
+    supabase.from('org_dashboard_layout').select('*')
+      .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview')
+      .then(({ data, error }) => {
+        if (!error) setAddedCards(data || [])
+      }).catch(err => console.error('[OverviewTab] layout load error:', err))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Add / remove handlers (save to Supabase instantly) ──────────────────
@@ -1821,7 +1812,7 @@ function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
-  const { deptNames, incomeMonths, orgConfig, comments } = useApp()
+  const { deptNames, incomeMonths, orgConfig, comments, cashFlowData, patronData } = useApp()
   const navigate = useNavigate()
 
   // Drill order: any of category/account/team/dept/vendor in any order
@@ -1840,21 +1831,6 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
-
-  useEffect(() => {
-    Promise.all([
-      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
-      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-    ]).then(([cf, pd]) => {
-      if (!cf.error) setCashFlowData(cf.data || [])
-      if (!pd.error) setPatronData(pd.data || [])
-    }).catch(err => {
-      console.error('[MasterDashboard] Dashboard data load error:', err)
-    })
-  }, [])
-
   const { startDate, endDate } = dateRange
 
   // All unique dept codes in actuals (for dropdown)

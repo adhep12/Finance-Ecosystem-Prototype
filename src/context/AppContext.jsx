@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react'
-import { supabase, ORG_ID, setOrgId, SUPABASE_CONFIGURED } from '../lib/supabase'
+import { supabase, ORG_ID, setOrgId, SUPABASE_CONFIGURED, dbUpdate, dbSoftDelete } from '../lib/supabase'
 import { getScenarios } from '../utils/dataProcessing'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,11 +96,13 @@ export function AppProvider({ children }) {
   const [orgConfig, setOrgConfig] = useState(DEFAULT_ORG)
 
   // ── Core data state (populated from Supabase on mount) ───────────────────
-  const [actuals,    setActuals]    = useState([])
-  const [budgetFlat, setBudgetFlat] = useState([])
-  const [orgSummary, setOrgSummary] = useState([])   // v_org_summary: actual+budget by category+period+scenario
-  const [teams,      setTeams]      = useState([])   // raw teams array for sidebar + import flows
-  const [comments,   setComments]   = useState([])
+  const [actuals,      setActuals]      = useState([])
+  const [budgetFlat,   setBudgetFlat]   = useState([])
+  const [orgSummary,   setOrgSummary]   = useState([])   // v_org_summary: pre-aggregated actual+budget
+  const [teams,        setTeams]        = useState([])   // raw teams array for sidebar + import flows
+  const [comments,     setComments]     = useState([])
+  const [cashFlowData, setCashFlowData] = useState([])
+  const [patronData,   setPatronData]   = useState([])
 
   // Undo history
   const [previousActuals, setPreviousActuals] = useState(null)
@@ -298,6 +300,14 @@ export function AppProvider({ children }) {
       }
 
       setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap))
+
+      // ── Cash flow + patron data (small tables, fetch in parallel) ───────────
+      const [cashRes, patronRes] = await Promise.all([
+        supabase.from('cash_flow').select('*').eq('org_id', resolvedOrgId).eq('deleted', false).order('period'),
+        supabase.from('patron_data').select('*').eq('org_id', resolvedOrgId).eq('deleted', false).order('period'),
+      ])
+      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
+      if (!patronRes.error) setPatronData(patronRes.data || [])
 
       // v_org_summary was removed — the view times out (complex JOIN, no index)
       // and no component reads orgSummary anyway.  All dashboard widgets derive
@@ -666,6 +676,89 @@ export function AppProvider({ children }) {
     setComments(prev => prev.filter(c => c.id !== id))
   }
 
+  // ── Transaction CRUD ──────────────────────────────────────────────────────
+  async function addTransaction(row) {
+    if (!orgId) return
+    const { data, error } = await supabase.from('transactions').insert([{
+      ...row,
+      org_id:       orgId,
+      source:       'manual',
+      fiscal_period: row.date ? row.date.substring(0, 7) : null,
+    }]).select('id').single()
+    if (error || !data) { console.error('addTransaction', error); return }
+    const { data: enriched } = await supabase.from('v_transactions_enriched')
+      .select('*').eq('id', data.id).single()
+    if (enriched) setActuals(prev => [mapActuals([enriched])[0], ...prev])
+  }
+
+  async function updateTransaction(id, changes, original) {
+    const { error } = await dbUpdate('transactions', id, changes, original)
+    if (error) { console.error('updateTransaction', error); return }
+    const { data: enriched } = await supabase.from('v_transactions_enriched')
+      .select('*').eq('id', id).single()
+    if (enriched) {
+      const mapped = mapActuals([enriched])[0]
+      setActuals(prev => prev.map(r => r.id === id ? mapped : r))
+    }
+  }
+
+  async function deleteTransaction(id) {
+    await dbSoftDelete('transactions', id)
+    setActuals(prev => prev.filter(r => r.id !== id))
+  }
+
+  // ── Budget CRUD ───────────────────────────────────────────────────────────
+  async function addBudgetRow(row) {
+    if (!orgId) return
+    const { data, error } = await supabase.from('budgets').insert([{ ...row, org_id: orgId }]).select().single()
+    if (error || !data) { console.error('addBudgetRow', error); return }
+    setBudgetFlat(prev => [{ ...data, dept_name: null, department: null, team_name: null, record_type: 'expense', _warnings: [], _hasAccount: false }, ...prev])
+  }
+
+  async function updateBudgetRow(id, changes, original) {
+    await dbUpdate('budgets', id, changes, original)
+    setBudgetFlat(prev => prev.map(r => r.id === id ? { ...r, ...changes } : r))
+  }
+
+  async function deleteBudgetRow(id) {
+    await dbSoftDelete('budgets', id)
+    setBudgetFlat(prev => prev.filter(r => r.id !== id))
+  }
+
+  // ── Patron data CRUD ──────────────────────────────────────────────────────
+  async function addPatronRow(row) {
+    if (!orgId) return
+    const { data, error } = await supabase.from('patron_data').insert([{ ...row, org_id: orgId }]).select().single()
+    if (!error && data) setPatronData(prev => [...prev, data].sort((a, b) => a.period.localeCompare(b.period)))
+  }
+
+  async function updatePatronRow(id, changes, original) {
+    await dbUpdate('patron_data', id, changes, original)
+    setPatronData(prev => prev.map(r => r.id === id ? { ...r, ...changes } : r))
+  }
+
+  async function deletePatronRow(id) {
+    await dbSoftDelete('patron_data', id)
+    setPatronData(prev => prev.filter(r => r.id !== id))
+  }
+
+  // ── Cash flow CRUD ────────────────────────────────────────────────────────
+  async function addCashFlowRow(row) {
+    if (!orgId) return
+    const { data, error } = await supabase.from('cash_flow').insert([{ ...row, org_id: orgId }]).select().single()
+    if (!error && data) setCashFlowData(prev => [...prev, data].sort((a, b) => a.period.localeCompare(b.period)))
+  }
+
+  async function updateCashFlowRow(id, changes, original) {
+    await dbUpdate('cash_flow', id, changes, original)
+    setCashFlowData(prev => prev.map(r => r.id === id ? { ...r, ...changes } : r))
+  }
+
+  async function deleteCashFlowRow(id) {
+    await dbSoftDelete('cash_flow', id)
+    setCashFlowData(prev => prev.filter(r => r.id !== id))
+  }
+
   // Realtime subscription — set up once per org_id
   useEffect(() => {
     if (!orgId) return
@@ -701,6 +794,14 @@ export function AppProvider({ children }) {
     briefingExclusions, setBriefingExclusions,
     // Comments
     comments, addComment, updateCommentStatus, updateComment, deleteComment,
+    // Patron + cash flow data (app-wide, loaded in loadFromDB)
+    cashFlowData, setCashFlowData,
+    patronData,   setPatronData,
+    // Per-row CRUD (writes to Supabase + updates local state)
+    addTransaction, updateTransaction, deleteTransaction,
+    addBudgetRow,   updateBudgetRow,   deleteBudgetRow,
+    addPatronRow,   updatePatronRow,   deletePatronRow,
+    addCashFlowRow, updateCashFlowRow, deleteCashFlowRow,
     // Undo history
     previousActuals, restorePreviousActuals,
     previousBudget,  restorePreviousBudget,
