@@ -509,10 +509,10 @@ export function AppProvider({ children }) {
     }
   }, [availableScenarios]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Date range — default to full fiscal year ──────────────────────────────
-  const defaultRange = getPresetRange('full-fiscal', DEFAULT_ORG)
+  // ── Date range — default to fiscal YTD on first load ─────────────────────
+  const defaultRange = getPresetRange('fiscal-ytd', DEFAULT_ORG)
   const [dateRange, setDateRange] = useState({
-    preset: 'full-fiscal',
+    preset: 'fiscal-ytd',
     startDate: defaultRange.startDate,
     endDate: defaultRange.endDate,
   })
