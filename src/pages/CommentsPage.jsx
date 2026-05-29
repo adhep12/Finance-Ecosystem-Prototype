@@ -560,9 +560,27 @@ function ListView({ comments, onSelect }) {
 
 export default function CommentsPage({ context = 'admin' }) {
   const { comments, orgConfig, updateComment } = useApp()
-  const teamCtx  = useTeamOptional()          // null when rendered in MasterDashboard
+  const teamCtx  = useTeamOptional()
   const team     = teamCtx?.team || null
   const teamName = team?.team_name || orgConfig.teamName
+  const { pathname } = useLocation()
+
+  // ── Visibility tier ────────────────────────────────────────────────────────
+  // Admin (/master)  → sees all comments from all sources
+  // Executive (/elt) → sees only Executive-sourced comments
+  // Team (/team/*)   → sees only Content Team comments (own team)
+  const isAdmin     = pathname.startsWith('/master') || pathname.includes('/master')
+  const isExecutive = pathname.startsWith('/elt')
+  const isTeam      = pathname.startsWith('/team')
+
+  function isVisible(c) {
+    // Replies (parent_id set) are shown inline in threads — exclude from main list
+    if (c.parentId) return false
+    if (isAdmin) return true
+    if (isExecutive) return c.source_dashboard === 'Executive'
+    if (isTeam) return c.source_dashboard === 'Content Team'
+    return true
+  }
 
   const [view,           setView]           = useState('kanban')
   const [statusFilters,  setStatusFilters]  = useState({ open: true, approved: true, rejected: true, resolved: true })
@@ -575,17 +593,18 @@ export default function CommentsPage({ context = 'admin' }) {
     setStatusFilters(prev => ({ ...prev, [s]: !prev[s] }))
   }
 
-  const orphaned = useMemo(() => comments.filter(c => c.orphaned), [comments])
+  const orphaned = useMemo(() => comments.filter(c => c.orphaned && isVisible(c)), [comments, pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     return comments.filter(c => {
+      if (!isVisible(c)) return false
       if (c.orphaned) return false // shown separately
       const status = getStatus(c)
       if (!statusFilters[status]) return false
       if (search && !c.text.toLowerCase().includes(search.toLowerCase()) && !c.author.toLowerCase().includes(search.toLowerCase())) return false
       return true
     })
-  }, [comments, statusFilters, search])
+  }, [comments, statusFilters, search, pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleAddToCol(type) {
     setAddModalType(type)
