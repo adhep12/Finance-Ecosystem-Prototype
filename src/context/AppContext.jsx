@@ -589,18 +589,23 @@ export function AppProvider({ children }) {
   // ── Comments — Supabase-backed with realtime ──────────────────────────────
   function dbRowToComment(row) {
     return {
-      id:        row.id,
-      status:    row.status,
-      type:      row.type,
-      text:      row.text,
-      author:    row.author,
-      avatar:    row.avatar,
-      page:      row.page,
-      category:  row.category,
-      anchor:    row.anchor,
-      teamId:    row.team_id,
-      resolved:  row.resolved,
-      timestamp: row.created_at,
+      id:               row.id,
+      status:           row.status,
+      type:             row.type,
+      text:             row.text,
+      author:           row.author,
+      avatar:           row.avatar,
+      page:             row.page,
+      category:         row.category,
+      anchor:           row.anchor,
+      teamId:           row.team_id,
+      resolved:         row.resolved,
+      timestamp:        row.created_at,
+      source_dashboard: row.source_dashboard || null,
+      source_page:      row.source_page      || null,
+      source_period:    row.source_period    || null,
+      pinPosition:      row.pin_position     || null,
+      orphaned:         row.orphaned         || false,
     }
   }
 
@@ -618,29 +623,47 @@ export function AppProvider({ children }) {
 
   async function addComment(comment) {
     if (!orgId) return
+    // Generate a client-side ID that works for both text and uuid column types
+    const id = typeof crypto?.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `c${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const now = new Date().toISOString()
     const row = {
-      org_id:   orgId,
-      status:   'open',
-      anchor:   null,
-      team_id:  1,
+      id,
+      org_id:           orgId,
+      status:           'open',
+      anchor:           null,
+      team_id:          1,
+      deleted:          false,
+      created_at:       now,
+      updated_at:       now,
+      timestamp:        now,
       ...comment,
-      // map camelCase fields to snake_case columns
-      team_id:  comment.teamId ?? 1,
-      type:     comment.type    || 'comment',
-      text:     comment.text    || '',
-      author:   comment.author  || '',
-      avatar:   comment.avatar  || null,
-      page:     comment.page    || null,
-      category: comment.category || null,
-      anchor:   comment.anchor  || null,
+      // map camelCase → snake_case, override spreaded camel keys
+      team_id:          comment.teamId      ?? 1,
+      type:             comment.type        || 'comment',
+      text:             comment.text        || '',
+      author:           comment.author      || '',
+      avatar:           comment.avatar      || null,
+      page:             comment.page        || null,
+      category:         comment.category    || null,
+      anchor:           comment.anchor      || null,
+      source_dashboard: comment.source_dashboard || null,
+      source_page:      comment.source_page      || null,
+      source_period:    comment.source_period    || null,
+      pin_position:     comment.pinPosition      || null,
     }
-    // Remove camelCase keys before inserting
+    // Remove camelCase keys — DB columns are snake_case
     delete row.teamId
-    delete row.timestamp
-    delete row.id
+    delete row.pinPosition
     const { error } = await supabase.from('comments_requests').insert([row])
-    if (error) console.error('addComment error', error)
-    // Realtime subscription will call fetchComments and update state
+    if (error) {
+      console.error('addComment error', error)
+      return
+    }
+    // Optimistic update so the submitting client sees it immediately
+    // (realtime will also fire for all other connected clients)
+    setComments(prev => [...prev, dbRowToComment(row)])
   }
 
   async function updateCommentStatus(id, status) {
@@ -760,17 +783,21 @@ export function AppProvider({ children }) {
   }
 
   // Realtime subscription — set up once per org_id
+  // NOTE: Realtime must also be enabled in Supabase Dashboard →
+  //       Database → Replication → Supabase Realtime → toggle ON for comments_requests
   useEffect(() => {
     if (!orgId) return
     fetchComments(orgId)
     const channel = supabase
-      .channel('comments_realtime')
+      .channel(`comments_realtime:${orgId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'comments_requests', filter: `org_id=eq.${orgId}` },
         () => { fetchComments(orgId) }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        if (err) console.error('[comments realtime] subscribe error', err)
+      })
     return () => { supabase.removeChannel(channel) }
   }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
