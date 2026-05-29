@@ -2023,73 +2023,74 @@ function buildAIContext({ period, actuals, budgetFlat, activeBudget, orgConfig, 
 }
 
 /** Build the API prompt for a given section + context */
-function buildSectionPrompt(section, ctx) {
-  const monthStr = ctx.monthLabel
-  const fyStart  = ctx.fiscalYearStart.replace('-', '/')
-  const monthNum = ctx.fiscalMonthIndex
-  const orgName  = ctx.orgName
+function buildSectionPrompt(section, ctx, userContext = '') {
+  const monthStr  = ctx.monthLabel
+  const fyStart   = ctx.fiscalYearStart.replace('-', '/')
+  const monthNum  = ctx.fiscalMonthIndex
+  const orgName   = ctx.orgName
   const threshold = Math.round(ctx.materialityThreshold * 100)
 
-  const currentMonthData  = JSON.stringify(ctx.currentMonth, null, 2)
-  const ytdData           = JSON.stringify(ctx.ytd,          null, 2)
-  const priorYearData     = JSON.stringify(ctx.priorYear,    null, 2)
+  const currentMonthData = JSON.stringify(ctx.currentMonth, null, 2)
+  const ytdData          = JSON.stringify(ctx.ytd,          null, 2)
+  const priorYearData    = JSON.stringify(ctx.priorYear,    null, 2)
+
+  // Shared tone instructions injected into every prompt
+  const TONE = `Write like a thoughtful, straight-talking CFO — not a corporate communications team. Use plain English. Be specific with numbers. No buzzwords, no filler phrases like "it is worth noting" or "it is important to highlight." Lead with what matters. If something is good, say it's good. If something needs attention, say so clearly.`
+
+  // User-supplied context block (only included when present)
+  const contextBlock = userContext
+    ? `\nADDITIONAL CONTEXT FROM THE TEAM:\n${userContext}\nUse this context to inform tone and emphasis where relevant. Do not repeat it verbatim.\n`
+    : ''
 
   if (section === 'overall') {
-    return `You are a financial writer for a nonprofit organization. Write a monthly financial summary in plain, direct language for organizational leaders. Avoid corporate jargon. Be specific with numbers. Write with confidence but not arrogance.
+    return `${TONE}
 
-Here is the financial data for ${monthStr}:
+You are writing the opening summary for ${orgName}'s ${monthStr} financial report. This goes to senior leaders who know the org well — skip the basics, get to the point.
+${contextBlock}
+FINANCIAL DATA:
 
-CURRENT MONTH:
+Current month (${monthStr}):
 ${currentMonthData}
 
-FISCAL YEAR TO DATE (${fyStart} through ${ctx.period}):
+Fiscal year to date (${fyStart} through ${ctx.period}, month ${monthNum} of 12):
 ${ytdData}
 
-PRIOR YEAR SAME PERIOD:
+Same month last year:
 ${priorYearData}
 
-ORG NAME: ${orgName}
-
 Write two things:
-1. A bold one-sentence headline that captures the month's overall financial story. Be direct and specific. Example style: "A steady month. Giving is strong, expenses disciplined, and we're ahead of plan."
 
-2. A narrative paragraph (3-5 sentences) that explains:
-   - How far into the fiscal year we are (month ${monthNum} of 12) and what the overall position looks like
-   - How giving/income is tracking vs budget with the key driver
-   - How expenses are tracking vs budget
-   - What the net position means in plain terms
+1. A headline — one punchy sentence that captures the month's story. Not a generic statement. Make it specific. Examples of the right style: "Giving came in strong and we held the line on expenses — a clean month." or "Income fell short of plan but reserves are healthy and the YTD position is solid."
+
+2. A narrative paragraph (3–5 sentences) that covers: where we are in the fiscal year, how income is tracking vs plan and what's driving it, how expenses look, and what the net position means in practical terms.
 
 Return as JSON: {"headline": "...", "narrative": "..."}
 Return only the JSON object, no other text.`
   }
 
   if (section === 'takeaways') {
-    return `You are a financial analyst for a nonprofit. Write 3-5 key takeaways for organizational leaders based on this financial data. Each takeaway should have a bold headline and 1-2 sentences of explanation. Use specific numbers. Be direct. Prioritize what matters most to mission-driven leaders: are we healthy, are we growing, are we sustainable?
+    return `${TONE}
 
+Write 3–5 key takeaways from ${orgName}'s ${monthStr} financial data. These are for senior leaders — people who care about whether the org is healthy, sustainable, and on track. Each takeaway should have a short, specific headline and 1–2 sentences of explanation with real numbers.
+
+Prioritize things that actually matter: big variances, trends that are building, strengths worth calling out, or risks worth watching. Skip anything minor or obvious.
+${contextBlock}
 FINANCIAL DATA:
-CURRENT MONTH:
+
+Current month:
 ${currentMonthData}
 
-FISCAL YEAR TO DATE:
+Fiscal year to date (month ${monthNum} of 12):
 ${ytdData}
 
-PRIOR YEAR:
+Same month last year:
 ${priorYearData}
 
-ORG NAME: ${orgName}
-MONTH: ${monthStr}
-FISCAL YEAR POSITION: Month ${monthNum} of 12
-
-Questions to answer through the takeaways:
-- What is driving performance?
-- Where are we vs where we expected to be?
-- What trends are visible in the data?
-- Are we in a healthy, strong, or concerning position?
+ORG: ${orgName} | MONTH: ${monthStr}
 
 Return as JSON:
 {
   "takeaways": [
-    {"headline": "...", "body": "..."},
     {"headline": "...", "body": "..."}
   ]
 }
@@ -2100,41 +2101,33 @@ Return only the JSON object, no other text.`
     const ti  = ctx._totals.totalIncome
     const te  = ctx._totals.totalExpenses
     const thr = ctx._totals.materialityThreshold
-    return `You are a financial analyst for a nonprofit. Identify 3-5 watch areas for organizational leaders. These are the most important financial signals — positive and negative — that leaders need to be aware of.
+    return `${TONE}
 
-MATERIALITY THRESHOLD: ${threshold}% of total org budget.
-Only flag items that represent at least ${threshold}% of total income or total expenses. Do not flag minor line items.
-
+Identify 3–5 financial watch areas for ${orgName}'s leadership team for ${monthStr}. These can be positive signals, concerns, or things to monitor — but they must be material. Only flag items that represent at least ${threshold}% of total income (${fmtDollars(ti * thr)}) or total expenses (${fmtDollars(te * thr)}). Ignore small line items.
+${contextBlock}
 FINANCIAL DATA:
-CURRENT MONTH:
+
+Current month:
 ${currentMonthData}
 
-FISCAL YEAR TO DATE:
+Fiscal year to date:
 ${ytdData}
 
-PRIOR YEAR:
+Same month last year:
 ${priorYearData}
 
-TOTAL INCOME (current month): ${fmtDollars(ti)}
-TOTAL EXPENSES (current month): ${fmtDollars(te)}
-MATERIALITY FLOOR (income): ${fmtDollars(ti * thr)}
-MATERIALITY FLOOR (expenses): ${fmtDollars(te * thr)}
+Total income this month: ${fmtDollars(ti)}
+Total expenses this month: ${fmtDollars(te)}
 
-Generate exactly 3-5 watch areas. Prioritize the most important.
-Each watch area must:
-- Have a status: "needs-attention", "monitoring", or "on-track"
-- Have a title (one short sentence)
-- Have a body (2-3 sentences with specific numbers and context)
-- Represent a material item above the threshold
+Each watch area needs:
+- status: "needs-attention" | "monitoring" | "on-track"
+- title: one short, specific sentence
+- body: 2–3 sentences with numbers, context, and what it means for the org
 
 Return as JSON:
 {
   "watch_areas": [
-    {
-      "status": "needs-attention",
-      "title": "...",
-      "body": "..."
-    }
+    {"status": "needs-attention", "title": "...", "body": "..."}
   ]
 }
 Return only the JSON object, no other text.`
@@ -2143,58 +2136,47 @@ Return only the JSON object, no other text.`
   if (section === 'reserves') {
     if (ctx.cash) {
       const c = ctx.cash
-      return `You are a financial writer for a nonprofit. Write 2-3 sentences about the organization's cash reserves position for ${monthStr}. Be specific with numbers. Plain language, no jargon.
+      return `${TONE}
 
-Write only about cash reserves — the cash balance, how many months of operating expenses it covers, and the change from prior month. Do not write about net operating income or YTD deficit. Only describe what the cash_flow data shows.
+Write 2–3 sentences about ${orgName}'s cash reserves position in ${monthStr}. Stick to what the cash data shows — don't bring in operating income or YTD figures.
+${contextBlock}
+CASH DATA:
+Balance: ${fmtDollars(c.balance)}
+Reserve floor: ${fmtDollars(c.reserveFloor)}
+Above floor: ${fmtDollars(c.aboveFloor)}
+Prior month: ${fmtDollars(c.priorBalance)} (${c.momChange >= 0 ? '+' : ''}${fmtDollars(c.momChange)} change)
+Avg monthly expenses: ${fmtDollars(c.monthlyAvg)}
+Months covered: ${c.monthsCovered !== null ? c.monthsCovered : 'N/A'}
 
-CASH RESERVES DATA FOR ${monthStr}:
-Cash balance: ${fmtDollars(c.balance)}
-Reserve floor (minimum required): ${fmtDollars(c.reserveFloor)}
-Cash above floor: ${fmtDollars(c.aboveFloor)}
-Prior month cash balance: ${fmtDollars(c.priorBalance)}
-Month-over-month change: ${fmtDollars(c.momChange)} (${c.momChange >= 0 ? 'increase' : 'decrease'})
-Monthly operating expenses (avg): ${fmtDollars(c.monthlyAvg)}
-Months of expenses covered: ${c.monthsCovered !== null ? c.monthsCovered : 'N/A'}
-
-ORG NAME: ${orgName}
-
-Cover: current cash balance, months of expenses covered, and how the balance changed from the prior month.
+Cover the balance, how many months of expenses it covers, and how it moved from last month.
 
 Return as JSON: {"reserves": "..."}
 Return only the JSON object, no other text.`
     }
-    // Fallback to net position when no cash data exists
-    return `Write 2-3 sentences about an organization's financial reserves position based on this data. Be specific with numbers. Only describe what the data shows.
+    return `${TONE}
 
-FINANCIAL DATA FOR ${monthStr}:
-Net position (income minus expenses): ${ctx.currentMonth.netActual}
-Net position vs budget: ${ctx.currentMonth.netBudget}
-YTD net position: ${ctx.ytd.netActual}
-YTD vs budget: ${ctx.ytd.netBudget}
-
-ORG NAME: ${orgName}
-MONTH: ${monthStr}
-FISCAL YEAR POSITION: Month ${monthNum} of 12
+Write 2–3 sentences about ${orgName}'s financial position for ${monthStr} based on net income vs budget.
+${contextBlock}
+Net this month: ${ctx.currentMonth.netActual} (budgeted: ${ctx.currentMonth.netBudget})
+YTD net: ${ctx.ytd.netActual} (budgeted: ${ctx.ytd.netBudget})
+Fiscal year position: month ${monthNum} of 12
 
 Return as JSON: {"reserves": "..."}
 Return only the JSON object, no other text.`
   }
 
   if (section === 'monthlyActivity') {
-    return `You are a financial writer for a nonprofit. Write 2-3 sentences describing what happened financially in ${monthStr} specifically — not year-to-date. Be specific with numbers. Plain language, no jargon.
+    return `${TONE}
 
-CURRENT MONTH DATA (${monthStr}):
+Write 2–3 sentences about what happened financially at ${orgName} in ${monthStr} specifically. This is just about the month — not year-to-date.
+${contextBlock}
+CURRENT MONTH DATA:
 ${currentMonthData}
-Total income this month: ${ctx.currentMonth.totalIncome}
-Total expenses this month: ${ctx.currentMonth.totalExpenses}
-Net this month: ${ctx.currentMonth.netActual}
-Income vs budget this month: actual ${ctx.currentMonth.totalIncome} vs budgeted ${ctx.currentMonth.totalIncBudget}
-Expenses vs budget this month: actual ${ctx.currentMonth.totalExpenses} vs budgeted ${ctx.currentMonth.totalExpBudget}
+Income: ${ctx.currentMonth.totalIncome} actual vs ${ctx.currentMonth.totalIncBudget} budgeted
+Expenses: ${ctx.currentMonth.totalExpenses} actual vs ${ctx.currentMonth.totalExpBudget} budgeted
+Net: ${ctx.currentMonth.netActual}
 
-ORG NAME: ${orgName}
-FISCAL YEAR POSITION: Month ${monthNum} of 12
-
-Cover: how giving/income came in vs budget, how expenses tracked, and what the net result was for the month.
+Cover how income came in vs plan, how expenses tracked, and what the net result was.
 
 Return as JSON: {"monthly_activity": "..."}
 Return only the JSON object, no other text.`
@@ -2332,6 +2314,9 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   const [generating, setGenerating] = useState(new Set()) // section names being generated
   const [genErrors, setGenErrors]   = useState({})        // { section: errorMessage }
   const [showGenAllConfirm, setShowGenAllConfirm] = useState(false)
+  // Optional user context for AI generation — injected into every section prompt
+  const [aiContext, setAiContext]   = useState('')
+  const [showAiContext, setShowAiContext] = useState(false)
 
   // Save state
   const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'error'
@@ -2452,7 +2437,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
     setGenError(section, null)
 
     try {
-      const prompt = buildSectionPrompt(section, ctx)
+      const prompt = buildSectionPrompt(section, ctx, aiContext.trim())
       const raw    = await callGenerateAPI(prompt)
       const parsed = parseAIResponse(raw)
 
@@ -2684,6 +2669,41 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
         </div>
 
         <>
+
+          {/* ── AI CONTEXT ── */}
+          <div className="mb-6">
+            {showAiContext ? (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700">Context for AI</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">Anything the AI should factor in — campaigns, one-time expenses, events, market conditions. Optional.</div>
+                  </div>
+                  <button onClick={() => { setShowAiContext(false); setAiContext('') }}
+                    className="text-gray-300 hover:text-gray-500 transition-colors flex-shrink-0 mt-0.5">
+                    <X size={14}/>
+                  </button>
+                </div>
+                <textarea
+                  value={aiContext}
+                  onChange={e => setAiContext(e.target.value)}
+                  placeholder="e.g. We ran a year-end giving campaign in the last two weeks of the month. There was also an unexpected facility repair that hit the Operations budget."
+                  rows={3}
+                  className="w-full text-xs text-gray-700 bg-white border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-offset-1 leading-relaxed placeholder:text-gray-300"
+                  style={{ focusRingColor: 'var(--color-primary)' }}
+                />
+                {aiContext.trim() && (
+                  <p className="text-[10px] text-gray-400 mt-1.5">This context will be included in all AI generations for this session.</p>
+                )}
+              </div>
+            ) : (
+              <button onClick={() => setShowAiContext(true)}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                <Plus size={12}/>
+                Add context for AI <span className="text-[10px] text-gray-300">(optional)</span>
+              </button>
+            )}
+          </div>
 
           {/* ── OVERALL SUMMARY ── */}
           <div className="flex items-center justify-between mb-2">
