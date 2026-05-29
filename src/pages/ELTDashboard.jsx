@@ -4556,8 +4556,8 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
             <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
             {i === 3 ? (
               <>
-                <div className={`text-sm font-bold tabular-nums mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>{card.value}</div>
-                {card.sub && <div className={`text-[10px] font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>{card.sub}</div>}
+                <div className={`text-3xl font-bold tabular-nums mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-xs font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>{card.sub}</div>}
               </>
             ) : (
               <>
