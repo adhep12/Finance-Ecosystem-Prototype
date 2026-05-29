@@ -22,7 +22,7 @@ import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
 import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
-import { ChartSlot } from '../components/ChartSlot'
+import { ChartSlot, CHART_CATALOG as SLOT_CHART_CATALOG } from '../components/ChartSlot'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rolling Quotes
@@ -3633,50 +3633,13 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         <SectionHeader title="Trend Charts" editMode={editCharts} onToggleEdit={()=>setEditCharts(v=>!v)} onAdd={()=>setShowAddChart(true)}/>
         <div className="grid grid-cols-1 min-[1100px]:grid-cols-2 gap-4">
           {trendCharts.map(tc => {
-            const removeChart  = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
-            if (tc.id === 'new-patrons-yoy') return (
-              <ChartSlot key={tc.id} slotId="new-patrons-yoy"
+            const removeChart = () => setTrendCharts(p => p.filter(c => c.id !== tc.id))
+            return (
+              <ChartSlot key={tc.id} slotId={tc.id}
                 patronData={patronData} actuals={actuals} budgetFlat={budgetFlat}
-                cashData={cashData} dateRange={dateRange} scenario={scenario}
+                cashData={cashData} incomeMonths={incomeMonths} dateRange={dateRange} scenario={scenario}
                 editMode={editCharts} onRemove={removeChart}/>
             )
-            if (tc.id === 'patron-base') return (
-              <ChartSlot key={tc.id} slotId="patron-base"
-                patronData={patronData} actuals={actuals} budgetFlat={budgetFlat}
-                cashData={cashData} dateRange={dateRange} scenario={scenario}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'giving-vs-budget') return (
-              <ChartSlot key={tc.id} slotId="giving-vs-budget"
-                patronData={patronData} actuals={actuals} budgetFlat={budgetFlat}
-                cashData={cashData} dateRange={dateRange} scenario={scenario}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'net-position-by-month') return (
-              <ExecNetPositionChart key={tc.id} actuals={actuals} incomeMonths={incomeMonths} dateRange={dateRange}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'cash-position') return (
-              <ExecCashPositionChart key={tc.id} cashData={cashData} dateRange={dateRange}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'cash-position-above-floor') return (
-              <ExecCashAboveFloorChart key={tc.id} cashData={cashData} dateRange={dateRange}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'team-spend') return (
-              <ExecTeamSpendChart key={tc.id} actuals={actuals} dateRange={dateRange}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'budget-watch-areas') return (
-              <ExecBudgetWatchChart key={tc.id} actuals={actuals} budgetFlat={budgetFlat} scenario={scenario} dateRange={dateRange}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            if (tc.id === 'patron-watch-areas') return (
-              <ExecPatronWatchChart key={tc.id} patronData={patronData} dateRange={dateRange}
-                editMode={editCharts} onRemove={removeChart}/>
-            )
-            return null
           })}
           {editCharts && (
             <button onClick={()=>setShowAddChart(true)}
@@ -3709,57 +3672,61 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         onClose={()=>setShowAddPatronMetric(false)}/>}
       {showAddChart&&(
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={()=>setShowAddChart(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-semibold text-gray-800">Chart Library</h3>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Chart Library</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">All charts — same set available here and via the gear icon on each panel</p>
+              </div>
               <button onClick={()=>setShowAddChart(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
             </div>
-            <p className="text-[11px] text-gray-400 mb-4">All charts can be removed via × in edit mode. Default charts reappear when you reset layout.</p>
-            <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
-              {/* Default charts */}
-              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Default Charts</div>
-              {CHART_CATALOG.filter(c=>c.isDefault).map(c => {
-                const already = trendCharts.some(tc=>tc.id===c.id)
+            <div className="overflow-y-auto flex-1 p-4 space-y-5">
+              {[
+                { id: 'comparison',  label: 'Comparison Charts' },
+                { id: 'financial',   label: 'Financial' },
+                { id: 'patron',      label: 'Patron Metrics' },
+                { id: 'operational', label: 'Operational' },
+              ].map(cat => {
+                const items = SLOT_CHART_CATALOG.filter(c => c.category === cat.id)
                 return (
-                  <button key={c.id} disabled={already}
-                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id}]);setShowAddChart(false)}}
-                    className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
-                      already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-200 hover:border-teal-400 hover:bg-teal-50'
-                    }`}>
-                    <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
-                      {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
+                  <div key={cat.id}>
+                    <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2 px-1">{cat.label}</div>
+                    <div className="space-y-1.5">
+                      {items.map(c => {
+                        // Map catalog chart ID to slot ID (for charts that have a dedicated slot)
+                        const slotId = Object.entries({
+                          'new-patrons-yoy':           'total_patrons_yoy',
+                          'patron-base':               'recurring_patron_base',
+                          'giving-vs-budget':          'total_giving_yoy',
+                          'net-position-by-month':     'net_position_by_month',
+                          'cash-position':             'cash_position',
+                          'cash-position-above-floor': 'cash_above_floor',
+                          'team-spend':                'team_spend',
+                          'budget-watch-areas':        'budget_watch',
+                          'patron-watch-areas':        'patron_watch',
+                        }).find(([, v]) => v === c.id)?.[0] || ('slot-' + c.id)
+                        const already = trendCharts.some(tc => tc.id === slotId)
+                        return (
+                          <button key={c.id} disabled={already}
+                            onClick={() => { setTrendCharts(p => [...p, { id: slotId }]); setShowAddChart(false) }}
+                            className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
+                              already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-100 hover:border-teal-400 hover:bg-teal-50'
+                            }`}>
+                            <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
+                              {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-gray-800">{c.label}</span>
+                                {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
+                              </div>
+                              <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">{c.description}</p>
+                            </div>
+                          </button>
+                        )
+                      })}
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-800">{c.label}</span>
-                        {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
-                      </div>
-                      <p className="text-xs text-gray-500">{c.description}</p>
-                    </div>
-                  </button>
-                )
-              })}
-              {/* Addable charts */}
-              <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-4 mb-2">From Admin Dashboard</div>
-              {CHART_CATALOG.filter(c=>!c.isDefault).map(c => {
-                const already = trendCharts.some(tc=>tc.id===c.id)
-                return (
-                  <button key={c.id} disabled={already}
-                    onClick={()=>{setTrendCharts(p=>[...p,{id:c.id}]);setShowAddChart(false)}}
-                    className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border-2 transition-all ${
-                      already ? 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60' : 'border-gray-200 hover:border-teal-400 hover:bg-teal-50'
-                    }`}>
-                    <div className="w-3.5 h-3.5 mt-0.5 flex-shrink-0">
-                      {already ? <Check size={13} className="text-teal-400"/> : <Plus size={13} className="text-gray-300"/>}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-800">{c.label}</span>
-                        {already && <span className="text-[10px] text-gray-400 font-medium">Added</span>}
-                      </div>
-                      <p className="text-xs text-gray-500">{c.description}</p>
-                    </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>

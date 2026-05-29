@@ -14,18 +14,27 @@ import {
   LineChart, Line,
   AreaChart, Area,
   BarChart, Bar,
+  Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from 'recharts'
 import { formatCurrency } from '../utils/formatters'
+import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
+import { STATUS_COLORS, getTeamColor } from '../constants/colors'
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const LS_KEY = 'elt_chart_prefs'
 
 const DEFAULT_SLOT_CHARTS = {
-  'new-patrons-yoy':  'total_patrons_yoy',   // patrons comparison
-  'patron-base':      'recurring_patron_base',
-  'giving-vs-budget': 'total_giving_yoy',    // income comparison
+  'new-patrons-yoy':           'total_patrons_yoy',
+  'patron-base':               'recurring_patron_base',
+  'giving-vs-budget':          'total_giving_yoy',
+  'net-position-by-month':     'net_position_by_month',
+  'cash-position':             'cash_position',
+  'cash-position-above-floor': 'cash_above_floor',
+  'team-spend':                'team_spend',
+  'budget-watch-areas':        'budget_watch',
+  'patron-watch-areas':        'patron_watch',
 }
 
 const CARD_STYLE = {
@@ -524,6 +533,240 @@ function RetentionRate({ patronData = [], dateRange = {} }) {
   )
 }
 
+// ─── Operational chart components ─────────────────────────────────────────────
+
+// 12. Net Position by Month — bar colored by positive/negative
+function NetPositionByMonth({ actuals = [], incomeMonths = [], dateRange = {} }) {
+  const sp = (dateRange.startDate || '').slice(0, 7)
+  const ep = (dateRange.endDate   || '').slice(0, 7)
+  const chartData = useMemo(() => {
+    const expByP = {}
+    filterActualsByRange(actuals, dateRange.startDate || sp, dateRange.endDate || ep)
+      .filter(t => t.record_type !== 'income')
+      .forEach(t => {
+        const p = t.period || t.date?.slice(0, 7)
+        if (p) expByP[p] = (expByP[p] || 0) + Math.abs(t.amount || 0)
+      })
+    const incByP = {}
+    ;(incomeMonths || []).forEach(m => {
+      const p = m.period || m.date?.slice(0, 7)
+      if (!p || p < sp || p > ep) return
+      incByP[p] = (incByP[p] || 0) + (m.contributions || 0) + (m.merch || 0) + (m.other || 0)
+    })
+    const periods = [...new Set([...Object.keys(incByP), ...Object.keys(expByP)])].filter(p => p >= sp && p <= ep).sort()
+    return periods.map(p => {
+      const [y, m2] = p.split('-')
+      return { label: new Date(+y, +m2 - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`, net: (incByP[p] || 0) - (expByP[p] || 0) }
+    })
+  }, [actuals, incomeMonths, sp, ep, dateRange])
+
+  if (!chartData.length) return <EmptyState msg="No data in range" hint="Import actuals to populate"/>
+
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={chartData} margin={ML}>
+        {GRID}{XAXIS()}{YAXIS($)}
+        <Tooltip contentStyle={TIP} formatter={v => [formatCurrency(v, { compact: true }), 'Net Position']}/>
+        <ReferenceLine y={0} stroke="#9CA3AF" strokeWidth={1} strokeDasharray="4 4"/>
+        <Bar dataKey="net" radius={[3, 3, 0, 0]}>
+          {chartData.map((d, i) => <Cell key={i} fill={d.net >= 0 ? STATUS_COLORS.positive : STATUS_COLORS.negative}/>)}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+// 13. Cash Position — line chart with reserve floor
+function CashPosition({ cashData = [], dateRange = {} }) {
+  const sp = (dateRange.startDate || '').slice(0, 7)
+  const ep = (dateRange.endDate   || '').slice(0, 7)
+  const chartData = useMemo(() =>
+    cashData.filter(r => r.period >= sp && r.period <= ep)
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map(r => {
+        const [y, m2] = r.period.split('-')
+        return { label: new Date(+y, +m2 - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`, cash: r.cash_balance, floor: r.reserve_floor }
+      })
+  , [cashData, sp, ep])
+
+  if (!chartData.length) return <EmptyState msg="No cash flow data in range" hint="Import cash flow data to populate"/>
+
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <LineChart data={chartData} margin={ML}>
+        {GRID}{XAXIS()}{YAXIS($)}{LEG}
+        <Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
+        <Line type="monotone" dataKey="cash"  name="Cash Balance"  stroke="var(--color-primary, #0A7EA4)" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }}/>
+        <Line type="monotone" dataKey="floor" name="Reserve Floor" stroke={STATUS_COLORS.negative} strokeWidth={1.5} strokeDasharray="6 3" dot={false}/>
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
+
+// 14. Cash Above Floor — bar chart of surplus over reserve floor
+function CashAboveFloor({ cashData = [], dateRange = {} }) {
+  const sp = (dateRange.startDate || '').slice(0, 7)
+  const ep = (dateRange.endDate   || '').slice(0, 7)
+  const [type, setType] = useState('bar')
+  const chartData = useMemo(() =>
+    cashData.filter(r => r.period >= sp && r.period <= ep)
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map(r => {
+        const [y, m2] = r.period.split('-')
+        return { label: new Date(+y, +m2 - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`, above: Math.max(0, (r.cash_balance || 0) - (r.reserve_floor || 0)) }
+      })
+  , [cashData, sp, ep])
+
+  if (!chartData.length) return <EmptyState msg="No cash flow data in range" hint="Import cash flow data to populate"/>
+
+  return (
+    <div>
+      <div className="flex justify-end mb-2"><TypeToggle value={type} onChange={setType}/></div>
+      <ResponsiveContainer width="100%" height={178}>
+        {type === 'line' ? (
+          <LineChart data={chartData} margin={ML}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={v => [formatCurrency(v, { compact: true }), 'Above Floor']}/>
+            <Line type="monotone" dataKey="above" name="Above Floor" stroke={STATUS_COLORS.positive} strokeWidth={2.5} dot={false} activeDot={{ r: 4 }}/>
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={ML}>
+            {GRID}{XAXIS()}{YAXIS($)}<Tooltip contentStyle={TIP} formatter={v => [formatCurrency(v, { compact: true }), 'Above Floor']}/>
+            <Bar dataKey="above" name="Above Floor" fill={STATUS_COLORS.positive} radius={[3, 3, 0, 0]}/>
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// 15. Team Spend — stacked bars by team
+function TeamSpend({ actuals = [], dateRange = {} }) {
+  const sp = (dateRange.startDate || '').slice(0, 7)
+  const ep = (dateRange.endDate   || '').slice(0, 7)
+  const [type, setType] = useState('bar')
+  const { chartData, teams } = useMemo(() => {
+    const byPT = {}, teamSet = new Set()
+    filterActualsByRange(actuals, dateRange.startDate || sp, dateRange.endDate || ep)
+      .filter(t => t.record_type !== 'income')
+      .forEach(t => {
+        const p = t.period || t.date?.slice(0, 7)
+        if (!p || p < sp || p > ep) return
+        const team = t.team_name || 'Other'
+        teamSet.add(team)
+        if (!byPT[p]) byPT[p] = {}
+        byPT[p][team] = (byPT[p][team] || 0) + Math.abs(t.amount || 0)
+      })
+    const ts = [...teamSet].sort()
+    const data = Object.entries(byPT).sort(([a], [b]) => a.localeCompare(b)).map(([p, tm]) => {
+      const [y, m2] = p.split('-')
+      return { label: new Date(+y, +m2 - 1, 1).toLocaleString('en-US', { month: 'short' }) + ` '${y.slice(2)}`, ...tm }
+    })
+    return { chartData: data, teams: ts }
+  }, [actuals, sp, ep, dateRange])
+
+  if (!chartData.length) return <EmptyState msg="No expense data in range" hint="Import actuals with team data to populate"/>
+
+  return (
+    <div>
+      <div className="flex justify-end mb-2"><TypeToggle value={type} onChange={setType}/></div>
+      <ResponsiveContainer width="100%" height={178}>
+        {type === 'line' ? (
+          <LineChart data={chartData} margin={ML}>
+            {GRID}{XAXIS()}{YAXIS($)}{LEG}
+            <Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
+            {teams.map(t => <Line key={t} type="monotone" dataKey={t} name={t} stroke={getTeamColor(t)} strokeWidth={2} dot={false} activeDot={{ r: 3 }}/>)}
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={ML}>
+            {GRID}{XAXIS()}{YAXIS($)}{LEG}
+            <Tooltip contentStyle={TIP} formatter={(v, n) => [formatCurrency(v, { compact: true }), n]}/>
+            {teams.map((t, i) => <Bar key={t} dataKey={t} name={t} stackId="a" fill={getTeamColor(t)} radius={i === teams.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}/>)}
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// 16. Budget Watch — categories at or over 80% spend
+function BudgetWatch({ actuals = [], budgetFlat = [], dateRange = {}, scenario = '' }) {
+  const sp = dateRange.startDate || ''
+  const ep = dateRange.endDate   || ''
+  const alerts = useMemo(() => {
+    const inRange   = filterActualsByRange(actuals, sp, ep)
+    const budgetCat = calcBudgetByCategory(budgetFlat, scenario, sp, ep)
+    const byCat     = inRange.reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + t.amount; return acc }, {})
+    return Object.entries(budgetCat)
+      .map(([cat, bud]) => ({ cat, bud, actual: byCat[cat] || 0, pct: bud > 0 ? ((byCat[cat] || 0) / bud * 100) : 0 }))
+      .filter(r => r.pct >= 80).sort((a, b) => b.pct - a.pct).slice(0, 5)
+  }, [actuals, budgetFlat, scenario, sp, ep])
+
+  if (!alerts.length)
+    return <EmptyState msg="All categories under 80% of budget" hint="Import budget and actuals to see alerts"/>
+
+  return (
+    <div className="space-y-1 py-2">
+      {alerts.map(({ cat, pct }) => {
+        const c = pct > 100 ? STATUS_COLORS.negative : STATUS_COLORS.warning
+        return (
+          <div key={cat} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }}/>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-gray-700 truncate">{cat}</div>
+              <div className="w-full bg-gray-100 rounded-full h-1 mt-1">
+                <div className="h-1 rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: c }}/>
+              </div>
+            </div>
+            <div className="text-xs font-semibold flex-shrink-0" style={{ color: c }}>{Math.round(pct)}%</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// 17. Patron Watch — signal alerts for declining/growing patron trends
+function PatronWatch({ patronData = [], dateRange = {} }) {
+  const sp = (dateRange.startDate || '').slice(0, 7)
+  const ep = (dateRange.endDate   || '').slice(0, 7)
+  const signals = useMemo(() => {
+    const inRange = patronData.filter(p => p.period >= sp && p.period <= ep).sort((a, b) => a.period.localeCompare(b.period))
+    if (inRange.length < 2) return []
+    const mLabel = period => { const [y, m2] = period.split('-'); return new Date(+y, +m2 - 1, 1).toLocaleString('en-US', { month: 'short' }) + ' ' + y }
+    const alerts = []
+    let decline = 0, decMonths = []
+    for (let i = 1; i < inRange.length; i++) {
+      const prev = inRange[i - 1].new_patrons_total || 0, curr = inRange[i].new_patrons_total || 0
+      if (curr < prev) { decline++; if (decline === 1) decMonths = [inRange[i - 1].period, inRange[i].period]; else decMonths[1] = inRange[i].period }
+      else { decline = 0; decMonths = [] }
+      if (decline >= 2) { alerts.push({ level: 'warn', text: `New supporters declining: ${mLabel(decMonths[0])} → ${mLabel(decMonths[1])}` }); break }
+    }
+    const last = inRange[inRange.length - 1], prev2 = inRange[inRange.length - 2]
+    if (last && prev2 && prev2.recurring_patron_count > 0) {
+      const growth = (last.recurring_patron_count - prev2.recurring_patron_count) / prev2.recurring_patron_count * 100
+      if (growth < -2) alerts.push({ level: 'warn', text: `Recurring base down ${Math.abs(growth).toFixed(1)}% in ${mLabel(last.period)}` })
+      else if (growth > 5) alerts.push({ level: 'ok', text: `Strong growth: +${growth.toFixed(1)}% recurring supporters in ${mLabel(last.period)}` })
+    }
+    return alerts
+  }, [patronData, sp, ep])
+
+  if (!patronData.length) return <EmptyState msg="No patron data imported" hint="Import patron data to see signals"/>
+
+  return (
+    <div className="space-y-1 py-2">
+      {signals.length === 0
+        ? <p className="text-xs text-gray-400 text-center py-4">All signals healthy</p>
+        : signals.map((s, i) => (
+            <div key={i} className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
+              <div className="w-2 h-2 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: s.level === 'ok' ? STATUS_COLORS.positive : STATUS_COLORS.warning }}/>
+              <p className="text-xs text-gray-700">{s.text}</p>
+            </div>
+          ))
+      }
+    </div>
+  )
+}
+
 // ─── Chart catalog ─────────────────────────────────────────────────────────────
 
 export const CHART_CATALOG = [
@@ -623,6 +866,55 @@ export const CHART_CATALOG = [
     hasData:     ({ patronData }) => (patronData || []).some(r => r.retention_rate != null),
     Component:   RetentionRate,
   },
+  // ── Operational charts ───────────────────────────────────────────────────────
+  {
+    id:          'net_position_by_month',
+    label:       'Net Position by Month',
+    description: 'Monthly net income minus expenses · bars colored by +/−',
+    category:    'operational',
+    hasData:     ({ actuals }) => (actuals || []).length > 0,
+    Component:   NetPositionByMonth,
+  },
+  {
+    id:          'cash_position',
+    label:       'Cash Position',
+    description: 'Cash balance vs reserve floor over the selected range',
+    category:    'operational',
+    hasData:     ({ cashData }) => (cashData || []).length > 0,
+    Component:   CashPosition,
+  },
+  {
+    id:          'cash_above_floor',
+    label:       'Cash Above Reserve Floor',
+    description: 'Monthly surplus above the reserve floor',
+    category:    'operational',
+    hasData:     ({ cashData }) => (cashData || []).length > 0,
+    Component:   CashAboveFloor,
+  },
+  {
+    id:          'team_spend',
+    label:       'Team Spend Comparison',
+    description: 'Expenses by team per month — stacked or grouped',
+    category:    'operational',
+    hasData:     ({ actuals }) => (actuals || []).some(t => t.record_type !== 'income'),
+    Component:   TeamSpend,
+  },
+  {
+    id:          'budget_watch',
+    label:       'Budget Watch Areas',
+    description: 'Categories at or over 80% of budget · top 5 alerts',
+    category:    'operational',
+    hasData:     ({ actuals, budgetFlat }) => (actuals || []).length > 0 && (budgetFlat || []).length > 0,
+    Component:   BudgetWatch,
+  },
+  {
+    id:          'patron_watch',
+    label:       'Patron Watch Areas',
+    description: 'Patron health signals: declining sign-ups, churn risk, growth',
+    category:    'operational',
+    hasData:     ({ patronData }) => (patronData || []).length > 0,
+    Component:   PatronWatch,
+  },
 ]
 
 // ─── Chart slot picker modal ───────────────────────────────────────────────────
@@ -630,9 +922,10 @@ export const CHART_CATALOG = [
 function ChartSlotPicker({ current, onSelect, onClose, patronData, actuals, budgetFlat, cashData }) {
   const dp = { patronData, actuals, budgetFlat, cashData }
   const categories = [
-    { id: 'comparison', label: 'Comparison Charts' },
-    { id: 'financial',  label: 'Financial' },
-    { id: 'patron',     label: 'Patron Metrics' },
+    { id: 'comparison',  label: 'Comparison Charts' },
+    { id: 'financial',   label: 'Financial' },
+    { id: 'patron',      label: 'Patron Metrics' },
+    { id: 'operational', label: 'Operational' },
   ]
 
   return createPortal(
@@ -703,13 +996,14 @@ function ChartSlotPicker({ current, onSelect, onClose, patronData, actuals, budg
 
 export function ChartSlot({
   slotId,
-  patronData = [],
-  actuals    = [],
-  budgetFlat = [],
-  cashData   = [],
-  dateRange  = {},
-  scenario   = '',
-  editMode   = false,
+  patronData    = [],
+  actuals       = [],
+  budgetFlat    = [],
+  cashData      = [],
+  incomeMonths  = [],
+  dateRange     = {},
+  scenario      = '',
+  editMode      = false,
   onRemove,
 }) {
   const [chartId, setChartId] = useState(() => {
@@ -722,7 +1016,7 @@ export function ChartSlot({
 
   const def = CHART_CATALOG.find(d => d.id === chartId) || CHART_CATALOG[0]
   const ChartComponent = def.Component
-  const dataProps = { patronData, actuals, budgetFlat, cashData, dateRange, scenario }
+  const dataProps = { patronData, actuals, budgetFlat, cashData, incomeMonths, dateRange, scenario }
 
   function selectChart(id) {
     setChartId(id)
