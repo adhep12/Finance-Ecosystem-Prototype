@@ -1100,9 +1100,9 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
 
 const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
-  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
-  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
-  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+t.amount; return acc },{}), [inRange])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income'),[actuals,startDate,endDate])
+  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'),scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
+  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+Math.abs(t.amount||0); return acc },{}), [inRange])
 
   const alerts = useMemo(()=>
     Object.entries(budgetByCat)
@@ -1553,7 +1553,7 @@ function AddCardPicker({ section, addedKeys, onAdd, onClose }) {
 function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
   const { deptNames } = useApp()
   const { startDate, endDate } = dateRange
-  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income'),[actuals,startDate,endDate])
 
   const allDepts = Object.keys(deptNames)
   const depts    = activeDepts ? [...activeDepts] : allDepts
@@ -1563,9 +1563,9 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
 
   const cards = useMemo(()=>depts.map(code=>{
     const dActuals = inRange.filter(t=>t.department===code)
-    const actual   = dActuals.reduce((s,t)=>s+t.amount,0)
-    // Budget: sum rows for this dept (handles period-based and legacy shapes)
-    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code)
+    const actual   = dActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0)
+    // Budget: expense rows only for this dept
+    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code && b.record_type!=='income')
     const n = numMonthsInRange(startDate,endDate)
     const budget = dBudgetRows.reduce((s,b)=>{
       if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
