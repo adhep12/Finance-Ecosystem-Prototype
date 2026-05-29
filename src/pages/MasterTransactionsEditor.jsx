@@ -83,6 +83,24 @@ function quickPresets() {
   ]
 }
 
+function monthPresets() {
+  const today = new Date()
+  const y = today.getFullYear(), m = today.getMonth()
+  const ym = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  const thisMonth  = ym(today)
+  const lastMonth  = ym(new Date(y, m-1, 1))
+  const last3Start = ym(new Date(y, m-2, 1))
+  const last6Start = ym(new Date(y, m-5, 1))
+  const last12Start = ym(new Date(y, m-11, 1))
+  return [
+    { label:'This month',     start: thisMonth,   end: thisMonth },
+    { label:'Last month',     start: lastMonth,   end: lastMonth },
+    { label:'Last 3 months',  start: last3Start,  end: thisMonth },
+    { label:'Last 6 months',  start: last6Start,  end: thisMonth },
+    { label:'Last 12 months', start: last12Start, end: thisMonth },
+  ]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MultiCheckFilter dropdown
 // ─────────────────────────────────────────────────────────────────────────────
@@ -861,6 +879,21 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   // Running total of filtered rows
   const filteredTotal = useMemo(() => filtered.reduce((s,r) => s + Math.abs(r.amount||0), 0), [filtered])
 
+  // Period-filtered patron / cashflow (reuse budget period range)
+  const filteredPatron = useMemo(() => {
+    let r = patronData || []
+    if (budgetStartPeriod) r = r.filter(p => p.period >= budgetStartPeriod)
+    if (budgetEndPeriod)   r = r.filter(p => p.period <= budgetEndPeriod)
+    return [...r].sort((a, b) => b.period.localeCompare(a.period))
+  }, [patronData, budgetStartPeriod, budgetEndPeriod])
+
+  const filteredCashFlow = useMemo(() => {
+    let r = cashFlowData || []
+    if (budgetStartPeriod) r = r.filter(c => c.period >= budgetStartPeriod)
+    if (budgetEndPeriod)   r = r.filter(c => c.period <= budgetEndPeriod)
+    return [...r].sort((a, b) => b.period.localeCompare(a.period))
+  }, [cashFlowData, budgetStartPeriod, budgetEndPeriod])
+
   // ── Edit handler ─────────────────────────────────────────────────────────────
   async function handleEdit(row, field, newVal) {
     const original = { ...row }
@@ -1089,17 +1122,25 @@ export default function MasterTransactionsEditor({ orgSettings }) {
               ))}
             </div>
           </>
-        ) : (
-          /* Budget period range (month inputs) */
+        ) : viewMode !== 'audit' ? (
+          /* Period range for budget / patron / cashflow */
           <>
-            <span className="text-xs text-gray-500 font-medium">Period:</span>
-            <input type="month" value={budgetStartPeriod} onChange={e => { setBudgetStartPeriod(e.target.value); setBudgetPage(1) }}
+            <input type="month" value={budgetStartPeriod}
+              onChange={e => { setBudgetStartPeriod(e.target.value); setBudgetPage(1) }}
               className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
             <span className="text-xs text-gray-400">to</span>
-            <input type="month" value={budgetEndPeriod} onChange={e => { setBudgetEndPeriod(e.target.value); setBudgetPage(1) }}
+            <input type="month" value={budgetEndPeriod}
+              onChange={e => { setBudgetEndPeriod(e.target.value); setBudgetPage(1) }}
               className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
+            {monthPresets().map(p => (
+              <button key={p.label}
+                onClick={() => { setBudgetStartPeriod(p.start); setBudgetEndPeriod(p.end); setBudgetPage(1) }}
+                className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
+                {p.label}
+              </button>
+            ))}
           </>
-        )}
+        ) : null}
 
         {/* Tab toggle */}
         <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-0.5 flex-shrink-0">
@@ -1217,8 +1258,8 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
         <span className="text-xs text-gray-400">
           {viewMode === 'patron'
-            ? `${(patronData || []).length} record${(patronData || []).length !== 1 ? 's' : ''}`
-            : `${(cashFlowData || []).length} record${(cashFlowData || []).length !== 1 ? 's' : ''}`}
+            ? `${filteredPatron.length} of ${(patronData || []).length} record${(patronData || []).length !== 1 ? 's' : ''}`
+            : `${filteredCashFlow.length} of ${(cashFlowData || []).length} record${(cashFlowData || []).length !== 1 ? 's' : ''}`}
         </span>
       </div>
       )}
@@ -1260,15 +1301,15 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           )}
           {viewMode === 'patron' && (
             <>
-              <span className="font-medium text-gray-600">{(patronData || []).length.toLocaleString()} patron record{(patronData || []).length !== 1 ? 's' : ''}</span>
+              <span className="font-medium text-gray-600">{filteredPatron.length.toLocaleString()} patron record{filteredPatron.length !== 1 ? 's' : ''}</span>
               <span className="font-semibold text-gray-700">
-                {formatCurrency((patronData || []).reduce((s, r) => s + (r.recurring_giving_total || 0) + (r.spontaneous_giving_total || 0), 0))} total giving
+                {formatCurrency(filteredPatron.reduce((s, r) => s + (r.recurring_giving_total || 0) + (r.spontaneous_giving_total || 0), 0))} total giving
               </span>
             </>
           )}
           {viewMode === 'cashflow' && (
             <>
-              <span className="font-medium text-gray-600">{(cashFlowData || []).length.toLocaleString()} cash flow record{(cashFlowData || []).length !== 1 ? 's' : ''}</span>
+              <span className="font-medium text-gray-600">{filteredCashFlow.length.toLocaleString()} cash flow record{filteredCashFlow.length !== 1 ? 's' : ''}</span>
             </>
           )}
         </div>
@@ -1569,20 +1610,20 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         {/* ── Patron Data tab ── */}
         {viewMode === 'patron' && (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
-              <thead>
+            <table className="w-full text-sm" style={{ minWidth: 820 }}>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {['Period','Active','New Total','New Rec.','New Spon.','Rec. Count','Rec. $','Spon. $','Avg Gift','Retention',''].map((h, i) => (
-                    <th key={i} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap text-gray-400 ${i === 10 ? 'w-10' : ''}`}>{h}</th>
+                  {['Period','Active','New Total','New Rec.','New Spon.','Rec. Count','Rec. Giving','Spon. Giving','Avg Gift','Retention',''].map((h, i) => (
+                    <th key={i} className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap text-gray-400 ${i === 10 ? 'w-10' : ''}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(patronData || []).length === 0 ? (
-                  <tr><td colSpan={11} className="px-5 py-12 text-center text-gray-400 text-sm">No patron data yet. Click Add to create a record.</td></tr>
-                ) : [...(patronData || [])].sort((a, b) => b.period.localeCompare(a.period)).map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                    <td className="px-2 py-1 text-xs">
+                {filteredPatron.length === 0 ? (
+                  <tr><td colSpan={11} className="px-5 py-12 text-center text-gray-400 text-sm">No patron data in this period. Click Add or adjust the date range.</td></tr>
+                ) : filteredPatron.map((row, i) => (
+                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.period} type="month" onChange={v => handlePatronFieldEdit(row, 'period', v)}/>
                     </td>
                     {[
@@ -1590,25 +1631,25 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                       ['new_patrons_recurring','integer'],['new_patrons_spontaneous','integer'],
                       ['recurring_patron_count','integer'],
                     ].map(([field]) => (
-                      <td key={field} className="px-2 py-1 text-xs">
+                      <td key={field} className="px-3 py-2 text-sm">
                         <EditCell value={row[field] ?? ''} numeric type="number"
                           displayValue={<span className="tabular-nums">{row[field] ?? '—'}</span>}
                           onChange={v => handlePatronFieldEdit(row, field, parseInt(v, 10))}/>
                       </td>
                     ))}
                     {['recurring_giving_total','spontaneous_giving_total','avg_gift_size'].map(field => (
-                      <td key={field} className="px-2 py-1 text-xs">
+                      <td key={field} className="px-3 py-2 text-sm">
                         <EditCell value={row[field] ?? ''} numeric type="number"
                           displayValue={<span className="font-mono tabular-nums">{row[field] != null ? formatCurrency(row[field]) : '—'}</span>}
                           onChange={v => handlePatronFieldEdit(row, field, parseFloat(v))}/>
                       </td>
                     ))}
-                    <td className="px-2 py-1 text-xs">
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.retention_rate ?? ''} numeric type="number"
                         displayValue={<span className="tabular-nums">{row.retention_rate != null ? `${(row.retention_rate*100).toFixed(1)}%` : '—'}</span>}
                         onChange={v => handlePatronFieldEdit(row, 'retention_rate', parseFloat(v))}/>
                     </td>
-                    <td className="px-2 py-1 text-center">
+                    <td className="px-3 py-2 text-center">
                       <button onClick={() => handlePatronDelete(row)} title="Delete"
                         className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-100 text-red-400">
                         <Trash2 size={11}/>
@@ -1624,43 +1665,43 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         {/* ── Cash Flow tab ── */}
         {viewMode === 'cashflow' && (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse" style={{ minWidth: 520 }}>
-              <thead>
+            <table className="w-full text-sm" style={{ minWidth: 520 }}>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 border-b border-gray-200">
                   {['Period','Cash Balance','Prior Month','Prior Year','Reserve Floor',''].map((h, i) => (
-                    <th key={i} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap text-gray-400 ${i === 5 ? 'w-10' : ''}`}>{h}</th>
+                    <th key={i} className={`px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap text-gray-400 ${i === 5 ? 'w-10' : ''}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(cashFlowData || []).length === 0 ? (
-                  <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">No cash flow data yet. Click Add to create a record.</td></tr>
-                ) : [...(cashFlowData || [])].sort((a, b) => b.period.localeCompare(a.period)).map((row, i) => (
-                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}>
-                    <td className="px-2 py-1 text-xs">
+                {filteredCashFlow.length === 0 ? (
+                  <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400 text-sm">No cash flow data in this period. Click Add or adjust the date range.</td></tr>
+                ) : filteredCashFlow.map((row, i) => (
+                  <tr key={row.id || i} className={`border-b border-gray-100 group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.period} type="month" onChange={v => handleCashFlowFieldEdit(row, 'period', v)}/>
                     </td>
-                    <td className="px-2 py-1 text-xs">
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.cash_balance ?? ''} type="number"
-                        displayValue={<span className="tabular-nums font-semibold">{formatCurrency(row.cash_balance)}</span>}
+                        displayValue={<span className="font-mono tabular-nums font-semibold">{formatCurrency(row.cash_balance)}</span>}
                         onChange={v => handleCashFlowFieldEdit(row, 'cash_balance', parseFloat(v))}/>
                     </td>
-                    <td className="px-2 py-1 text-xs">
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.prior_month_balance ?? ''} type="number"
-                        displayValue={<span className="tabular-nums">{row.prior_month_balance != null ? formatCurrency(row.prior_month_balance) : '—'}</span>}
+                        displayValue={<span className="font-mono tabular-nums">{row.prior_month_balance != null ? formatCurrency(row.prior_month_balance) : '—'}</span>}
                         onChange={v => handleCashFlowFieldEdit(row, 'prior_month_balance', parseFloat(v))}/>
                     </td>
-                    <td className="px-2 py-1 text-xs">
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.prior_year_balance ?? ''} type="number"
-                        displayValue={<span className="tabular-nums">{row.prior_year_balance != null ? formatCurrency(row.prior_year_balance) : '—'}</span>}
+                        displayValue={<span className="font-mono tabular-nums">{row.prior_year_balance != null ? formatCurrency(row.prior_year_balance) : '—'}</span>}
                         onChange={v => handleCashFlowFieldEdit(row, 'prior_year_balance', parseFloat(v))}/>
                     </td>
-                    <td className="px-2 py-1 text-xs">
+                    <td className="px-3 py-2 text-sm">
                       <EditCell value={row.reserve_floor ?? ''} type="number"
-                        displayValue={<span className="tabular-nums">{row.reserve_floor != null ? formatCurrency(row.reserve_floor) : <span className="text-gray-400 italic">org default</span>}</span>}
+                        displayValue={<span className="font-mono tabular-nums">{row.reserve_floor != null ? formatCurrency(row.reserve_floor) : <span className="text-gray-400 italic">org default</span>}</span>}
                         onChange={v => handleCashFlowFieldEdit(row, 'reserve_floor', v === '' ? null : parseFloat(v))}/>
                     </td>
-                    <td className="px-2 py-1 text-center">
+                    <td className="px-3 py-2 text-center">
                       <button onClick={() => handleCashFlowDelete(row)}
                         className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-100 text-red-400">
                         <Trash2 size={11}/>
