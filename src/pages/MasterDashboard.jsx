@@ -1176,9 +1176,9 @@ const TeamSpendCard = React.memo(function TeamSpendCard({ actuals, dateRange }){
 
 const WatchAreaPanel = React.memo(function WatchAreaPanel({ actuals, budgetFlat, scenario, dateRange, editMode, onRemove }){
   const { startDate, endDate } = dateRange
-  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
-  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat,scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
-  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+t.amount; return acc },{}), [inRange])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income'),[actuals,startDate,endDate])
+  const budgetByCat = useMemo(()=>calcBudgetByCategory(budgetFlat.filter(b=>b.record_type!=='income'),scenario,startDate,endDate),[budgetFlat,scenario,startDate,endDate])
+  const byCat = useMemo(()=>inRange.reduce((acc,t)=>{ acc[t.category]=(acc[t.category]||0)+Math.abs(t.amount||0); return acc },{}), [inRange])
 
   const alerts = useMemo(()=>
     Object.entries(budgetByCat)
@@ -1327,11 +1327,7 @@ function PatronWatchAreaPanel({ patronData, dateRange }){
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange }){
-  const { orgConfig } = useApp()
-
-  // ── Remote data ─────────────────────────────────────────────────────────
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
+  const { orgConfig, cashFlowData, patronData } = useApp()
 
   // ── Edit layout state ────────────────────────────────────────────────────
   const [editMode,     setEditMode]     = useState(false)
@@ -1340,18 +1336,13 @@ function OverviewTab({ actuals, budgetFlat, scenario, incomeMonths, dateRange })
   const [showPicker,   setShowPicker]   = useState(null) // { section: 'financial_health' }
   const [confirmRemove, setConfirmRemove] = useState(null) // { cardKey, section }
 
-  // ── Load all data on mount ───────────────────────────────────────────────
+  // ── Load dashboard layout on mount ──────────────────────────────────────
   useEffect(() => {
-    Promise.all([
-      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
-      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-      supabase.from('org_dashboard_layout').select('*')
-        .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview'),
-    ]).then(([cashRes, patronRes, layoutRes]) => {
-      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
-      if (!patronRes.error) setPatronData(patronRes.data || [])
-      if (!layoutRes.error) setAddedCards(layoutRes.data || [])
-    }).catch(err => console.error('[OverviewTab] data load error:', err))
+    supabase.from('org_dashboard_layout').select('*')
+      .eq('org_id', ORG_ID).eq('dashboard', 'admin_overview')
+      .then(({ data, error }) => {
+        if (!error) setAddedCards(data || [])
+      }).catch(err => console.error('[OverviewTab] layout load error:', err))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Add / remove handlers (save to Supabase instantly) ──────────────────
@@ -1638,7 +1629,7 @@ function AddCardPicker({ section, addedKeys, onAdd, onClose }) {
 function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
   const { deptNames } = useApp()
   const { startDate, endDate } = dateRange
-  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate),[actuals,startDate,endDate])
+  const inRange = useMemo(()=>filterActualsByRange(actuals,startDate,endDate).filter(t=>t.record_type!=='income'),[actuals,startDate,endDate])
 
   const allDepts = Object.keys(deptNames)
   const depts    = activeDepts ? [...activeDepts] : allDepts
@@ -1648,9 +1639,9 @@ function DeptStatusCards({ actuals, budgetFlat, scenario, dateRange, activeDepts
 
   const cards = useMemo(()=>depts.map(code=>{
     const dActuals = inRange.filter(t=>t.department===code)
-    const actual   = dActuals.reduce((s,t)=>s+t.amount,0)
-    // Budget: sum rows for this dept (handles period-based and legacy shapes)
-    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code)
+    const actual   = dActuals.reduce((s,t)=>s+Math.abs(t.amount||0),0)
+    // Budget: expense rows only for this dept
+    const dBudgetRows = budgetFlat.filter(b=>b.scenario===scenario && b.department===code && b.record_type!=='income')
     const n = numMonthsInRange(startDate,endDate)
     const budget = dBudgetRows.reduce((s,b)=>{
       if(b.period != null) return b.period >= startM && b.period <= endM ? s + (b.amount||0) : s
@@ -1897,7 +1888,7 @@ function DeptFilterDropdown({ allDepts, deptNames, deptFilter, onChange }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts }){
-  const { deptNames, incomeMonths, orgConfig, comments } = useApp()
+  const { deptNames, incomeMonths, orgConfig, comments, cashFlowData, patronData } = useApp()
   const navigate = useNavigate()
 
   // Drill order: any of category/account/team/dept/vendor in any order
@@ -1920,28 +1911,6 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
-  const [showPLPanel,  setShowPLPanel]  = useState(true)
-  const [cashFlowData, setCashFlowData] = useState([])
-  const [patronData,   setPatronData]   = useState([])
-
-  useEffect(() => {
-    function handleOutside(e) { if (addFieldRef.current && !addFieldRef.current.contains(e.target)) setAddFieldOpen(false) }
-    document.addEventListener('mousedown', handleOutside)
-    return () => document.removeEventListener('mousedown', handleOutside)
-  }, [])
-
-  useEffect(() => {
-    Promise.all([
-      supabase.from('v_cash_flow_enriched').select('*').eq('org_id', ORG_ID),
-      supabase.from('patron_data').select('*').eq('org_id', ORG_ID),
-    ]).then(([cf, pd]) => {
-      if (!cf.error) setCashFlowData(cf.data || [])
-      if (!pd.error) setPatronData(pd.data || [])
-    }).catch(err => {
-      console.error('[MasterDashboard] Dashboard data load error:', err)
-    })
-  }, [])
-
   const { startDate, endDate } = dateRange
 
   // All unique dept codes in actuals (for dropdown)
@@ -2726,14 +2695,16 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
   }, [actuals, startP, endP])
 
   // ── Budget by team ─────────────────────────────────────────────────────────
-  const budgetByTeam = useMemo(() => {
+  const { budgetByTeam, unassignedBudget } = useMemo(() => {
     const m = {}
+    let unassigned = 0
     for (const b of budgetFlat) {
-      if (b.scenario!==scenario||b.record_type==='income'||!b.team_name) continue
+      if (b.scenario!==scenario||b.record_type==='income') continue
       if (!b.period||b.period<startP||b.period>endP) continue
+      if (!b.team_name) { unassigned += Math.abs(b.amount||0); continue }
       m[b.team_name] = (m[b.team_name]||0) + Math.abs(b.amount||0)
     }
-    return m
+    return { budgetByTeam: m, unassignedBudget: unassigned }
   }, [budgetFlat, scenario, startP, endP])
 
   // ── Unresolved warning map — transactions in range with _warnings ─────────
@@ -2806,7 +2777,7 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
 
   // ── Summary stats ──────────────────────────────────────────────────────────
   const totalActual   = teams.reduce((s,t) => s+t.actual,   0)
-  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0)
+  const totalBudget   = teams.reduce((s,t) => s+t.budget,   0) + unassignedBudget
   const totalVariance = totalActual - totalBudget
   const teamsOver     = teams.filter(t => t.status === 'over').length
 

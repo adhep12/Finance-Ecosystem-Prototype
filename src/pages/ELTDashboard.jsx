@@ -692,20 +692,8 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
             ))}
           </div>
         </nav>
-        <div className="relative flex-shrink-0" ref={pickerRef}>
-          <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
-            <span>{presetLabel(dateRange.preset)}</span>
-            <ChevronDown size={12} className="text-gray-400"/>
-          </button>
-          {showDatePicker && (
-            <div className="absolute right-0 top-full mt-2 z-50">
-              <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
-            </div>
-          )}
-        </div>
         {/* Budget Scenario Selector */}
-        <div className="relative flex-shrink-0 ml-2" ref={budgetPickerRef}>
+        <div className="relative flex-shrink-0" ref={budgetPickerRef}>
           <button onClick={() => setShowBudgetPicker(v=>!v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
             <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET SCENARIO</span>
@@ -727,6 +715,19 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
                   ))
                 }
               </div>
+            </div>
+          )}
+        </div>
+        {/* Reporting Period — far right, matching all other pages */}
+        <div className="relative flex-shrink-0 ml-2" ref={pickerRef}>
+          <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
+            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
+            <span>{presetLabel(dateRange.preset)}</span>
+            <ChevronDown size={12} className="text-gray-400"/>
+          </button>
+          {showDatePicker && (
+            <div className="absolute right-0 top-full mt-2 z-50">
+              <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
             </div>
           )}
         </div>
@@ -5881,7 +5882,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
+  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario, applyPreset: appApplyPreset, applyCustomRange } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
@@ -5927,8 +5928,15 @@ export default function ELTDashboard() {
     loadSavedSummaries()
   }, [orgConfig.name]) // re-run when org loads (name changes from default)
 
-  function applyPreset(preset) { setDateRange({preset,...getELTPresetRange(preset,orgConfig)}) }
-  function applyCustom(s,e)    { setDateRange({preset:'custom',startDate:s,endDate:e}) }
+  function applyPreset(preset) {
+    const r = getELTPresetRange(preset, orgConfig)
+    setDateRange({ preset, ...r })
+    appApplyPreset(preset)   // keep AppContext in sync so BriefingPage matches
+  }
+  function applyCustom(s, e) {
+    setDateRange({ preset:'custom', startDate:s, endDate:e })
+    applyCustomRange(s, e)   // keep AppContext in sync
+  }
 
   function handleUpdateSummary(month, key, value) {
     setSummaries(prev => ({ ...prev, [month]: { ...prev[month], [key]: value } }))
