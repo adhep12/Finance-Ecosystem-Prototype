@@ -1911,6 +1911,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   // Right-panel KPI cards
   const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
+  const [showPLPanel,  setShowPLPanel]  = useState(true)
   const { startDate, endDate } = dateRange
 
   // All unique dept codes in actuals (for dropdown)
