@@ -2,31 +2,6 @@ import React, { createContext, useContext, useState, useMemo, useEffect } from '
 import { supabase, ORG_ID, setOrgId, SUPABASE_CONFIGURED, dbUpdate, dbSoftDelete } from '../lib/supabase'
 import { getScenarios } from '../utils/dataProcessing'
 
-// ─── Data cache (localStorage, cache-first loading) ───────────────────────────
-// Stores the last successful DB load so the app renders instantly on revisit.
-// Falls back gracefully if the data is too large or localStorage is unavailable.
-const CACHE_KEY = 'app_data_cache'
-const CACHE_TTL = 30 * 60 * 1000  // 30 minutes — refresh in background after this
-
-function readCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return null
-    const { ts, actuals, budgetFlat, cashFlowData, patronData } = JSON.parse(raw)
-    return { ts, actuals, budgetFlat, cashFlowData, patronData, stale: Date.now() - ts > CACHE_TTL }
-  } catch { return null }
-}
-
-function writeCache(actuals, budgetFlat, cashFlowData, patronData) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), actuals, budgetFlat, cashFlowData, patronData }))
-  } catch { /* quota exceeded — skip silently */ }
-}
-
-function clearCache() {
-  try { localStorage.removeItem(CACHE_KEY) } catch {}
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Default org configuration — replace with actual org data on import
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,22 +95,21 @@ const AppContext = createContext(null)
 export function AppProvider({ children }) {
   const [orgConfig, setOrgConfig] = useState(DEFAULT_ORG)
 
-  // ── Core data state — seeded from cache for instant render ───────────────
-  const _cache = readCache()
-  const [actuals,      setActuals]      = useState(_cache?.actuals      || [])
-  const [budgetFlat,   setBudgetFlat]   = useState(_cache?.budgetFlat   || [])
+  // ── Core data state (populated from Supabase on mount) ───────────────────
+  const [actuals,      setActuals]      = useState([])
+  const [budgetFlat,   setBudgetFlat]   = useState([])
   const [orgSummary,   setOrgSummary]   = useState([])
   const [teams,        setTeams]        = useState([])
   const [comments,     setComments]     = useState([])
-  const [cashFlowData, setCashFlowData] = useState(_cache?.cashFlowData || [])
-  const [patronData,   setPatronData]   = useState(_cache?.patronData   || [])
+  const [cashFlowData, setCashFlowData] = useState([])
+  const [patronData,   setPatronData]   = useState([])
 
   // Undo history
   const [previousActuals, setPreviousActuals] = useState(null)
   const [previousBudget,  setPreviousBudget]  = useState(null)
 
-  // Loading / error flags — if we have cached data, start as not-loading so UI renders immediately
-  const [isLoading,   setIsLoading]   = useState(!_cache)
+  // Loading / error flags
+  const [isLoading,   setIsLoading]   = useState(true)
   const [dbError,     setDbError]     = useState(null)
   // orgNotFound = true when no org_settings row exists → show setup screen
   const [orgNotFound, setOrgNotFound] = useState(false)
@@ -318,9 +292,6 @@ export function AppProvider({ children }) {
       const patron = patronRes.error ? null : patronRes.data || []
       if (cash   != null) setCashFlowData(cash)
       if (patron != null) setPatronData(patron)
-
-      // Persist a fresh snapshot so the next load is instant
-      writeCache(mappedActuals, mappedBudget, cash ?? [], patron ?? [])
 
       setOrgSummary([])
 
@@ -847,7 +818,7 @@ export function AppProvider({ children }) {
     incomeMonths,
     // DB state
     isLoading, dbError, orgNotFound,
-    refreshFromDB: () => { clearCache(); loadFromDB() },
+    refreshFromDB: loadFromDB,
   }
 
   // If no org_settings row found, prompt the user to set up the org first
