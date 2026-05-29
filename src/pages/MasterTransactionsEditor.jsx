@@ -521,7 +521,8 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const {
     budgetFlat, deptNames: contextDeptNames,
     cashFlowData, patronData,
-    addPatronRow, updatePatronRow, deletePatronRow,
+    addBudgetRow,  updateBudgetRow,  deleteBudgetRow,
+    addPatronRow,  updatePatronRow,  deletePatronRow,
     addCashFlowRow, updateCashFlowRow, deleteCashFlowRow,
   } = useApp()
 
@@ -1113,7 +1114,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         </div>
 
         <div className="flex-1"/>
-        {/* Show deleted — only in actuals mode */}
+        {/* Deleted toggle — actuals only */}
         {viewMode === 'actuals' && (
           <button onClick={() => setShowDeleted(p => !p)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg transition-colors ${showDeleted ? 'bg-red-50 border-red-300 text-red-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
@@ -1121,81 +1122,71 @@ export default function MasterTransactionsEditor({ orgSettings }) {
             Deleted ({deletedRows.length || '?'})
           </button>
         )}
+        {/* Export — actuals and budget */}
         {(viewMode === 'actuals' || viewMode === 'budget') && (
           <button onClick={handleExport}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
             <Download size={12}/> Export
           </button>
         )}
-        {(viewMode === 'patron' || viewMode === 'cashflow') && (
-          <button onClick={() => setEditModal({ mode: viewMode, row: null })}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium">
-            <Plus size={12}/> Add
-          </button>
-        )}
-        {viewMode === 'actuals' && (
-          <button onClick={() => setShowAdd(p => !p)}
+        {/* Add — all data tabs */}
+        {viewMode !== 'audit' && (
+          <button
+            onClick={() => {
+              if (viewMode === 'actuals') setShowAdd(p => !p)
+              else setEditModal({ mode: viewMode, row: null })
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
             <Plus size={12}/> Add
           </button>
         )}
       </div>
 
-      {/* ── Toolbar row 2: column filters + search ── */}
-      {viewMode === 'actuals' ? (
+      {/* ── Toolbar row 2: filters ── */}
+      {viewMode === 'actuals' && (
       <div className="flex items-center gap-2 flex-wrap px-6 py-2.5 border-b border-gray-200 bg-white">
         <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
-        {/* Search */}
         <div className="relative min-w-[180px]">
           <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400"/>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
             className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-400"/>
         </div>
-        {/* Vendor — dynamic: only values present after other filters */}
         <MultiCheckFilter label="Vendor" selected={vendorFilter}
           options={dynamicVendorOptions}
           onToggle={v => setVendorFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n })}
           onClear={() => setVendorFilter(new Set())}/>
-        {/* Department — dynamic, grouped by team */}
         <MultiCheckFilter label="Department" selected={deptFilter}
           options={dynamicDeptGroups.flatMap(g => g.items)}
           groups={dynamicDeptGroups.length > 0 ? dynamicDeptGroups : null}
           onToggle={id => setDeptFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
           onClear={() => setDeptFilter(new Set())}/>
-        {/* Category — dynamic */}
         <MultiCheckFilter label="Category" selected={catFilter}
           options={dynamicCatOptions}
           onToggle={c => setCatFilter(p => { const n = new Set(p); n.has(c) ? n.delete(c) : n.add(c); return n })}
           onClear={() => setCatFilter(new Set())}/>
-        {/* Account — dynamic */}
         <MultiCheckFilter label="Account" selected={acctFilter}
           options={dynamicAcctOptions}
           onToggle={id => setAcctFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
           onClear={() => setAcctFilter(new Set())}/>
-        {/* Grant — dynamic */}
         <MultiCheckFilter label="Grant" selected={grantFilter}
           options={dynamicGrantOptions}
           onToggle={id => setGrantFilter(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })}
           onClear={() => setGrantFilter(new Set())}/>
-        {/* Amount range with histogram */}
         <AmountRangeFilter amtMin={amtMin} amtMax={amtMax}
           onMin={setAmtMin} onMax={setAmtMax}
           onClear={() => { setAmtMin(''); setAmtMax('') }}
           baseAmounts={baseAmounts}/>
-        {/* Filter badge + clear */}
         {activeFilterCount() > 0 && (
           <>
             <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
               {activeFilterCount()} filter{activeFilterCount() !== 1 ? 's' : ''}
             </span>
-            <button onClick={clearAllFilters} className="text-xs text-red-600 hover:underline font-medium">
-              Clear all
-            </button>
+            <button onClick={clearAllFilters} className="text-xs text-red-600 hover:underline font-medium">Clear all</button>
           </>
         )}
       </div>
-      ) : (
-      /* Budget filter row */
+      )}
+      {viewMode === 'budget' && (
       <div className="flex items-center gap-2 flex-wrap px-6 py-2.5 border-b border-gray-200 bg-white">
         <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
         <MultiCheckFilter label="Department" selected={budgetDeptFilter}
@@ -1216,11 +1207,19 @@ export default function MasterTransactionsEditor({ orgSettings }) {
               {budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size} filter{(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) !== 1 ? 's' : ''}
             </span>
             <button onClick={() => { setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set()); setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}
-              className="text-xs text-red-600 hover:underline font-medium">
-              Clear all
-            </button>
+              className="text-xs text-red-600 hover:underline font-medium">Clear all</button>
           </>
         )}
+      </div>
+      )}
+      {(viewMode === 'patron' || viewMode === 'cashflow') && (
+      <div className="flex items-center gap-2 px-6 py-2.5 border-b border-gray-200 bg-white">
+        <SlidersHorizontal size={12} className="text-gray-400 flex-shrink-0"/>
+        <span className="text-xs text-gray-400">
+          {viewMode === 'patron'
+            ? `${(patronData || []).length} record${(patronData || []).length !== 1 ? 's' : ''}`
+            : `${(cashFlowData || []).length} record${(cashFlowData || []).length !== 1 ? 's' : ''}`}
+        </span>
       </div>
       )}
 
@@ -1240,8 +1239,9 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       {/* ── Table ── */}
       <div className="flex-1 overflow-auto">
         {/* Stats bar */}
+        {viewMode !== 'audit' && (
         <div className="flex items-center gap-4 px-6 py-2 bg-white border-b border-gray-100 text-xs text-gray-400">
-          {viewMode === 'actuals' ? (
+          {viewMode === 'actuals' && (
             <>
               <span className="font-medium text-gray-600">{filtered.length.toLocaleString()} transaction{filtered.length !== 1 ? 's' : ''}</span>
               {filtered.length < totalCount && <span className="text-gray-400">of {totalCount.toLocaleString()} in range</span>}
@@ -1249,7 +1249,8 @@ export default function MasterTransactionsEditor({ orgSettings }) {
               <span className="flex-1"/>
               <span>{totalPages > 1 && `Page ${page + 1} of ${totalPages}`}</span>
             </>
-          ) : (
+          )}
+          {viewMode === 'budget' && (
             <>
               <span className="font-medium text-gray-600">{filteredBudget.length.toLocaleString()} budget line{filteredBudget.length !== 1 ? 's' : ''}</span>
               <span className="font-semibold text-gray-700">{formatCurrency(filteredBudgetTotal)} total budgeted</span>
@@ -1257,7 +1258,21 @@ export default function MasterTransactionsEditor({ orgSettings }) {
               <span>{budgetTotalPages > 1 && `Page ${budgetPage} of ${budgetTotalPages}`}</span>
             </>
           )}
+          {viewMode === 'patron' && (
+            <>
+              <span className="font-medium text-gray-600">{(patronData || []).length.toLocaleString()} patron record{(patronData || []).length !== 1 ? 's' : ''}</span>
+              <span className="font-semibold text-gray-700">
+                {formatCurrency((patronData || []).reduce((s, r) => s + (r.recurring_giving_total || 0) + (r.spontaneous_giving_total || 0), 0))} total giving
+              </span>
+            </>
+          )}
+          {viewMode === 'cashflow' && (
+            <>
+              <span className="font-medium text-gray-600">{(cashFlowData || []).length.toLocaleString()} cash flow record{(cashFlowData || []).length !== 1 ? 's' : ''}</span>
+            </>
+          )}
         </div>
+        )}
 
         {/* ── Actuals table ── */}
         {viewMode === 'actuals' && (
@@ -1556,9 +1571,9 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse" style={{ minWidth: 780 }}>
               <thead>
-                <tr className="bg-gray-900 text-white">
+                <tr className="bg-gray-50 border-b border-gray-200">
                   {['Period','Active','New Total','New Rec.','New Spon.','Rec. Count','Rec. $','Spon. $','Avg Gift','Retention',''].map((h, i) => (
-                    <th key={i} className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap">{h}</th>
+                    <th key={i} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap text-gray-400 ${i === 10 ? 'w-10' : ''}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1611,9 +1626,9 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse" style={{ minWidth: 520 }}>
               <thead>
-                <tr className="bg-gray-900 text-white">
+                <tr className="bg-gray-50 border-b border-gray-200">
                   {['Period','Cash Balance','Prior Month','Prior Year','Reserve Floor',''].map((h, i) => (
-                    <th key={i} className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap">{h}</th>
+                    <th key={i} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-left whitespace-nowrap text-gray-400 ${i === 5 ? 'w-10' : ''}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1669,7 +1684,10 @@ export default function MasterTransactionsEditor({ orgSettings }) {
         row={editModal.row}
         onClose={() => setEditModal(null)}
         onSave={async (formData, isNew) => {
-          if (editModal.mode === 'patron') {
+          if (editModal.mode === 'budget') {
+            if (isNew) await addBudgetRow(formData)
+            else await updateBudgetRow(editModal.row.id, formData, editModal.row)
+          } else if (editModal.mode === 'patron') {
             if (isNew) await addPatronRow(formData)
             else await updatePatronRow(editModal.row.id, formData, editModal.row)
           } else if (editModal.mode === 'cashflow') {
@@ -1679,7 +1697,8 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           setEditModal(null)
         }}
         onDelete={async (id) => {
-          if (editModal.mode === 'patron')   await deletePatronRow(id)
+          if (editModal.mode === 'budget')        await deleteBudgetRow(id)
+          else if (editModal.mode === 'patron')   await deletePatronRow(id)
           else if (editModal.mode === 'cashflow') await deleteCashFlowRow(id)
           setEditModal(null)
         }}
