@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { MessageSquare, Ban, X, ChevronRight, Check, Trash2 } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { MessageSquare, X, ChevronRight, Check, Trash2, Send } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, useParams } from 'react-router-dom'
 
 const PIN_TYPES = [
   { type: 'question',             label: 'Question',             color: '#0EA5A0', placeholder: 'What are you wondering about?' },
@@ -18,141 +18,211 @@ const STATUS_COLORS = {
   resolved: '#9CA3AF',
 }
 
+function getStatus(c) { return c.status || (c.resolved ? 'resolved' : 'open') }
+
 function fmtDate(ts) {
   if (!ts) return ''
   const d = new Date(ts)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function getStatus(c) { return c.status || (c.resolved ? 'resolved' : 'open') }
+function fmtTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
 
-// ─── Pin hover card ───────────────────────────────────────────────────────────
-function PinHoverCard({ pin, onResolve, onDelete, onOpenComments, style, replies }) {
-  const cfg = PIN_TYPES.find(t => t.type === pin.type) || PIN_TYPES[0]
-  const status = pin.status || (pin.resolved ? 'resolved' : 'open')
+// ─── Conversation Panel (slide-in from right) ─────────────────────────────────
+function ConversationPanel({ pin, onClose, onOpenInComments }) {
+  const { comments, updateCommentStatus, deleteComment, addReply } = useApp()
+  const cfg     = PIN_TYPES.find(t => t.type === pin.type) || PIN_TYPES[0]
+  const status  = getStatus(pin)
+  const replies = comments.filter(r => r.parentId === pin.id)
+
+  const [replyText,   setReplyText]   = useState('')
+  const [replyAuthor, setReplyAuthor] = useState('')
+  const [sending,     setSending]     = useState(false)
+  const bottomRef = useRef(null)
+
+  // Scroll to bottom when replies load
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [replies.length])
+
+  async function handleReply() {
+    if (!replyText.trim() || !replyAuthor.trim() || sending) return
+    setSending(true)
+    await addReply(pin.id, {
+      text:   replyText.trim(),
+      author: replyAuthor.trim(),
+      avatar: replyAuthor.trim().charAt(0).toUpperCase(),
+      page:   pin.page,
+      type:   'comment',
+    })
+    setReplyText('')
+    setSending(false)
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleReply()
+  }
+
   return (
-    <div
-      className="absolute z-50 bg-white rounded-2xl shadow-2xl border border-gray-100 w-64 p-0 overflow-hidden pointer-events-auto"
-      style={style}
-      onClick={e => e.stopPropagation()}
-    >
-      {/* Author row */}
-      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-          style={{ backgroundColor: cfg.color }}
-        >
-          {pin.avatar || (pin.author || 'A')[0].toUpperCase()}
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end pointer-events-none">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 pointer-events-auto"
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div className="relative pointer-events-auto w-80 bg-white shadow-2xl flex flex-col"
+        style={{ borderLeft: '1px solid rgba(0,0,0,0.08)' }}>
+
+        {/* Header */}
+        <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center justify-between mb-2">
+            <span
+              className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider"
+              style={{ backgroundColor: cfg.color + '20', color: cfg.color }}
+            >
+              {cfg.label}
+            </span>
+            <div className="flex items-center gap-1">
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase"
+                style={{ backgroundColor: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status] }}
+              >
+                {status}
+              </span>
+              <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg text-gray-400 ml-1">
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              style={{ backgroundColor: cfg.color }}
+            >
+              {(pin.author || 'A')[0].toUpperCase()}
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-gray-800">{pin.author}</div>
+              <div className="text-[10px] text-gray-400">{fmtDate(pin.timestamp)} · {fmtTime(pin.timestamp)}</div>
+            </div>
+          </div>
         </div>
-        {pin.source_dashboard || pin.source_page
-          ? <span className="text-[11px] text-gray-400 flex-1 truncate">{[pin.source_dashboard, pin.source_page].filter(Boolean).join(' · ')}</span>
-          : <span className="text-xs font-semibold text-gray-700 flex-1 truncate uppercase tracking-wide">{pin.page?.toUpperCase() || 'PAGE'}</span>
-        }
-      </div>
 
-      {/* Meta row */}
-      <div className="flex items-center gap-2 px-4 pb-2">
-        <span
-          className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
-          style={{ backgroundColor: cfg.color + '20', color: cfg.color }}
-        >
-          {cfg.label}
-        </span>
-        <span className="text-[10px] text-gray-400">{fmtDate(pin.timestamp)}</span>
-        <span
-          className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase"
-          style={{ backgroundColor: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status] }}
-        >
-          {status}
-        </span>
-      </div>
+        {/* Thread */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {/* Original comment */}
+          <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+            <p className="text-sm text-gray-800 leading-relaxed">{pin.text}</p>
+          </div>
 
-      {/* Author + text */}
-      <div className="px-4 pb-3">
-        <div className="text-[11px] font-semibold text-gray-500 mb-0.5">{pin.author}</div>
-        <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{pin.text}</p>
-      </div>
-
-      {/* Reply count */}
-      {replies && replies.length > 0 && (
-        <div className="px-4 pb-2 text-[10px] text-gray-400">
-          {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}
+          {/* Replies */}
+          {replies.map(r => (
+            <div key={r.id} className="flex gap-2">
+              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600 flex-shrink-0 mt-0.5">
+                {(r.author || 'A')[0].toUpperCase()}
+              </div>
+              <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[11px] font-semibold text-gray-700">{r.author}</span>
+                  <span className="text-[10px] text-gray-400">{fmtDate(r.timestamp)}</span>
+                </div>
+                <p className="text-xs text-gray-700 leading-relaxed">{r.text}</p>
+              </div>
+            </div>
+          ))}
+          <div ref={bottomRef} />
         </div>
-      )}
 
-      {/* Actions */}
-      <div className="flex items-center gap-1 px-3 pb-3 border-t border-gray-50 pt-2">
-        <button
-          onClick={onResolve}
-          className="flex items-center gap-1 text-[11px] font-medium text-gray-600 hover:text-green-600 px-2 py-1 rounded-lg hover:bg-green-50 transition-colors"
-        >
-          <Check size={11} /> Resolve
-        </button>
-        <button
-          onClick={onOpenComments}
-          className="flex items-center gap-1 text-[11px] font-medium text-teal-600 hover:text-teal-700 px-2 py-1 rounded-lg hover:bg-teal-50 transition-colors flex-1"
-        >
-          Open in Comments <ChevronRight size={10} />
-        </button>
-        <button
-          onClick={onDelete}
-          className="text-gray-300 hover:text-red-400 p-1 rounded-lg transition-colors"
-          title="Delete"
-        >
-          <Trash2 size={12} />
-        </button>
+        {/* Reply input */}
+        <div className="px-4 pb-4 pt-2 border-t border-gray-100 flex-shrink-0 space-y-2">
+          <textarea
+            value={replyText}
+            onChange={e => setReplyText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Reply… (⌘↵ to send)"
+            rows={2}
+            className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-teal-400"
+          />
+          <div className="flex gap-2 items-center">
+            <input
+              value={replyAuthor}
+              onChange={e => setReplyAuthor(e.target.value)}
+              placeholder="Your name"
+              className="flex-1 text-xs border border-gray-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-400"
+            />
+            <button
+              onClick={handleReply}
+              disabled={!replyText.trim() || !replyAuthor.trim() || sending}
+              className="p-2 bg-gray-900 text-white rounded-xl disabled:opacity-40 hover:bg-gray-700 transition-colors flex-shrink-0"
+              title="Send reply"
+            >
+              <Send size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="px-4 pb-4 flex items-center gap-2 border-t border-gray-100 pt-3 flex-shrink-0">
+          {status !== 'resolved' && (
+            <button
+              onClick={() => updateCommentStatus(pin.id, 'resolved')}
+              className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-green-600 px-2.5 py-1.5 rounded-lg hover:bg-green-50 transition-colors"
+            >
+              <Check size={11} /> Resolve
+            </button>
+          )}
+          <button
+            onClick={onOpenInComments}
+            className="flex items-center gap-1 text-xs font-medium text-teal-600 hover:text-teal-700 px-2.5 py-1.5 rounded-lg hover:bg-teal-50 transition-colors flex-1 justify-end"
+          >
+            Open in Comments <ChevronRight size={11} />
+          </button>
+          <button
+            onClick={() => { deleteComment(pin.id); onClose() }}
+            className="text-gray-300 hover:text-red-400 p-1.5 rounded-lg transition-colors"
+            title="Delete"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
 // ─── Single positioned pin circle ────────────────────────────────────────────
-function PinCircle({ pin, highlight }) {
-  const [hovering, setHovering] = useState(false)
-  const { updateCommentStatus, deleteComment, comments } = useApp()
-  const navigate = useNavigate()
-  const cfg = PIN_TYPES.find(t => t.type === pin.type) || PIN_TYPES[0]
+function PinCircle({ pin, highlight, onOpen }) {
+  const cfg     = PIN_TYPES.find(t => t.type === pin.type) || PIN_TYPES[0]
   const initials = (pin.author || 'A')[0].toUpperCase()
-  const replies = comments.filter(r => r.parentId === pin.id)
-
-  // Determine card position: if pin is in right half, show card to the left; else right
-  const xPct = pin.pinPosition?.xPct ?? 50
-  const yPct = pin.pinPosition?.yPct ?? 50
-  const cardLeft  = xPct > 60 ? 'auto' : '110%'
-  const cardRight = xPct > 60 ? '110%' : 'auto'
-  const cardTop   = yPct > 70 ? 'auto' : '0'
-  const cardBottom = yPct > 70 ? '0' : 'auto'
+  const xPct    = pin.pinPosition?.xPct ?? 50
+  const yPct    = pin.pinPosition?.yPct ?? 50
+  const replyCount = pin._replyCount || 0
 
   return (
     <div
       className="absolute pointer-events-auto"
-      style={{
-        left:      `${xPct}%`,
-        top:       `${yPct}%`,
-        transform: 'translate(-50%, -50%)',
-      }}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
+      style={{ left: `${xPct}%`, top: `${yPct}%`, transform: 'translate(-50%, -50%)' }}
+      onClick={() => onOpen(pin)}
     >
-      {/* Circle */}
       <div
-        className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg cursor-pointer border-2 border-white select-none transition-transform ${highlight ? 'ring-4 ring-offset-1 animate-pulse scale-125' : ''}`}
-        style={{ backgroundColor: cfg.color }}
-        title={pin.author}
+        className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg cursor-pointer border-2 border-white select-none transition-all hover:scale-110 ${highlight ? 'ring-4 ring-offset-1 animate-pulse scale-125' : ''}`}
+        style={{ backgroundColor: cfg.color, ringColor: cfg.color }}
+        title={`${pin.author}: ${pin.text}`}
       >
         {initials}
       </div>
-
-      {/* Hover card */}
-      {hovering && (
-        <PinHoverCard
-          pin={pin}
-          replies={replies}
-          style={{ left: cardLeft, right: cardRight, top: cardTop, bottom: cardBottom }}
-          onResolve={() => updateCommentStatus(pin.id, 'resolved')}
-          onDelete={() => deleteComment(pin.id)}
-          onOpenComments={() => navigate('/comments')}
-        />
+      {replyCount > 0 && (
+        <div
+          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-gray-800 text-white text-[9px] font-bold flex items-center justify-center border border-white"
+        >
+          {replyCount > 9 ? '9+' : replyCount}
+        </div>
       )}
     </div>
   )
@@ -212,16 +282,12 @@ function CommentPinModal({ page, sourceDashboard, sourcePage, sourcePeriod, pinP
               key={t.type}
               onClick={() => setSelectedType(t.type)}
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                selectedType === t.type
-                  ? 'text-white border-transparent'
-                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                selectedType === t.type ? 'text-white border-transparent' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
               }`}
               style={selectedType === t.type ? { backgroundColor: t.color, borderColor: t.color } : {}}
             >
-              <span
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: selectedType === t.type ? 'rgba(255,255,255,0.7)' : t.color }}
-              />
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: selectedType === t.type ? 'rgba(255,255,255,0.7)' : t.color }} />
               {t.label}
             </button>
           ))}
@@ -229,39 +295,25 @@ function CommentPinModal({ page, sourceDashboard, sourcePage, sourcePeriod, pinP
 
         {/* Text */}
         <div className="px-4 pb-3">
-          <textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder={cfg.placeholder}
-            rows={3}
-            autoFocus
-            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
-          />
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder={cfg.placeholder}
+            rows={3} autoFocus
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent" />
         </div>
 
         {/* Author */}
         <div className="px-4 pb-4">
-          <input
-            value={author}
-            onChange={e => setAuthor(e.target.value)}
-            placeholder="Your name"
-            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
-          />
+          <input value={author} onChange={e => setAuthor(e.target.value)} placeholder="Your name"
+            className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent" />
         </div>
 
         {/* Footer */}
         <div className="flex items-center gap-2 px-4 pb-4 pt-1">
           {saved && <span className="text-xs text-green-600 font-medium flex-1">Posted!</span>}
           {!saved && <div className="flex-1" />}
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={handlePost}
-            disabled={!text.trim() || !author.trim()}
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
+          <button onClick={handlePost} disabled={!text.trim() || !author.trim()}
             className="px-4 py-2 text-sm font-semibold text-white rounded-xl disabled:opacity-40 transition-colors"
-            style={{ backgroundColor: cfg.color }}
-          >
+            style={{ backgroundColor: cfg.color }}>
             Post
           </button>
         </div>
@@ -272,26 +324,40 @@ function CommentPinModal({ page, sourceDashboard, sourcePage, sourcePeriod, pinP
 
 // ─── Main FAB export ──────────────────────────────────────────────────────────
 export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourcePeriod, rightClassName = 'right-6' }) {
-  const { comments, updateCommentStatus, deleteComment } = useApp()
-  const location = useLocation()
-  const [showPins,   setShowPins]   = useState(true)
-  const [placing,    setPlacing]    = useState(false)   // placement mode
-  const [pinPos,     setPinPos]     = useState(null)    // { xPct, yPct }
-  const [showModal,  setShowModal]  = useState(false)
+  const { comments } = useApp()
+  const navigate     = useNavigate()
+  const location     = useLocation()
+  const { teamId }   = useParams()
+
+  const [showPins,    setShowPins]    = useState(true)
+  const [placing,     setPlacing]     = useState(false)
+  const [pinPos,      setPinPos]      = useState(null)
+  const [showModal,   setShowModal]   = useState(false)
+  const [openPin,     setOpenPin]     = useState(null)   // which pin's conversation is open
   const [highlightId, setHighlightId] = useState(location.state?.highlightCommentId || null)
 
+  // Flash highlight for 3s then clear
   useEffect(() => {
-    if (highlightId) {
-      setShowPins(true)
-      const t = setTimeout(() => setHighlightId(null), 3000)
-      return () => clearTimeout(t)
-    }
+    if (!highlightId) return
+    setShowPins(true)
+    const t = setTimeout(() => setHighlightId(null), 3000)
+    return () => clearTimeout(t)
   }, [highlightId])
 
-  const pagePins = comments.filter(c => c.page === page)
+  // Top-level comments for this page (exclude replies)
+  const pagePins = comments.filter(c => c.page === page && !c.parentId)
+
+  // Attach reply count to each pin for the badge
+  const replyCountMap = {}
+  comments.forEach(c => { if (c.parentId) replyCountMap[c.parentId] = (replyCountMap[c.parentId] || 0) + 1 })
+
+  // Only show unresolved pins on the page overlay
   const placedPins = pagePins.filter(c => c.pinPosition && getStatus(c) !== 'resolved')
 
-  // Placement: record click position as document %
+  // Keep openPin in sync with live comment data (e.g. after status change)
+  const liveOpenPin = openPin ? comments.find(c => c.id === openPin.id) || openPin : null
+
+  // Placement: record click as document-relative %
   function handlePlacementClick(e) {
     if (!placing) return
     const scrollEl = document.documentElement
@@ -302,50 +368,53 @@ export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourc
     setShowModal(true)
   }
 
-  function handleStartPlacing() {
-    setPlacing(true)
-  }
+  // Navigate to the correct Comments & Requests page and auto-open the comment
+  function openInComments(pin) {
+    const sd = pin.source_dashboard
+    const state = { openCommentId: pin.id }
 
-  function handleCancelPlacing() {
-    setPlacing(false)
-    setPinPos(null)
-  }
-
-  function handleCloseModal() {
-    setShowModal(false)
-    setPinPos(null)
+    if (sd === 'Executive') {
+      navigate('/elt', { state: { ...state, switchToComments: true } })
+    } else if (sd === 'Admin') {
+      navigate('/master?tab=comments', { state })
+    } else if (teamId) {
+      navigate(`/team/${teamId}/comments`, { state })
+    } else {
+      // Fallback: determine from current path
+      const path = location.pathname
+      if (path.startsWith('/elt'))    navigate('/elt',    { state: { ...state, switchToComments: true } })
+      else if (path.startsWith('/master')) navigate('/master?tab=comments', { state })
+      else navigate(`${path.replace(/\/[^/]+$/, '')}/comments`, { state })
+    }
+    setOpenPin(null)
   }
 
   return (
     <>
-      {/* Placement overlay — fullscreen crosshair */}
+      {/* Placement overlay */}
       {placing && (
-        <div
-          className="fixed inset-0 z-40"
-          style={{ cursor: 'crosshair', backgroundColor: 'rgba(0,0,0,0.08)' }}
-          onClick={handlePlacementClick}
-        >
-          {/* Instruction banner */}
+        <div className="fixed inset-0 z-40" style={{ cursor: 'crosshair', backgroundColor: 'rgba(0,0,0,0.08)' }}
+          onClick={handlePlacementClick}>
           <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm font-medium px-5 py-2.5 rounded-full shadow-xl flex items-center gap-3 pointer-events-none">
             <MessageSquare size={14} />
             Click anywhere to drop your comment pin
-            <button
-              className="pointer-events-auto text-gray-300 hover:text-white ml-2 transition-colors"
-              onClick={e => { e.stopPropagation(); handleCancelPlacing() }}
-            >
+            <button className="pointer-events-auto text-gray-300 hover:text-white ml-2 transition-colors"
+              onClick={e => { e.stopPropagation(); setPlacing(false); setPinPos(null) }}>
               <X size={14} />
             </button>
           </div>
         </div>
       )}
 
-      {/* Positioned pin circles */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 28 }}
-      >
+      {/* Positioned pin circles — absolute within page */}
+      <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 28 }}>
         {showPins && placedPins.map(pin => (
-          <PinCircle key={pin.id} pin={pin} highlight={highlightId === pin.id} />
+          <PinCircle
+            key={pin.id}
+            pin={{ ...pin, _replyCount: replyCountMap[pin.id] || 0 }}
+            highlight={highlightId === pin.id}
+            onOpen={p => setOpenPin(p)}
+          />
         ))}
       </div>
 
@@ -353,25 +422,30 @@ export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourc
       {!placing && (
         <div className={`fixed bottom-6 ${rightClassName} flex items-center gap-2 z-20`}>
           {pagePins.length > 0 && (
-            <button
-              onClick={() => setShowPins(v => !v)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-full text-xs font-medium text-gray-600 shadow-md border border-gray-200 hover:bg-gray-50 transition-colors"
-            >
-              <Ban size={13} className="text-gray-400" />
-              {showPins ? 'Hide pins' : `Show ${pagePins.length} pins`}
+            <button onClick={() => setShowPins(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-full text-xs font-medium text-gray-600 shadow-md border border-gray-200 hover:bg-gray-50 transition-colors">
+              <MessageSquare size={13} className="text-gray-400" />
+              {showPins ? 'Hide pins' : `Show ${pagePins.length} pin${pagePins.length !== 1 ? 's' : ''}`}
             </button>
           )}
-          <button
-            onClick={handleStartPlacing}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold shadow-lg hover:bg-gray-800 transition-colors"
-          >
+          <button onClick={() => setPlacing(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold shadow-lg hover:bg-gray-800 transition-colors">
             <MessageSquare size={14} />
             Drop a comment pin
           </button>
         </div>
       )}
 
-      {/* Modal */}
+      {/* Conversation panel — opens on pin click */}
+      {liveOpenPin && (
+        <ConversationPanel
+          pin={liveOpenPin}
+          onClose={() => setOpenPin(null)}
+          onOpenInComments={() => openInComments(liveOpenPin)}
+        />
+      )}
+
+      {/* New comment modal */}
       {showModal && (
         <CommentPinModal
           page={page}
@@ -379,7 +453,7 @@ export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourc
           sourcePage={sourcePage}
           sourcePeriod={sourcePeriod}
           pinPosition={pinPos}
-          onClose={handleCloseModal}
+          onClose={() => { setShowModal(false); setPinPos(null) }}
         />
       )}
     </>

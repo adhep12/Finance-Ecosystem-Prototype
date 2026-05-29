@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Search, Plus, X, ChevronRight, Diamond,
   MessageSquare, List, LayoutGrid, AlertCircle,
@@ -592,6 +592,20 @@ export default function CommentsPage({ context = 'admin' }) {
   function toggleStatus(s) {
     setStatusFilters(prev => ({ ...prev, [s]: !prev[s] }))
   }
+
+  // Auto-open a comment when navigated here with openCommentId in location state
+  useEffect(() => {
+    const cid = location.state?.openCommentId
+    if (!cid || !comments.length) return
+    const target = comments.find(c => c.id === cid)
+    if (target) {
+      setSelectedComment(target)
+      // Show resolved comments if needed so the target is visible
+      if (getStatus(target) === 'resolved') {
+        setStatusFilters(prev => ({ ...prev, resolved: true }))
+      }
+    }
+  }, [location.state?.openCommentId, comments]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const orphaned = useMemo(() => comments.filter(c => c.orphaned && isVisible(c)), [comments, pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
