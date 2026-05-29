@@ -421,12 +421,14 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
 
   const filteredActuals = useMemo(() => {
     const inRange = filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate)
-    return inRange.filter(t => !excluded.includes(t.category))
+    return inRange
+      .filter(t => !excluded.includes(t.category))
+      .filter(t => t.record_type !== 'income')   // expense-only
   }, [actuals, dateRange, excluded])
 
   const series = useMemo(() => buildChartSeries(
     filteredActuals,
-    budgetFlat.filter(b => !excluded.includes(b.category)),
+    budgetFlat.filter(b => !excluded.includes(b.category) && b.record_type !== 'income'),
     scenario,
     dateRange.startDate,
     dateRange.endDate,
@@ -434,9 +436,9 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
     cumulative,
   ), [filteredActuals, budgetFlat, scenario, dateRange, displayCategory, cumulative, excluded])
 
-  const periodSpend   = filteredActuals.reduce((s, t) => s + t.amount, 0)
+  const periodSpend   = filteredActuals.reduce((s, t) => s + Math.abs(t.amount || 0), 0)
   const budgetByCat   = calcBudgetByCategory(
-    budgetFlat.filter(b => !excluded.includes(b.category)),
+    budgetFlat.filter(b => !excluded.includes(b.category) && b.record_type !== 'income'),
     scenario,
     dateRange.startDate,
     dateRange.endDate,
@@ -448,8 +450,8 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
   const monthlyActuals = useMemo(() => {
     const byMonth = {}
     filteredActuals.forEach(t => {
-      const m = t.date.substring(0, 7)
-      byMonth[m] = (byMonth[m] || 0) + t.amount
+      const m = (t.period || t.date || '').substring(0, 7)
+      byMonth[m] = (byMonth[m] || 0) + Math.abs(t.amount || 0)
     })
     return Object.values(byMonth)
   }, [filteredActuals])
@@ -619,17 +621,22 @@ export default function BriefingPage() {
   // All categories from actuals
   const allCategories = useMemo(() => getUniqueValues(actuals, 'category'), [actuals])
 
-  // Filter actuals to selected range
+  // Filter actuals to selected range — expense rows only
   const filteredActuals = useMemo(() =>
     filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate)
-      .filter(t => !briefingExclusions.includes(t.category)),
+      .filter(t => !briefingExclusions.includes(t.category))
+      .filter(t => t.record_type !== 'income'),
     [actuals, dateRange, briefingExclusions]
   )
 
-  // Budget by category for selected scenario + range
+  // Budget by category for selected scenario + range — expense rows only
+  const expenseBudgetFlat = useMemo(() =>
+    budgetFlat.filter(b => b.record_type !== 'income'),
+    [budgetFlat]
+  )
   const budgetByCat = useMemo(() =>
-    calcBudgetByCategory(budgetFlat, selectedScenario, dateRange.startDate, dateRange.endDate),
-    [budgetFlat, selectedScenario, dateRange]
+    calcBudgetByCategory(expenseBudgetFlat, selectedScenario, dateRange.startDate, dateRange.endDate),
+    [expenseBudgetFlat, selectedScenario, dateRange]
   )
 
   // Summary for hero
@@ -645,7 +652,7 @@ export default function BriefingPage() {
     if (sortMode === 'excluded') {
       return briefingExclusions.map(cat => ({
         category: cat,
-        actual:   aggregateBy(filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate), 'category')[cat] || 0,
+        actual:   aggregateBy(filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate).filter(t => t.record_type !== 'income'), 'category')[cat] || 0,
         budget:   budgetByCat[cat] || 0,
         delta:    0,
       }))

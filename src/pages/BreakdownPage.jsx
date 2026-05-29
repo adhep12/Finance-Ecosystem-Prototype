@@ -724,7 +724,7 @@ export default function BreakdownPage() {
   )
 
   // ── Summary stats for KPI panel ──────────────────────────────────────────
-  const totalActual  = unhidden.reduce((s, t) => s + t.amount, 0)
+  const totalActual  = unhidden.filter(t => t.record_type !== 'income').reduce((s, t) => s + Math.abs(t.amount || 0), 0)
   const totalBudget  = Object.values(budgetByCat).reduce((s, v) => s + v, 0)
 
   // ── Handlers ─────────────────────────────────────────────────────────────

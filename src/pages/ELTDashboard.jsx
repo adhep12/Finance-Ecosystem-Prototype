@@ -692,20 +692,8 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
             ))}
           </div>
         </nav>
-        <div className="relative flex-shrink-0" ref={pickerRef}>
-          <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
-            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
-            <span>{presetLabel(dateRange.preset)}</span>
-            <ChevronDown size={12} className="text-gray-400"/>
-          </button>
-          {showDatePicker && (
-            <div className="absolute right-0 top-full mt-2 z-50">
-              <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
-            </div>
-          )}
-        </div>
         {/* Budget Scenario Selector */}
-        <div className="relative flex-shrink-0 ml-2" ref={budgetPickerRef}>
+        <div className="relative flex-shrink-0" ref={budgetPickerRef}>
           <button onClick={() => setShowBudgetPicker(v=>!v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
             <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">BUDGET SCENARIO</span>
@@ -727,6 +715,19 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
                   ))
                 }
               </div>
+            </div>
+          )}
+        </div>
+        {/* Reporting Period — far right, matching all other pages */}
+        <div className="relative flex-shrink-0 ml-2" ref={pickerRef}>
+          <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
+            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
+            <span>{presetLabel(dateRange.preset)}</span>
+            <ChevronDown size={12} className="text-gray-400"/>
+          </button>
+          {showDatePicker && (
+            <div className="absolute right-0 top-full mt-2 z-50">
+              <ELTDateRangePicker dateRange={dateRange} org={orgConfig} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={() => setShowDatePicker(false)}/>
             </div>
           )}
         </div>
@@ -4547,16 +4548,23 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
           { label:`Variance · ${rangeLabel}`, value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
             sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
             positive: totalVariance <= 0 },
-          { label:'Teams Over Budget', value: String(overBudget),
-            sub: `${teams.length - overBudget} of ${teams.length} within budget`,
+          { label:'Teams Over Budget', value: `${overBudget} of ${teams.length}`,
+            sub: overBudget === 0 ? 'All teams within budget ✓' : `${overBudget} team${overBudget!==1?'s':''} over budget`,
             positive: overBudget === 0 },
         ].map((card,i) => (
           <div key={i} className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
-            <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>
-              {card.value}
-            </div>
-            {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+            {i === 3 ? (
+              <>
+                <div className={`text-3xl font-bold tabular-nums mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-xs font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>{card.sub}</div>}
+              </>
+            ) : (
+              <>
+                <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+              </>
+            )}
           </div>
         ))}
       </div>
@@ -5881,7 +5889,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
+  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario, applyPreset: appApplyPreset, applyCustomRange } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
@@ -5927,8 +5935,15 @@ export default function ELTDashboard() {
     loadSavedSummaries()
   }, [orgConfig.name]) // re-run when org loads (name changes from default)
 
-  function applyPreset(preset) { setDateRange({preset,...getELTPresetRange(preset,orgConfig)}) }
-  function applyCustom(s,e)    { setDateRange({preset:'custom',startDate:s,endDate:e}) }
+  function applyPreset(preset) {
+    const r = getELTPresetRange(preset, orgConfig)
+    setDateRange({ preset, ...r })
+    appApplyPreset(preset)   // keep AppContext in sync so BriefingPage matches
+  }
+  function applyCustom(s, e) {
+    setDateRange({ preset:'custom', startDate:s, endDate:e })
+    applyCustomRange(s, e)   // keep AppContext in sync
+  }
 
   function handleUpdateSummary(month, key, value) {
     setSummaries(prev => ({ ...prev, [month]: { ...prev[month], [key]: value } }))
