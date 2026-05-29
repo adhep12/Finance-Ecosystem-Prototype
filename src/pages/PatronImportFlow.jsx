@@ -20,8 +20,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Upload, ChevronRight, ChevronLeft, AlertTriangle, Check,
-  X, Download, Loader2, Info, RefreshCw, BarChart2, Users,
+  X, Download, Loader2, Info, RefreshCw, BarChart2, Users, Zap,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase, ORG_ID, dbInsert } from '../lib/supabase'
 import LastImportSummary from '../components/LastImportSummary'
 import PeriodMultiPicker from '../components/PeriodMultiPicker'
@@ -103,23 +104,166 @@ function parseRetentionRate(str) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Raw giving import — format detection & aggregation
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RAW_SOURCES = {
+  PLANNING_CENTER: 'planning_center',
+  PUSHPAY: 'pushpay',
+}
+
+/** Convert M/D/YYYY or M/D/YY date string to YYYY-MM period. */
+function dateToYYYYMM(str) {
+  if (!str) return null
+  const s = String(str).trim()
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (!m) return null
+  const year = m[3].length === 2 ? `20${m[3]}` : m[3]
+  const month = String(m[1]).padStart(2, '0')
+  return `${year}-${month}`
+}
+
+/** Parse a dollar string like "$123.45" or numeric value. */
+function parseDollarRaw(val) {
+  if (val == null || val === '') return null
+  const n = typeof val === 'number' ? val : parseFloat(String(val).replace(/[$,\s]/g, ''))
+  return isNaN(n) ? null : Math.round(n * 100) / 100
+}
+
+/** Detect Planning Center vs Pushpay from CSV headers. */
+function detectRawSource(headers) {
+  const h = headers.map(x => (x || '').toLowerCase())
+  if (h.includes('donor_id') && h.includes('received_date')) return RAW_SOURCES.PLANNING_CENTER
+  if (h.includes('payer id') || h.includes('contributor id')) return RAW_SOURCES.PUSHPAY
+  return null
+}
+
+/** Parse Planning Center CSV rows into normalized gift objects. */
+function parsePlanningCenterRows(rows) {
+  return rows
+    .filter(r => (r['status'] || '').toLowerCase() === 'succeeded')
+    .map(r => {
+      const period = dateToYYYYMM(r['received_date'])
+      const amount = parseDollarRaw(r['amount'])
+      const donorId = r['donor_id']
+      const labels = (r['labels'] || '').toLowerCase()
+      const isRecurring = labels.includes('recurring')
+      return period && amount != null && donorId ? { period, donorId, amount, isRecurring } : null
+    })
+    .filter(Boolean)
+}
+
+/** Parse Pushpay XLSX/CSV rows into normalized gift objects. */
+function parsePushpayRows(rows) {
+  return rows
+    .filter(r => (r['Status'] || '').toLowerCase() === 'success')
+    .map(r => {
+      const period = dateToYYYYMM(r['Received On'])
+      const amount = parseDollarRaw(r['Amount'])
+      const donorId = r['Payer ID'] || r['Contributor ID']
+      const source = (r['Source'] || '').toLowerCase()
+      const isRecurring = source === 'recurring'
+      return period && amount != null && donorId ? { period, donorId, amount, isRecurring } : null
+    })
+    .filter(Boolean)
+}
+
+/** Aggregate normalized gift rows into patron_data monthly rows. */
+function aggregateGiftRows(gifts) {
+  const byPeriod = {}
+  for (const g of gifts) {
+    if (!byPeriod[g.period]) byPeriod[g.period] = { donors: new Set(), recurringDonors: new Set(), recurringTotal: 0, spontaneousTotal: 0, txCount: 0 }
+    const p = byPeriod[g.period]
+    p.donors.add(g.donorId)
+    p.txCount++
+    if (g.isRecurring) {
+      p.recurringDonors.add(g.donorId)
+      p.recurringTotal += g.amount
+    } else {
+      p.spontaneousTotal += g.amount
+    }
+  }
+  return Object.entries(byPeriod).sort(([a], [b]) => a.localeCompare(b)).map(([period, p]) => {
+    const total = p.recurringTotal + p.spontaneousTotal
+    return {
+      period,
+      total_active_patrons:     p.donors.size,
+      new_patrons_total:        null,
+      new_patrons_recurring:    null,
+      new_patrons_spontaneous:  null,
+      recurring_patron_count:   p.recurringDonors.size || null,
+      recurring_giving_total:   p.recurringTotal > 0 ? Math.round(p.recurringTotal * 100) / 100 : null,
+      spontaneous_giving_total: p.spontaneousTotal > 0 ? Math.round(p.spontaneousTotal * 100) / 100 : null,
+      avg_gift_size:            p.txCount > 0 ? Math.round(total / p.txCount * 100) / 100 : null,
+      retention_rate:           null,
+      _txCount:                 p.txCount,
+    }
+  })
+}
+
+/** Parse raw giving file (CSV or XLSX) and return { source, gifts, aggregated, totalTx, skipped }. */
+async function parseRawGivingFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase()
+  let headers, rows
+
+  if (ext === 'xlsx' || ext === 'xls') {
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array', cellDates: false })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const json = XLSX.utils.sheet_to_json(ws, { defval: '' })
+    headers = json.length ? Object.keys(json[0]) : []
+    rows = json
+  } else {
+    const text = await file.text()
+    const parsed = parseCSVRaw(text)
+    headers = parsed.headers
+    rows = parsed.rows
+  }
+
+  const source = detectRawSource(headers)
+  if (!source) return { error: 'Could not detect format. Expected Planning Center CSV or Pushpay XLSX/CSV.' }
+
+  const allRows = rows.length
+  const gifts = source === RAW_SOURCES.PLANNING_CENTER ? parsePlanningCenterRows(rows) : parsePushpayRows(rows)
+  const skipped = allRows - gifts.length
+  const aggregated = aggregateGiftRows(gifts)
+  return { source, gifts, aggregated, totalTx: gifts.length, skipped }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CSV parser
 // ─────────────────────────────────────────────────────────────────────────────
 
-function parseCSV(text) {
+/** CSV parser that handles quoted fields with commas inside. */
+function parseCSVRaw(text) {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
-  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim())
+  const headers = splitCSVLine(lines[0])
   const rows = []
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    const vals = line.split(',').map(v => v.replace(/^"|"$/g, '').trim())
+    const vals = splitCSVLine(line)
     const row = {}
     headers.forEach((h, idx) => { row[h] = vals[idx] ?? '' })
     rows.push(row)
   }
   return { headers, rows }
 }
+
+function splitCSVLine(line) {
+  const result = []
+  let cur = '', inQ = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (c === '"') { inQ = !inQ }
+    else if (c === ',' && !inQ) { result.push(cur.trim()); cur = '' }
+    else cur += c
+  }
+  result.push(cur.trim())
+  return result
+}
+
+function parseCSV(text) { return parseCSVRaw(text) }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Field mapping helpers
@@ -200,6 +344,45 @@ function StepIndicator({ current }) {
   )
 }
 
+function RawDropZone({ onFile, loading }) {
+  const ref = useRef()
+  const [drag, setDrag] = useState(false)
+  async function handle(file) {
+    if (!file) return
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['csv', 'xlsx', 'xls'].includes(ext)) { alert('Please upload a .csv or .xlsx file'); return }
+    onFile(file)
+  }
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); setDrag(true) }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={e => { e.preventDefault(); setDrag(false); handle(e.dataTransfer.files[0]) }}
+      className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
+        drag ? 'border-teal-400 bg-teal-50' : 'border-gray-200 hover:border-teal-300'}`}>
+      {loading ? (
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={28} className="text-teal-500 animate-spin"/>
+          <p className="text-sm text-gray-500">Parsing and aggregating…</p>
+        </div>
+      ) : (
+        <>
+          <Zap size={28} className="mx-auto mb-3 text-teal-400"/>
+          <p className="text-sm font-medium text-gray-700 mb-1">Drop your export here or click to browse</p>
+          <p className="text-xs text-gray-400 mb-4">Planning Center CSV · Pushpay XLSX — format auto-detected</p>
+          <input type="file" accept=".csv,.xlsx,.xls" className="hidden" ref={ref} onChange={e => handle(e.target.files[0])}/>
+          <button
+            onClick={() => ref.current?.click()}
+            className="px-4 py-2 text-xs font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+          >
+            Choose File
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function DropZone({ onFile }) {
   const ref = useRef()
   const [drag, setDrag] = useState(false)
@@ -253,6 +436,17 @@ export default function PatronImportFlow() {
   const [step, setStep]             = useState(STEPS.mode)
   const [importMode, setImportMode] = useState('append')
   const [replacePeriods, setReplacePeriods] = useState([])
+
+  // ── Import flavor: 'summary' (existing) or 'raw' (new) ─────────────────────
+  const [importFlavor, setImportFlavor] = useState('summary')
+
+  // ── Raw giving import state ─────────────────────────────────────────────────
+  const [rawParseLoading, setRawParseLoading] = useState(false)
+  const [rawParseError, setRawParseError]     = useState(null)
+  const [rawDetectedSource, setRawDetectedSource] = useState(null)
+  const [rawAggregated, setRawAggregated]     = useState([])  // monthly rows to import
+  const [rawTxCount, setRawTxCount]           = useState(0)
+  const [rawSkipped, setRawSkipped]           = useState(0)
 
   // ── File / raw data ─────────────────────────────────────────────────────────
   const [fileName, setFileName]     = useState('')
@@ -316,6 +510,28 @@ export default function PatronImportFlow() {
       setStep(STEPS.mapping)
     } catch {
       alert('Failed to parse CSV. Please check the file format.')
+    }
+  }
+
+  // ── Raw giving file handler ──────────────────────────────────────────────────
+  async function handleRawFile(file) {
+    setRawParseLoading(true)
+    setRawParseError(null)
+    setFileName(file.name)
+    try {
+      const result = await parseRawGivingFile(file)
+      if (result.error) { setRawParseError(result.error); setRawParseLoading(false); return }
+      setRawDetectedSource(result.source)
+      setRawAggregated(result.aggregated)
+      setRawTxCount(result.totalTx)
+      setRawSkipped(result.skipped)
+      // Reuse validRows for the actual DB rows (strip _txCount)
+      setValidRows(result.aggregated.map(({ _txCount, ...r }) => r))
+      setRawParseLoading(false)
+      setStep(STEPS.validate)
+    } catch (err) {
+      setRawParseError(err.message || 'Failed to parse file')
+      setRawParseLoading(false)
     }
   }
 
@@ -402,10 +618,11 @@ export default function PatronImportFlow() {
 
     try {
       const now = new Date().toISOString()
+      const sourceRowCount = importFlavor === 'raw' ? rawTxCount : rawRows.length
 
       // 1. Determine periods in file
-      // Strip internal _rowNum before writing to DB
-      const dbRows = validRows.map(({ _rowNum, ...r }) => r)
+      // Strip internal _rowNum and _txCount before writing to DB
+      const dbRows = validRows.map(({ _rowNum, _txCount, ...r }) => r)
       const periodsInFile = [...new Set(dbRows.map(r => r.period))]
 
       // 2. Remove existing rows for replace modes.
@@ -441,7 +658,7 @@ export default function PatronImportFlow() {
             import_type:   'patron',
             mode:          importMode,
             filename:      fileName,
-            row_count:     rawRows.length,
+            row_count:     sourceRowCount,
             rows_skipped:  dbRows.length,
             period_start:  sortedP[0] || null,
             period_end:    sortedP[sortedP.length - 1] || null,
@@ -473,7 +690,7 @@ export default function PatronImportFlow() {
           import_type:   'patron',
           mode:          importMode,
           filename:      fileName,
-          row_count:     rawRows.length,
+          row_count:     sourceRowCount,
           rows_skipped:  dbRows.length - newDbRows.length,
           period_start:  sortedPeriods[0] || null,
           period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
@@ -511,7 +728,7 @@ export default function PatronImportFlow() {
         import_type:   'patron',
         mode:          importMode,
         filename:      fileName,
-        row_count:     rawRows.length,
+        row_count:     sourceRowCount,
         rows_skipped:  rawRows.length - dbRows.length,
         period_start:  sortedPeriods[0] || null,
         period_end:    sortedPeriods[sortedPeriods.length - 1] || null,
@@ -536,9 +753,16 @@ export default function PatronImportFlow() {
     setStep(STEPS.mode)
     setImportMode('append')
     setReplacePeriods([])
+    setImportFlavor('summary')
     setFileName('')
     setRawHeaders([])
     setRawRows([])
+    setRawParseLoading(false)
+    setRawParseError(null)
+    setRawDetectedSource(null)
+    setRawAggregated([])
+    setRawTxCount(0)
+    setRawSkipped(0)
     setSelectedMapping(null)
     setMappingDraft({})
     setValidationResults(null)
@@ -563,10 +787,34 @@ export default function PatronImportFlow() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Import Patron Data</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Pre-aggregated monthly patron summary CSV</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {importFlavor === 'raw' ? 'Raw giving export — Planning Center or Pushpay' : 'Pre-aggregated monthly patron summary CSV'}
+          </p>
         </div>
-        <StepIndicator current={step > STEPS.confirm ? 4 : step}/>
+        {importFlavor === 'summary' && <StepIndicator current={step > STEPS.confirm ? 4 : step}/>}
       </div>
+
+      {/* Flavor toggle (only on first two steps) */}
+      {step <= STEPS.upload && (
+        <div className="flex gap-2 p-1 bg-gray-100 rounded-xl w-fit">
+          <button
+            onClick={() => { setImportFlavor('summary'); setStep(STEPS.mode) }}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              importFlavor === 'summary' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <BarChart2 size={14}/> Monthly Summary
+          </button>
+          <button
+            onClick={() => { setImportFlavor('raw'); setStep(STEPS.upload) }}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              importFlavor === 'raw' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Zap size={14}/> Raw Giving Export
+          </button>
+        </div>
+      )}
 
       {/* ── STEP 0: Mode ─────────────────────────────────────────────────────── */}
       {step === STEPS.mode && (
@@ -631,13 +879,36 @@ export default function PatronImportFlow() {
       )}
 
       {/* ── STEP 1: Upload ───────────────────────────────────────────────────── */}
-      {step === STEPS.upload && (
+      {step === STEPS.upload && importFlavor === 'summary' && (
         <div className="space-y-4">
           <button onClick={() => setStep(STEPS.mode)} className="text-xs text-gray-400 flex items-center gap-1 hover:text-gray-600">
             <ChevronLeft size={12}/> Back
           </button>
           <p className="text-sm text-gray-600">Upload your monthly patron summary CSV.</p>
           <DropZone onFile={(name, text) => { setStep(STEPS.upload); handleFile(name, text) }}/>
+        </div>
+      )}
+
+      {/* ── RAW Upload ───────────────────────────────────────────────────────── */}
+      {step === STEPS.upload && importFlavor === 'raw' && (
+        <div className="space-y-4">
+          <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-sm text-teal-800">
+            <p className="font-medium mb-1">How it works</p>
+            <ul className="text-xs text-teal-700 space-y-1 list-disc list-inside">
+              <li>Upload a raw transaction export from Planning Center (CSV) or Pushpay (XLSX)</li>
+              <li>Each row is an individual gift — no pre-aggregation needed</li>
+              <li>We auto-detect the format and group by month</li>
+              <li>Available: active patrons, recurring count, giving totals, avg gift size</li>
+              <li>Not available from raw data: new patrons, retention rate</li>
+            </ul>
+          </div>
+          {rawParseError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-red-500 mt-0.5 flex-shrink-0"/>
+              <p className="text-sm text-red-700">{rawParseError}</p>
+            </div>
+          )}
+          <RawDropZone onFile={handleRawFile} loading={rawParseLoading}/>
         </div>
       )}
 
@@ -847,6 +1118,118 @@ export default function PatronImportFlow() {
         </div>
       )}
 
+      {/* ── RAW Validate: aggregated preview ─────────────────────────────────── */}
+      {step === STEPS.validate && importFlavor === 'raw' && (
+        <div className="space-y-4">
+          <button onClick={() => setStep(STEPS.upload)} className="text-xs text-gray-400 flex items-center gap-1 hover:text-gray-600">
+            <ChevronLeft size={12}/> Upload different file
+          </button>
+
+          {/* Summary pills */}
+          <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-2 bg-teal-50 border border-teal-200 rounded-xl px-4 py-2">
+              <Zap size={14} className="text-teal-500"/>
+              <span className="text-xs font-medium text-teal-800">
+                {rawDetectedSource === RAW_SOURCES.PLANNING_CENTER ? 'Planning Center' : 'Pushpay'} detected
+              </span>
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-xs text-gray-600">
+              <span className="font-semibold text-gray-900">{rawTxCount.toLocaleString()}</span> gifts processed
+            </div>
+            {rawSkipped > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700">
+                <span className="font-semibold">{rawSkipped}</span> rows skipped (not succeeded)
+              </div>
+            )}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-xs text-gray-600">
+              <span className="font-semibold text-gray-900">{rawAggregated.length}</span> months aggregated
+            </div>
+          </div>
+
+          {/* Aggregated preview table */}
+          <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Aggregated Monthly Preview</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-200 bg-gray-50">
+                    <th className="px-3 py-2 font-medium">Period</th>
+                    <th className="px-3 py-2 font-medium text-right">Active Patrons</th>
+                    <th className="px-3 py-2 font-medium text-right">Recurring</th>
+                    <th className="px-3 py-2 font-medium text-right">Recurring Total</th>
+                    <th className="px-3 py-2 font-medium text-right">Spontaneous Total</th>
+                    <th className="px-3 py-2 font-medium text-right">Avg Gift</th>
+                    <th className="px-3 py-2 font-medium text-right">Gifts</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {rawAggregated.slice(0, 12).map(r => (
+                    <tr key={r.period} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 font-mono text-gray-700">{r.period}</td>
+                      <td className="px-3 py-2 text-right font-medium">{r.total_active_patrons.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right">{r.recurring_patron_count?.toLocaleString() ?? '—'}</td>
+                      <td className="px-3 py-2 text-right text-teal-700">{r.recurring_giving_total != null ? `$${r.recurring_giving_total.toLocaleString()}` : '—'}</td>
+                      <td className="px-3 py-2 text-right">{r.spontaneous_giving_total != null ? `$${r.spontaneous_giving_total.toLocaleString()}` : '—'}</td>
+                      <td className="px-3 py-2 text-right">{r.avg_gift_size != null ? `$${r.avg_gift_size.toLocaleString()}` : '—'}</td>
+                      <td className="px-3 py-2 text-right text-gray-400">{r._txCount?.toLocaleString() ?? '—'}</td>
+                    </tr>
+                  ))}
+                  {rawAggregated.length > 12 && (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-2 text-center text-gray-400">
+                        … {rawAggregated.length - 12} more month(s)
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+            <Info size={12} className="inline mr-1"/> New patrons and retention rate are not available from raw transaction data — those fields will be blank.
+          </div>
+
+          {/* Import mode selector for raw */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-700">How should we handle existing data?</p>
+            <div className="grid gap-2">
+              {IMPORT_MODES.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setImportMode(m.id)}
+                  className={`w-full flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                    importMode === m.id
+                      ? m.danger ? 'border-amber-500 bg-amber-50' : 'border-teal-500 bg-teal-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <span className="text-lg leading-none mt-0.5 flex-shrink-0">{m.icon}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold text-xs ${m.danger && importMode===m.id ? 'text-amber-800' : importMode===m.id ? 'text-teal-800' : 'text-gray-800'}`}>{m.label}</span>
+                      {m.danger && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">Destructive</span>}
+                      {importMode === m.id && <Check size={12} className={`ml-auto ${m.danger ? 'text-amber-600' : 'text-teal-600'}`}/>}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">{m.description}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setStep(STEPS.confirm)}
+            disabled={rawAggregated.length === 0}
+            className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-40 flex items-center gap-2"
+          >
+            Continue to Import <ChevronRight size={16}/>
+          </button>
+        </div>
+      )}
+
       {/* ── STEP 4: Confirm ──────────────────────────────────────────────────── */}
       {step === STEPS.confirm && (
         <div className="space-y-5">
@@ -863,8 +1246,19 @@ export default function PatronImportFlow() {
               <dd className="font-medium capitalize">{IMPORT_MODES.find(m=>m.id===importMode)?.label}</dd>
               <dt className="text-gray-500">File</dt>
               <dd className="font-medium truncate">{fileName}</dd>
-              <dt className="text-gray-500">Valid rows</dt>
-              <dd className="font-medium">{validRows.length.toLocaleString()} / {rawRows.length.toLocaleString()}</dd>
+              {importFlavor === 'raw' ? (
+                <>
+                  <dt className="text-gray-500">Source</dt>
+                  <dd className="font-medium">{rawDetectedSource === RAW_SOURCES.PLANNING_CENTER ? 'Planning Center' : 'Pushpay'}</dd>
+                  <dt className="text-gray-500">Gifts processed</dt>
+                  <dd className="font-medium">{rawTxCount.toLocaleString()}</dd>
+                </>
+              ) : (
+                <>
+                  <dt className="text-gray-500">Valid rows</dt>
+                  <dd className="font-medium">{validRows.length.toLocaleString()} / {rawRows.length.toLocaleString()}</dd>
+                </>
+              )}
               <dt className="text-gray-500">Monthly rows to write</dt>
               <dd className="font-medium">{validRows.length}</dd>
               <dt className="text-gray-500">Periods</dt>
