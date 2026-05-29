@@ -64,6 +64,7 @@ export function calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, d
   const result = {}
   for (const entry of budgetFlat) {
     if (entry.scenario !== scenario) continue
+    if (entry.record_type === 'income') continue   // expense-only to match ELT Teams
     if (depts && depts.length > 0 && !depts.includes(entry.department)) continue
     const key = entry.category
     if (!key) continue
@@ -279,8 +280,9 @@ export function getTopVendors(actuals, categoryFilter, excluded = [], n = 3) {
 export function calcBriefingSummary(actuals, budgetFlat, scenario, startDate, endDate, excluded, depts = null) {
   const filtered = filterActualsByRange(actuals, startDate, endDate, depts)
     .filter(t => !excluded.includes(t.category))
+    .filter(t => t.record_type !== 'income')   // expense-only to match ELT Teams
 
-  const totalActual = filtered.reduce((s, t) => s + t.amount, 0)
+  const totalActual = filtered.reduce((s, t) => s + Math.abs(t.amount || 0), 0)
   const budgetByCat = calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, depts)
   const totalBudget = Object.entries(budgetByCat)
     .filter(([cat]) => !excluded.includes(cat))

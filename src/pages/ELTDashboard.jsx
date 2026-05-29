@@ -3757,7 +3757,8 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
     let unassigned = 0
     const deptCodes = new Set()
     for (const t of actuals) {
-      if (!t.date || t.date < startDate || t.date > endDate) continue
+      const tp = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!tp || tp < startM || tp > endM) continue
       if (t.record_type === 'income') continue
       if (!t.team_name) {
         unassigned += Math.abs(t.amount || 0)
@@ -5129,7 +5130,7 @@ const EMPTY_SUMMARY_TEMPLATE = () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ELTDashboard() {
-  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario } = useApp()
+  const { orgConfig, incomeMonths, actuals, budgetFlat, availableScenarios, selectedScenario, applyPreset: appApplyPreset, applyCustomRange } = useApp()
   const [activeTab, setActiveTab] = useState('dashboard')
   // activeBudget is the selected scenario string (e.g. 'Planned Spend')
   // Initialise to selectedScenario (likely '' at first render since AppContext loads async)
@@ -5175,8 +5176,15 @@ export default function ELTDashboard() {
     loadSavedSummaries()
   }, [orgConfig.name]) // re-run when org loads (name changes from default)
 
-  function applyPreset(preset) { setDateRange({preset,...getELTPresetRange(preset,orgConfig)}) }
-  function applyCustom(s,e)    { setDateRange({preset:'custom',startDate:s,endDate:e}) }
+  function applyPreset(preset) {
+    const r = getELTPresetRange(preset, orgConfig)
+    setDateRange({ preset, ...r })
+    appApplyPreset(preset)   // keep AppContext in sync so BriefingPage matches
+  }
+  function applyCustom(s, e) {
+    setDateRange({ preset:'custom', startDate:s, endDate:e })
+    applyCustomRange(s, e)   // keep AppContext in sync
+  }
 
   function handleUpdateSummary(month, key, value) {
     setSummaries(prev => ({ ...prev, [month]: { ...prev[month], [key]: value } }))
