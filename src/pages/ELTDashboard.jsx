@@ -4548,16 +4548,23 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
           { label:`Variance · ${rangeLabel}`, value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
             sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
             positive: totalVariance <= 0 },
-          { label:'Teams Over Budget', value: String(overBudget),
-            sub: `${teams.length - overBudget} of ${teams.length} within budget`,
+          { label:'Teams Over Budget', value: `${overBudget} of ${teams.length}`,
+            sub: overBudget === 0 ? 'All teams within budget ✓' : `${overBudget} team${overBudget!==1?'s':''} over budget`,
             positive: overBudget === 0 },
         ].map((card,i) => (
           <div key={i} className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
             <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
-            <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>
-              {card.value}
-            </div>
-            {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+            {i === 3 ? (
+              <>
+                <div className={`text-sm font-bold tabular-nums mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-[10px] font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>{card.sub}</div>}
+              </>
+            ) : (
+              <>
+                <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>{card.value}</div>
+                {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
+              </>
+            )}
           </div>
         ))}
       </div>
