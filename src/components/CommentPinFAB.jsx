@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { MessageSquare, Ban, X, ChevronRight, Check, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 const PIN_TYPES = [
   { type: 'question',             label: 'Question',             color: '#0EA5A0', placeholder: 'What are you wondering about?' },
@@ -24,8 +24,10 @@ function fmtDate(ts) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function getStatus(c) { return c.status || (c.resolved ? 'resolved' : 'open') }
+
 // ─── Pin hover card ───────────────────────────────────────────────────────────
-function PinHoverCard({ pin, onResolve, onDelete, onOpenComments, style }) {
+function PinHoverCard({ pin, onResolve, onDelete, onOpenComments, style, replies }) {
   const cfg = PIN_TYPES.find(t => t.type === pin.type) || PIN_TYPES[0]
   const status = pin.status || (pin.resolved ? 'resolved' : 'open')
   return (
@@ -71,6 +73,13 @@ function PinHoverCard({ pin, onResolve, onDelete, onOpenComments, style }) {
         <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{pin.text}</p>
       </div>
 
+      {/* Reply count */}
+      {replies && replies.length > 0 && (
+        <div className="px-4 pb-2 text-[10px] text-gray-400">
+          {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-1 px-3 pb-3 border-t border-gray-50 pt-2">
         <button
@@ -98,12 +107,13 @@ function PinHoverCard({ pin, onResolve, onDelete, onOpenComments, style }) {
 }
 
 // ─── Single positioned pin circle ────────────────────────────────────────────
-function PinCircle({ pin }) {
+function PinCircle({ pin, highlight }) {
   const [hovering, setHovering] = useState(false)
-  const { updateCommentStatus, deleteComment } = useApp()
+  const { updateCommentStatus, deleteComment, comments } = useApp()
   const navigate = useNavigate()
   const cfg = PIN_TYPES.find(t => t.type === pin.type) || PIN_TYPES[0]
   const initials = (pin.author || 'A')[0].toUpperCase()
+  const replies = comments.filter(r => r.parentId === pin.id)
 
   // Determine card position: if pin is in right half, show card to the left; else right
   const xPct = pin.pinPosition?.xPct ?? 50
@@ -115,7 +125,7 @@ function PinCircle({ pin }) {
 
   return (
     <div
-      className="fixed z-30 pointer-events-auto"
+      className="absolute pointer-events-auto"
       style={{
         left:      `${xPct}%`,
         top:       `${yPct}%`,
@@ -126,7 +136,7 @@ function PinCircle({ pin }) {
     >
       {/* Circle */}
       <div
-        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg cursor-pointer border-2 border-white select-none"
+        className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg cursor-pointer border-2 border-white select-none transition-transform ${highlight ? 'ring-4 ring-offset-1 animate-pulse scale-125' : ''}`}
         style={{ backgroundColor: cfg.color }}
         title={pin.author}
       >
@@ -137,6 +147,7 @@ function PinCircle({ pin }) {
       {hovering && (
         <PinHoverCard
           pin={pin}
+          replies={replies}
           style={{ left: cardLeft, right: cardRight, top: cardTop, bottom: cardBottom }}
           onResolve={() => updateCommentStatus(pin.id, 'resolved')}
           onDelete={() => deleteComment(pin.id)}
