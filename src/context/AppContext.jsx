@@ -576,26 +576,110 @@ export function AppProvider({ children }) {
     setPreviousBudget(null)
   }
 
-  // ── Comments ──────────────────────────────────────────────────────────────
-  function addComment(comment) {
-    setComments(prev => [...prev, {
-      status: 'open',
-      anchor: null,
-      teamId: 1,
-      ...comment,
-      id: 'c' + Date.now(),
-      timestamp: new Date().toISOString(),
-    }])
+  // ── Comments — Supabase-backed with realtime ──────────────────────────────
+  function dbRowToComment(row) {
+    return {
+      id:        row.id,
+      status:    row.status,
+      type:      row.type,
+      text:      row.text,
+      author:    row.author,
+      avatar:    row.avatar,
+      page:      row.page,
+      category:  row.category,
+      anchor:    row.anchor,
+      teamId:    row.team_id,
+      resolved:  row.resolved,
+      timestamp: row.created_at,
+    }
   }
-  function updateCommentStatus(id, status) {
+
+  async function fetchComments(currentOrgId) {
+    const id = currentOrgId || orgId
+    if (!id) return
+    const { data, error } = await supabase
+      .from('comments_requests')
+      .select('*')
+      .eq('org_id', id)
+      .eq('deleted', false)
+      .order('created_at', { ascending: true })
+    if (!error && data) setComments(data.map(dbRowToComment))
+  }
+
+  async function addComment(comment) {
+    if (!orgId) return
+    const row = {
+      org_id:   orgId,
+      status:   'open',
+      anchor:   null,
+      team_id:  1,
+      ...comment,
+      // map camelCase fields to snake_case columns
+      team_id:  comment.teamId ?? 1,
+      type:     comment.type    || 'comment',
+      text:     comment.text    || '',
+      author:   comment.author  || '',
+      avatar:   comment.avatar  || null,
+      page:     comment.page    || null,
+      category: comment.category || null,
+      anchor:   comment.anchor  || null,
+    }
+    // Remove camelCase keys before inserting
+    delete row.teamId
+    delete row.timestamp
+    delete row.id
+    const { error } = await supabase.from('comments_requests').insert([row])
+    if (error) console.error('addComment error', error)
+    // Realtime subscription will call fetchComments and update state
+  }
+
+  async function updateCommentStatus(id, status) {
+    if (!orgId) return
+    await supabase
+      .from('comments_requests')
+      .update({ status, resolved: status === 'resolved', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('org_id', orgId)
+    // Optimistic update so UI feels instant
     setComments(prev => prev.map(c => c.id === id ? { ...c, status, resolved: status === 'resolved' } : c))
   }
-  function updateComment(id, changes) {
+
+  async function updateComment(id, changes) {
+    if (!orgId) return
+    const dbChanges = { ...changes, updated_at: new Date().toISOString() }
+    if ('teamId' in dbChanges) { dbChanges.team_id = dbChanges.teamId; delete dbChanges.teamId }
+    await supabase
+      .from('comments_requests')
+      .update(dbChanges)
+      .eq('id', id)
+      .eq('org_id', orgId)
     setComments(prev => prev.map(c => c.id === id ? { ...c, ...changes } : c))
   }
-  function deleteComment(id) {
+
+  async function deleteComment(id) {
+    if (!orgId) return
+    await supabase
+      .from('comments_requests')
+      .update({ deleted: true, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('org_id', orgId)
     setComments(prev => prev.filter(c => c.id !== id))
   }
+
+  // Realtime subscription — set up once per org_id
+  useEffect(() => {
+    if (!orgId) return
+    fetchComments(orgId)
+    const channel = supabase
+      .channel('comments_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'comments_requests', filter: `org_id=eq.${orgId}` },
+        () => { fetchComments(orgId) }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [orgId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const value = {
     orgConfig, setOrgConfig,
