@@ -64,7 +64,6 @@ export function calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, d
   const result = {}
   for (const entry of budgetFlat) {
     if (entry.scenario !== scenario) continue
-    if (entry.record_type === 'income') continue   // expense-only to match ELT Teams
     if (depts && depts.length > 0 && !depts.includes(entry.department)) continue
     const key = entry.category
     if (!key) continue
@@ -155,9 +154,10 @@ export function buildChartSeries(
     cur.setMonth(cur.getMonth() + 1)
   }
 
-  // Monthly budget total (for the given category filter and depts)
+  // Monthly budget total (expense rows only — income budget would distort the spend chart)
   const relevantBudget = budgetFlat.filter(b => {
     if (b.scenario !== scenario) return false
+    if (b.record_type === 'income') return false
     if (categoryFilter && b.category !== categoryFilter) return false
     if (depts && depts.length > 0 && !depts.includes(b.department)) return false
     return true
@@ -280,10 +280,12 @@ export function getTopVendors(actuals, categoryFilter, excluded = [], n = 3) {
 export function calcBriefingSummary(actuals, budgetFlat, scenario, startDate, endDate, excluded, depts = null) {
   const filtered = filterActualsByRange(actuals, startDate, endDate, depts)
     .filter(t => !excluded.includes(t.category))
-    .filter(t => t.record_type !== 'income')   // expense-only to match ELT Teams
+    .filter(t => t.record_type !== 'income')   // expense-only — income is not a team spend
 
   const totalActual = filtered.reduce((s, t) => s + Math.abs(t.amount || 0), 0)
-  const budgetByCat = calcBudgetByCategory(budgetFlat, scenario, startDate, endDate, depts)
+  // Pre-filter to expense budget only so income budget lines don't distort the total
+  const expenseBudget = budgetFlat.filter(b => b.record_type !== 'income')
+  const budgetByCat = calcBudgetByCategory(expenseBudget, scenario, startDate, endDate, depts)
   const totalBudget = Object.entries(budgetByCat)
     .filter(([cat]) => !excluded.includes(cat))
     .reduce((s, [, v]) => s + v, 0)
