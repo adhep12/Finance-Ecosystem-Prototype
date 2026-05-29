@@ -6,7 +6,7 @@
  * to localStorage key `elt_chart_prefs`.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Settings, X, Check, AlertCircle, BarChart2, TrendingUp } from 'lucide-react'
 import {
@@ -20,10 +20,33 @@ import {
 import { formatCurrency } from '../utils/formatters'
 import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
 import { STATUS_COLORS, getTeamColor } from '../constants/colors'
+import { supabase, ORG_ID } from '../lib/supabase'
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const LS_KEY = 'elt_chart_prefs'
+const LS_KEY = 'elt_chart_prefs'  // local fallback while Supabase loads
+
+// Read/write chart slot prefs via org_chart_preferences (key = "elt_slot:<slotId>")
+async function loadSlotPrefsFromDB() {
+  if (!ORG_ID) return {}
+  const { data } = await supabase
+    .from('org_chart_preferences')
+    .select('chart_key, chart_type')
+    .eq('org_id', ORG_ID)
+    .like('chart_key', 'elt_slot:%')
+  if (!data?.length) return {}
+  const map = {}
+  data.forEach(r => { map[r.chart_key.replace('elt_slot:', '')] = r.chart_type })
+  return map
+}
+
+async function saveSlotPrefToDB(slotId, chartId) {
+  if (!ORG_ID) return
+  supabase.from('org_chart_preferences').upsert(
+    { org_id: ORG_ID, chart_key: `elt_slot:${slotId}`, chart_type: chartId, updated_at: new Date().toISOString() },
+    { onConflict: 'org_id,chart_key' }
+  )
+}
 
 const DEFAULT_SLOT_CHARTS = {
   'new-patrons-yoy':           'total_patrons_yoy',
@@ -1007,6 +1030,7 @@ export function ChartSlot({
   onRemove,
 }) {
   const [chartId, setChartId] = useState(() => {
+    // Seed from localStorage immediately so the chart renders without waiting for DB
     try {
       const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
       return s[slotId] || DEFAULT_SLOT_CHARTS[slotId] || 'total_giving_yoy'
@@ -1014,16 +1038,33 @@ export function ChartSlot({
   })
   const [pickerOpen, setPickerOpen] = useState(false)
 
+  // Sync from DB on mount — overwrites the localStorage seed if DB has a newer value
+  useEffect(() => {
+    loadSlotPrefsFromDB().then(map => {
+      if (map[slotId]) {
+        setChartId(map[slotId])
+        // Keep localStorage in sync for instant next render
+        try {
+          const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
+          localStorage.setItem(LS_KEY, JSON.stringify({ ...s, ...map }))
+        } catch {}
+      }
+    })
+  }, [slotId])
+
   const def = CHART_CATALOG.find(d => d.id === chartId) || CHART_CATALOG[0]
   const ChartComponent = def.Component
   const dataProps = { patronData, actuals, budgetFlat, cashData, incomeMonths, dateRange, scenario }
 
   function selectChart(id) {
     setChartId(id)
+    // Update localStorage immediately for instant render on next visit
     try {
       const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}')
       localStorage.setItem(LS_KEY, JSON.stringify({ ...s, [slotId]: id }))
     } catch {}
+    // Persist to DB so it survives across browsers and devices
+    saveSlotPrefToDB(slotId, id)
   }
 
   return (

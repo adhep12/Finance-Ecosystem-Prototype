@@ -98,8 +98,8 @@ export function AppProvider({ children }) {
   // ── Core data state (populated from Supabase on mount) ───────────────────
   const [actuals,      setActuals]      = useState([])
   const [budgetFlat,   setBudgetFlat]   = useState([])
-  const [orgSummary,   setOrgSummary]   = useState([])   // v_org_summary: pre-aggregated actual+budget
-  const [teams,        setTeams]        = useState([])   // raw teams array for sidebar + import flows
+  const [orgSummary,   setOrgSummary]   = useState([])
+  const [teams,        setTeams]        = useState([])
   const [comments,     setComments]     = useState([])
   const [cashFlowData, setCashFlowData] = useState([])
   const [patronData,   setPatronData]   = useState([])
@@ -195,31 +195,31 @@ export function AppProvider({ children }) {
       // _warnings flags (unresolved accounts / depts / teams) on the first pass,
       // without a second render cycle.
       const PAGE_SIZE = 1000
+      const TX_BATCH  = 10
+      const BG_BATCH  = 10
 
       const [
         { data: deptLookup,  error: deptLookupErr  },
         { data: acctLookup,  error: acctLookupErr  },
         { data: teamLookup,  error: teamLookupErr  },
         { count: txCount },
+        { count: budgetCount },
       ] = await Promise.all([
-        // departments: no org_id filter — some rows may lack org_id (created
-        // via setup before org_id was enforced). TeamContext uses the same
-        // pattern successfully. Scoping by org is implicit via team_id.
-        // Include team_id so budget rows can be labelled with team_name.
         supabase.from('departments')
           .select('id, dept_code, dept_name, team_id'),
         supabase.from('chart_of_accounts')
           .select('id, record_type, category')
           .eq('org_id', resolvedOrgId)
           .eq('deleted', false),
-        // teams: needed to resolve team_name on budget rows
-        // (TeamsTab groups budgetFlat by b.team_name — must match actuals)
         supabase.from('teams')
           .select('id, team_name'),
-        // Transaction count — head-only query (no rows) for pagination math
         supabase.from('v_transactions_enriched')
           .select('id', { count: 'exact', head: true })
           .eq('org_id', resolvedOrgId),
+        supabase.from('budgets')
+          .select('id', { count: 'exact', head: true })
+          .eq('org_id', resolvedOrgId)
+          .eq('deleted', false),
       ])
 
       if (deptLookupErr) console.warn('[AppContext] departments lookup error:', deptLookupErr.message)
@@ -236,82 +236,63 @@ export function AppProvider({ children }) {
       // Expose raw teams array so components (Sidebar, import flows) don't re-fetch
       setTeams(teamLookup || [])
 
-      // Now paginate transactions — lookup maps already built, pass them to mapActuals
-      // so _warnings flags are set on the first render (no second pass needed).
-      const txTotalPages = Math.ceil((txCount || 0) / PAGE_SIZE)
-      const TX_BATCH = 10   // fire 10 requests at a time
+      // Paginate transactions and budgets in parallel — both counts are already known.
+      // Each loop fires up to 10 page requests at a time to avoid connection limits.
+      const [txRows, budgetRows] = await Promise.all([
+        (async () => {
+          const rows = []
+          const totalPages = Math.ceil((txCount || 0) / PAGE_SIZE)
+          for (let start = 0; start < totalPages; start += TX_BATCH) {
+            const batch = Array.from({ length: Math.min(TX_BATCH, totalPages - start) }, (_, i) => start + i)
+            const results = await Promise.all(batch.map(p =>
+              supabase.from('v_transactions_enriched')
+                .select('*')
+                .eq('org_id', resolvedOrgId)
+                .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+            ))
+            for (const { data, error } of results) {
+              if (error) console.warn('[AppContext] transaction page error:', error.message)
+              else rows.push(...(data || []))
+            }
+          }
+          return rows
+        })(),
+        (async () => {
+          const rows = []
+          const totalPages = Math.ceil((budgetCount || 0) / PAGE_SIZE)
+          for (let start = 0; start < totalPages; start += BG_BATCH) {
+            const batch = Array.from({ length: Math.min(BG_BATCH, totalPages - start) }, (_, i) => start + i)
+            const results = await Promise.all(batch.map(p =>
+              supabase.from('budgets')
+                .select('id, department_id, account_id, category, scenario, amount, period, period_type')
+                .eq('org_id', resolvedOrgId)
+                .eq('deleted', false)
+                .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+            ))
+            for (const { data, error } of results) {
+              if (error) console.warn('[AppContext] budget page error:', error.message)
+              else rows.push(...(data || []))
+            }
+          }
+          return rows
+        })(),
+      ])
 
-      let txRows = []
-      for (let start = 0; start < txTotalPages; start += TX_BATCH) {
-        const batchPages = Array.from(
-          { length: Math.min(TX_BATCH, txTotalPages - start) },
-          (_, i) => start + i
-        )
-        const results = await Promise.all(
-          batchPages.map(p =>
-            supabase.from('v_transactions_enriched')
-              .select('*')
-              .eq('org_id', resolvedOrgId)
-              .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
-          )
-        )
-        for (const { data: pData, error: pErr } of results) {
-          if (pErr) console.warn('[AppContext] transaction page error:', pErr.message)
-          else txRows = [...txRows, ...(pData || [])]
-        }
-      }
-
-      // Set actuals FIRST — dashboards can render even if budget queries are slow.
-      // Pass lookup maps so mapActuals can set _warnings on unresolved rows.
-      setActuals(mapActuals(txRows, deptMap, acctMap))
-
-      // ── Budget pagination — parallel fetch for speed ──────────────────────
-      // Sequential while-loop took ~11 s for 108 pages. Instead:
-      //   1. Count-only head query to know how many pages
-      //   2. Fire all page requests in parallel (batched to avoid throttling)
-      const { count: budgetCount } = await supabase
-        .from('budgets')
-        .select('id', { count: 'exact', head: true })
-        .eq('org_id', resolvedOrgId)
-        .eq('deleted', false)
-
-      const totalPages = Math.ceil((budgetCount || 0) / PAGE_SIZE)
-      const BATCH = 10   // fire 10 requests at a time
-
-      let budgetRows = []
-      for (let start = 0; start < totalPages; start += BATCH) {
-        const batchPages = Array.from(
-          { length: Math.min(BATCH, totalPages - start) },
-          (_, i) => start + i
-        )
-        const results = await Promise.all(
-          batchPages.map(p =>
-            supabase.from('budgets')
-              .select('id, department_id, account_id, category, scenario, amount, period, period_type')
-              .eq('org_id', resolvedOrgId)
-              .eq('deleted', false)
-              .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
-          )
-        )
-        for (const { data: bData, error: bErr } of results) {
-          if (bErr) console.warn('[AppContext] budget page error:', bErr.message)
-          else budgetRows = [...budgetRows, ...(bData || [])]
-        }
-      }
-
-      setBudgetFlat(mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap))
+      const mappedActuals = mapActuals(txRows, deptMap, acctMap)
+      const mappedBudget  = mapBudgetFlatDirect(budgetRows, deptMap, acctMap, teamMap)
+      setActuals(mappedActuals)
+      setBudgetFlat(mappedBudget)
 
       // ── Cash flow + patron data (small tables, fetch in parallel) ───────────
       const [cashRes, patronRes] = await Promise.all([
         supabase.from('cash_flow').select('*').eq('org_id', resolvedOrgId).eq('deleted', false).order('period'),
         supabase.from('patron_data').select('*').eq('org_id', resolvedOrgId).eq('deleted', false).order('period'),
       ])
-      if (!cashRes.error)   setCashFlowData(cashRes.data || [])
-      if (!patronRes.error) setPatronData(patronRes.data || [])
+      const cash   = cashRes.error   ? null : cashRes.data   || []
+      const patron = patronRes.error ? null : patronRes.data || []
+      if (cash   != null) setCashFlowData(cash)
+      if (patron != null) setPatronData(patron)
 
-      // v_org_summary was removed — the view times out (complex JOIN, no index)
-      // and no component reads orgSummary anyway.  All dashboard widgets derive
-      // their data directly from actuals + budgetFlat which are already loaded.
       setOrgSummary([])
 
     } catch (err) {
@@ -344,8 +325,16 @@ export function AppProvider({ children }) {
   }, [orgConfig.fiscalYearStartMonth, orgConfig.fiscalYearStartYear,
       orgConfig.operatingYearStartMonth, orgConfig.operatingYearStartYear])
 
-  // ── Field mapping — adds backward-compat aliases on each row ─────────────
-  //
+  // ── Field mapping helpers ─────────────────────────────────────────────────
+
+  function buildWarnings(row, deptMap, acctMap) {
+    const w = []
+    if (row.account_id && !acctMap[row.account_id]) w.push('no_account')
+    if (row.department_id && !deptMap[row.department_id]) w.push('no_dept')
+    else if (row.department_id && deptMap[row.department_id] && !deptMap[row.department_id].team_id) w.push('no_team')
+    return w
+  }
+
   // Utility functions (filterActualsByRange, groupByField, etc.) were written
   // before Supabase and use field names like `.department`, `.account`,
   // `.grant`.  The view returns `dept_code`, `account_name`, `grant_code`.
@@ -362,74 +351,34 @@ export function AppProvider({ children }) {
   // account_id and department_id as raw FK columns from the transactions table;
   // if they're absent the _warnings check safely skips (empty object lookup).
   function mapActuals(rows, deptMap = {}, acctMap = {}) {
-    return rows.map(row => {
-      const warnReasons = []
-      // account_id present but not found in CoA → no Chart of Accounts entry
-      if (row.account_id && !acctMap[row.account_id]) warnReasons.push('no_account')
-      // department_id present but not found in departments → not in registry
-      if (row.department_id && !deptMap[row.department_id]) {
-        warnReasons.push('no_dept')
-      } else if (row.department_id && deptMap[row.department_id] && !deptMap[row.department_id].team_id) {
-        // Dept found but has no team assigned → unassigned
-        warnReasons.push('no_team')
-      }
-      return {
-        ...row,
-        dept_code:  row.dept_code  != null ? String(row.dept_code)  : null,
-        department: row.dept_code  != null ? String(row.dept_code)  : null,
-        account:    row.account_name,  // groupByField
-        grant:      row.grant_code,    // groupByField
-        _warnings:  warnReasons,       // [] = clean, non-empty = actionable issue
-      }
-    })
-  }
-
-  // Map budgets table rows → budgetFlat, resolving dept_code / record_type
-  // from pre-fetched lookup maps (departments + chart_of_accounts).
-  // Replaces the slow mapBudgetFlat(view) path which timed out at ~5000/16000 rows.
-  function mapBudgetFlatDirect(rows, deptMap, acctMap, teamMap = {}) {
-    return rows.map(row => {
-      const dept       = deptMap[row.department_id] || {}
-      const acct       = acctMap[row.account_id]    || {}
-      const deptCode   = dept.dept_code != null ? String(dept.dept_code) : null
-      const teamName   = dept.team_id ? (teamMap[dept.team_id] || null) : null
-      const hasAccount = !!acctMap[row.account_id]   // false → orphaned account_id (not in chart_of_accounts)
-
-      // Build _warnings array — same three checks as mapActuals
-      const warnReasons = []
-      if (row.account_id && !acctMap[row.account_id]) warnReasons.push('no_account')
-      if (row.department_id && !deptMap[row.department_id]) {
-        warnReasons.push('no_dept')
-      } else if (row.department_id && deptMap[row.department_id] && !deptMap[row.department_id].team_id) {
-        warnReasons.push('no_team')
-      }
-
-      return {
-        ...row,
-        dept_code:    deptCode,
-        department:   deptCode,           // calcBudgetByCategory / filterELTByRange filter on 'department'
-        dept_name:    dept.dept_name || null,
-        team_id:      dept.team_id   || null,
-        team_name:    teamName,           // TeamsTab groups budgetFlat by b.team_name
-        record_type:  acct.record_type || 'expense',  // income budget rows link to income accounts
-        category:     row.category || acct.category || null,
-        // 'amount' is the correct column name in the budgets table (no rename needed)
-        period:       row.period ? String(row.period).substring(0, 7) : null,
-        _hasAccount:  hasAccount,         // used to exclude orphaned rows from team detail modal
-        _warnings:    warnReasons,        // actionable warning types for this row
-      }
-    })
-  }
-
-  // Map v_actuals_vs_budget rows — kept for reference, no longer called.
-  function mapBudgetFlat(rows) {
     return rows.map(row => ({
       ...row,
       dept_code:  row.dept_code != null ? String(row.dept_code) : null,
-      amount:     row.budget,
       department: row.dept_code != null ? String(row.dept_code) : null,
-      period:     row.period ? String(row.period).substring(0, 7) : null,
+      account:    row.account_name,
+      grant:      row.grant_code,
+      _warnings:  buildWarnings(row, deptMap, acctMap),
     }))
+  }
+
+  function mapBudgetFlatDirect(rows, deptMap, acctMap, teamMap = {}) {
+    return rows.map(row => {
+      const dept = deptMap[row.department_id] || {}
+      const acct = acctMap[row.account_id]    || {}
+      return {
+        ...row,
+        dept_code:   dept.dept_code != null ? String(dept.dept_code) : null,
+        department:  dept.dept_code != null ? String(dept.dept_code) : null,
+        dept_name:   dept.dept_name || null,
+        team_id:     dept.team_id   || null,
+        team_name:   dept.team_id ? (teamMap[dept.team_id] || null) : null,
+        record_type: acct.record_type || 'expense',
+        category:    row.category || acct.category || null,
+        period:      row.period ? String(row.period).substring(0, 7) : null,
+        _hasAccount: !!acctMap[row.account_id],
+        _warnings:   buildWarnings(row, deptMap, acctMap),
+      }
+    })
   }
 
   // Map v_org_summary rows to the shape expected by calcBudgetByCategory
