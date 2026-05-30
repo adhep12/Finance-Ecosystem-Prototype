@@ -4118,7 +4118,7 @@ function TeamDetailDrawer({ team, globalDateRange, onClose }) {
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-600 transition-colors">
                 <Calendar size={11} className="text-gray-400"/>
                 <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Period</span>
-                <span>{presetLabel(localDateRange.preset)}</span>
+                <span>{formatDateRangeLabel(localDateRange.startDate, localDateRange.endDate)}</span>
                 <ChevronDown size={11} className="text-gray-400"/>
               </button>
               {showLocalPicker && (
