@@ -3338,9 +3338,9 @@ const DEFAULT_PATRON_METRICS = ['total-patrons','new-patrons','avg-gift']
 // Chart catalog — full library: exec defaults + all admin charts
 const CHART_CATALOG = [
   // ── Exec defaults ──
-  { id:'new-patrons-yoy',        label:'New Supporters by Month',          description:'Year-over-year comparison of new supporters by month',          isDefault:true  },
-  { id:'patron-base',            label:'Monthly Supporter Base',           description:'Recurring patron count across the selected date range',          isDefault:true  },
-  { id:'giving-vs-budget',       label:'Monthly Giving vs Budget Scenario',description:'Monthly income actuals vs budget/scenario with cumulative toggle', isDefault:true },
+  { id:'new-patrons-yoy',        label:'Total Patrons — Year over Year',   description:'Active patron count year-over-year comparison by month',        isDefault:true  },
+  { id:'patron-base',            label:'Monthly Supporter Base',           description:'Recurring patron count across the selected date range',          isDefault:false },
+  { id:'giving-vs-budget',       label:'Total Giving — Year over Year',    description:'Monthly giving by year · last 4 years · Jan–Dec',               isDefault:true  },
   // ── From admin ──
   { id:'net-position-by-month',  label:'Net Position by Month',            description:'Monthly net position (income minus expenses) as a bar chart'               },
   { id:'cash-position',          label:'Cash Position',                    description:'Cash balance vs reserve floor over time'                                    },
@@ -3352,7 +3352,6 @@ const CHART_CATALOG = [
 
 const DEFAULT_TREND_CHARTS = [
   { id:'new-patrons-yoy'  },
-  { id:'patron-base'      },
   { id:'giving-vs-budget' },
 ]
 
