@@ -556,6 +556,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const {
     budgetFlat, deptNames: contextDeptNames,
     cashFlowData, patronData,
+    selectedScenario,
     addBudgetRow,  updateBudgetRow,  deleteBudgetRow,
     addPatronRow,  updatePatronRow,  deletePatronRow,
     addCashFlowRow, updateCashFlowRow, deleteCashFlowRow,
@@ -862,7 +863,10 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const budgetFilterState = { budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod }
 
   const filteredBudget = useMemo(() => {
-    let rows = applyBudgetFilters(budgetFlat || [], null, budgetFilterState)
+    const scenarioRows = selectedScenario
+      ? (budgetFlat || []).filter(b => b.scenario === selectedScenario)
+      : (budgetFlat || [])
+    let rows = applyBudgetFilters(scenarioRows, null, budgetFilterState)
     rows = [...rows].sort((a, b) => {
       let av, bv
       if (budgetSortCol === 'period')   { av = a.period||''; bv = b.period||''; return budgetSortDir==='asc'?av.localeCompare(bv):bv.localeCompare(av) }
@@ -875,7 +879,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       return 0
     })
     return rows
-  }, [budgetFlat, budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
+  }, [budgetFlat, selectedScenario, budgetSearch, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
 
   const filteredBudgetTotal = useMemo(() => filteredBudget.reduce((s, b) => s + (b.amount||0), 0), [filteredBudget])
 
@@ -1297,11 +1301,6 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           options={budgetAcctOptions}
           onToggle={v => { setBudgetAcctFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
           onClear={() => { setBudgetAcctFilter(new Set()); setBudgetPage(1) }}/>
-        {/* Scenario */}
-        <MultiCheckFilter label="Scenario" selected={budgetScenarioFilter}
-          options={budgetScenarioOptions}
-          onToggle={v => { setBudgetScenarioFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
-          onClear={() => { setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}/>
         {/* Amount range */}
         <AmountRangeFilter amtMin={budgetAmtMin} amtMax={budgetAmtMax}
           onMin={v => { setBudgetAmtMin(v); setBudgetPage(1) }}
@@ -1310,7 +1309,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
           baseAmounts={budgetBaseAmounts}/>
         {/* Filter badge + clear */}
         {(() => {
-          const count = budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size + budgetAcctFilter.size +
+          const count = budgetDeptFilter.size + budgetCatFilter.size + budgetAcctFilter.size +
             (budgetAmtMin !== '' ? 1 : 0) + (budgetAmtMax !== '' ? 1 : 0) + (budgetSearch ? 1 : 0)
           return count > 0 ? (
             <>
@@ -1319,7 +1318,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
               </span>
               <button onClick={() => {
                 setBudgetSearch(''); setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set())
-                setBudgetScenarioFilter(new Set()); setBudgetAcctFilter(new Set())
+                setBudgetAcctFilter(new Set())
                 setBudgetAmtMin(''); setBudgetAmtMax(''); setBudgetPage(1)
               }} className="text-xs text-red-600 hover:underline font-medium">
                 Clear all
