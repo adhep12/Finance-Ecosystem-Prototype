@@ -649,7 +649,7 @@ function ELTDateRangePicker({ dateRange, org, onApplyPreset, onApplyCustom, onCl
 
 const ELT_TABS = [
   {id:'dashboard',label:'Dashboard'},{id:'summary',label:'Summary'},
-  {id:'teams',label:'Teams'},{id:'documents',label:'Documents'},{id:'comments',label:'Comments & Requests'},
+  {id:'teams',label:'Teams'},{id:'p-l',label:'P&L'},{id:'documents',label:'Documents'},{id:'comments',label:'Comments & Requests'},
 ]
 
 function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, onApplyCustom, activeBudget, onSetBudget }) {
@@ -979,7 +979,7 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         {/* Header row */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>Net Position YTD</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>Overall Financial Position</div>
             <Info size={12} style={{color:'rgba(255,255,255,0.2)'}}/>
           </div>
           <span className="text-[11px] font-bold px-3 py-1 rounded-full"
@@ -989,7 +989,13 @@ function NetPositionCard({ value, cmp1Delta, cmp1Pct, cmp1Value, cmp2Delta, cmp2
         </div>
 
         {/* Big value */}
-        <div className="font-bold mb-5 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+        <div className="font-bold mb-2 leading-none" style={{color: accentColor, fontSize: '52px'}}>{formatCurrency(value)}</div>
+        {/* Plain language descriptor */}
+        <div className="text-xs mb-5" style={{color:'rgba(255,255,255,0.45)'}}>
+          {value >= 0
+            ? `Income exceeded spending by ${formatCurrency(Math.abs(value))} this period`
+            : `Spending exceeded income by ${formatCurrency(Math.abs(value))} this period`}
+        </div>
       </div>
 
       {/* Comparisons */}
@@ -2299,6 +2305,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
   }, [currentMonth]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [editMode, setEditMode] = useState(false)
+  const [expandedWatchAreas, setExpandedWatchAreas] = useState(new Set())
   const [showAddMonth, setShowAddMonth] = useState(false)
   const [showAddKPI, setShowAddKPI] = useState(false)
   const [manualCards, setManualCards] = useState({})
@@ -2502,6 +2509,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
     const fyYr  = orgConfig?.fiscalYearStartYear  || yr
     const fyStart = `${fyYr}-${String(fyM).padStart(2,'0')}`
 
+
     // Fiscal YTD actuals
     const ytdIncome   = (actuals||[]).filter(t => t.record_type === 'income'  && t.period >= fyStart && t.period <= period).reduce((s,t) => s + Math.abs(t.amount||0), 0)
     const ytdExpenses = (actuals||[]).filter(t => t.record_type === 'expense' && t.period >= fyStart && t.period <= period).reduce((s,t) => s + Math.abs(t.amount||0), 0)
@@ -2523,15 +2531,25 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
     }
   }, [currentMonth, actuals, budgetFlat, activeBudget, orgConfig])
 
+  const ytdLabel = useMemo(() => {
+    const period = monthLabelToPeriod(currentMonth)
+    if (!period) return 'Fiscal YTD'
+    const [yr, mo] = period.split('-').map(Number)
+    const fyM = orgConfig?.fiscalYearStartMonth || 10
+    const startDate = `${orgConfig?.fiscalYearStartYear || yr}-${String(fyM).padStart(2,'0')}-01`
+    const endDate   = `${yr}-${String(mo).padStart(2,'0')}-01`
+    return formatDateRangeLabel(startDate.slice(0,10), endDate.slice(0,10))
+  }, [currentMonth, orgConfig])
+
   function renderMonthlyKPICard(cardId) {
     const remove = () => update('kpiCards', (summary.kpiCards||[]).filter(c=>c!==cardId))
     if (cardId === 'monthly-giving') {
-      return <MonthlyKPICard key={cardId} title="Total Giving — Fiscal YTD"
+      return <MonthlyKPICard key={cardId} title={`Total Giving — ${ytdLabel}`}
         actual={ytdKPI.giving.actual} budget={ytdKPI.giving.budget} priorYear={ytdKPI.giving.priorYear}
         editMode={false} onRemove={remove}/>
     }
     if (cardId === 'monthly-expenses') {
-      return <MonthlyKPICard key={cardId} title="Expenses — Fiscal YTD" inverse
+      return <MonthlyKPICard key={cardId} title={`Expenses — ${ytdLabel}`} inverse
         actual={ytdKPI.expenses.actual} budget={ytdKPI.expenses.budget} priorYear={ytdKPI.expenses.priorYear}
         editMode={false} onRemove={remove}/>
     }
@@ -2539,7 +2557,7 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
       const netA = ytdKPI.giving.actual   - ytdKPI.expenses.actual
       const netB = ytdKPI.giving.budget   - ytdKPI.expenses.budget
       const netP = ytdKPI.giving.priorYear - ytdKPI.expenses.priorYear
-      return <MonthlyKPICard key={cardId} title="Net Position — Fiscal YTD"
+      return <MonthlyKPICard key={cardId} title={`Net Position — ${ytdLabel}`}
         actual={netA} budget={netB} priorYear={netP}
         editMode={false} onRemove={remove}/>
     }
@@ -2882,7 +2900,20 @@ function MonthlySummaryTab({ summaries, onUpdateSummary, onAddSummary, orgConfig
                       <>
                         <span className={`inline-block text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded mb-3 ${s.pill}`}>{s.label}</span>
                         <p className="font-semibold text-gray-900 mb-1.5">{wa.title}</p>
-                        <p className="text-sm text-gray-600 leading-relaxed">{wa.body}</p>
+                        {expandedWatchAreas.has(wa.id) && wa.body && (
+                          <p className="text-sm text-gray-600 leading-relaxed mb-2">{wa.body}</p>
+                        )}
+                        {wa.body && (
+                          <button
+                            onClick={() => setExpandedWatchAreas(prev => {
+                              const next = new Set(prev)
+                              next.has(wa.id) ? next.delete(wa.id) : next.add(wa.id)
+                              return next
+                            })}
+                            className="text-xs font-medium text-teal-600 hover:underline">
+                            {expandedWatchAreas.has(wa.id) ? 'Show less' : 'Read more'}
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -3715,11 +3746,6 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
         )}
       </section>
 
-      {/* P&L */}
-      <section>
-        <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
-        <ContextNote noteId="exec-pl-section" editMode={editCharts}/>
-      </section>
 
       {showAddKPI&&<AddCardPanel title="Add KPI Card" catalog={KPI_CATALOG} existingIds={kpiCards}
         onAdd={card=>{if(card.manual)setManualCards(p=>({...p,[card.id]:card}));setKpiCards(p=>[...p,card.id])}}
@@ -3793,6 +3819,70 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
 
       {/* Comment pin FAB */}
       <CommentPinFAB page="elt-dashboard" sourceDashboard="Executive" sourcePage="Dashboard" />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P&L Tab — standalone P&L page (CFO/Finance Director territory)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PLTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
+  const { budgetFlat, availableScenarios } = useApp()
+  const scenario = activeBudget || availableScenarios[0] || ''
+  const d = useMemo(
+    () => filterELTByRange(dateRange, incomeMonths, actuals, budgetFlat, scenario, [], []) || EMPTY_ELT,
+    [dateRange, incomeMonths, actuals, budgetFlat, scenario]
+  )
+  const rangeLabel = d.rangeLabel || presetLabel(dateRange?.preset)
+  const totalGiving   = d.giving.contributions + d.giving.merchandiseRevenue + d.giving.otherIncome
+  const totalForecast = d.forecast.contributions + d.forecast.merchandiseRevenue + d.forecast.otherIncome
+  const totalExpenses = Object.values(d.expenseLines).reduce((s,v)=>s+v,0)
+  const totalBudgetExp = d.budget.staff+d.budget.contract+d.budget.technology+d.budget.travel+d.budget.otherGenAdmin
+  const netPosition   = totalGiving - totalExpenses
+  const netForecast   = totalForecast - totalBudgetExp
+  const plData = [
+    {id:'income-section',type:'section',label:'INCOME',group:'income'},
+    {id:'contributions',type:'line',label:'Contributions',actual:d.giving.contributions,budget:d.budget.contributions,group:'income'},
+    {id:'merch',type:'line',label:'Merchandise Revenue',actual:d.giving.merchandiseRevenue,budget:d.budget.merchandiseRevenue,group:'income'},
+    {id:'other-inc',type:'line',label:'Other Income',actual:d.giving.otherIncome,budget:d.budget.otherIncome,group:'income'},
+    {id:'total-income',type:'subtotal',label:'Total Income',actual:totalGiving,budget:totalForecast,group:'income'},
+    {id:'sp1',type:'spacer'},
+    {id:'expense-section',type:'section',label:'EXPENSES',group:'expense'},
+    {id:'staff',type:'line',label:'Staff',actual:d.expenseLines.staff,budget:d.budget.staff,group:'expense'},
+    {id:'contract',type:'line',label:'Contract Services',actual:d.expenseLines.contract,budget:d.budget.contract,group:'expense'},
+    {id:'technology',type:'line',label:'Technology',actual:d.expenseLines.technology,budget:d.budget.technology,group:'expense'},
+    {id:'travel',type:'line',label:'Travel',actual:d.expenseLines.travel,budget:d.budget.travel,group:'expense'},
+    {id:'other-exp',type:'line',label:'Other Gen & Admin',actual:d.expenseLines.otherGenAdmin,budget:d.budget.otherGenAdmin,group:'expense'},
+    {id:'total-expenses',type:'subtotal',label:'Total Expenses',actual:totalExpenses,budget:totalBudgetExp,group:'expense'},
+    {id:'sp2',type:'spacer'},
+    {id:'net-operating',type:'total',label:'Net Operating Income',actual:netPosition,budget:netForecast,group:'net'},
+  ]
+  const plAccounts = useMemo(() => computePLAccounts(actuals, budgetFlat, dateRange), [actuals, budgetFlat, dateRange])
+  const plWarnItems = useMemo(() => {
+    const startP = (dateRange.startDate || '').substring(0, 7)
+    const endP   = (dateRange.endDate   || '').substring(0, 7)
+    const map = {}
+    for (const t of actuals) {
+      const p = t.period || (t.date ? t.date.substring(0, 7) : null)
+      if (!p || p < startP || p > endP) continue
+      for (const w of (t._warnings || [])) {
+        if (!map[w]) map[w] = { actual: 0, count: 0 }
+        map[w].actual += Math.abs(t.amount || 0)
+        map[w].count++
+      }
+    }
+    return map
+  }, [actuals, dateRange])
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">P&L Statement</h1>
+        <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
+      </div>
+      <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
+      <ContextNote noteId="exec-pl-section" editMode={false}/>
     </div>
   )
 }
@@ -4325,7 +4415,7 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
   const { startDate, endDate } = dateRange
   const startM = (startDate || '2025-10-01').slice(0,7)
   const endM   = (endDate   || '2026-09-30').slice(0,7)
-  const rangeLabel = presetLabel(dateRange?.preset)
+  const rangeLabel = formatDateRangeLabel(dateRange?.startDate, dateRange?.endDate)
 
   // Fetch team manager names + codes once
   const [teamManagers, setTeamManagers] = useState({})
@@ -4571,33 +4661,37 @@ function TeamsTab({ dateRange, activeBudget, orgConfig }) {
         </div>
       </div>
 
-      {/* 4 KPI summary cards */}
-      <div className="grid grid-cols-1 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-4 gap-4">
-        {[
-          { label:`Total Actuals · ${rangeLabel}`, value: formatCurrency(totalActual), sub: null, positive: true },
-          { label:`Total Budget · ${rangeLabel}`,  value: formatCurrency(totalBudget), sub: null, positive: true },
-          { label:`Variance · ${rangeLabel}`, value: (totalVariance>0?'+':'')+formatCurrency(totalVariance),
-            sub: (totalVariance>0?'+':'')+((totalVariance/totalBudget)*100).toFixed(1)+'% of budget',
-            positive: totalVariance <= 0 },
-          { label:'Teams Over Budget', value: `${overBudget} of ${teams.length}`,
-            sub: overBudget === 0 ? 'All teams within budget ✓' : `${overBudget} team${overBudget!==1?'s':''} over budget`,
-            positive: overBudget === 0 },
-        ].map((card,i) => (
-          <div key={i} className="bg-white rounded-xl p-5" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
-            <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>{card.label}</div>
-            {i === 3 ? (
-              <>
-                <div className={`text-3xl font-bold tabular-nums mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>{card.value}</div>
-                {card.sub && <div className={`text-xs font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>{card.sub}</div>}
-              </>
-            ) : (
-              <>
-                <div className={`text-3xl font-bold mb-1 ${i>=2 ? (card.positive?'text-emerald-600':'text-red-600') : 'text-gray-900'}`}>{card.value}</div>
-                {card.sub && <div className={`text-xs font-medium ${card.positive?'text-emerald-500':'text-red-500'}`}>{card.sub}</div>}
-              </>
-            )}
+      {/* Hero cards: Variance + Teams Over Budget */}
+      <div className="grid grid-cols-1 min-[768px]:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl p-6" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
+          <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Variance · {rangeLabel}</div>
+          <div className={`text-4xl font-bold mb-1 ${totalVariance <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {(totalVariance>0?'+':'')+formatCurrency(totalVariance)}
           </div>
-        ))}
+          <div className={`text-xs font-medium ${totalVariance <= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+            {(totalVariance>0?'+':'')+((totalBudget > 0 ? totalVariance/totalBudget*100 : 0).toFixed(1))}% of budget
+          </div>
+          {/* Supporting numbers */}
+          <div className="flex gap-6 mt-4 pt-4 border-t border-gray-100">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-0.5">Total Actuals</div>
+              <div className="text-sm font-bold text-gray-800">{formatCurrency(totalActual)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-0.5">Total Budget</div>
+              <div className="text-sm font-bold text-gray-800">{formatCurrency(totalBudget)}</div>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-6" style={{border:'1px solid rgba(0,0,0,0.06)',boxShadow:'0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04)'}}>
+          <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{color:'var(--neutral-60)'}}>Teams Over Budget</div>
+          <div className={`text-4xl font-bold mb-1 ${overBudget > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+            {overBudget} <span className="text-2xl font-normal text-gray-400">of {teams.length}</span>
+          </div>
+          <div className={`text-xs font-medium ${overBudget === 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+            {overBudget === 0 ? 'All teams within budget ✓' : `${overBudget} team${overBudget!==1?'s':''} over budget`}
+          </div>
+        </div>
       </div>
 
       {/* Teams table */}
@@ -6034,6 +6128,7 @@ export default function ELTDashboard() {
         {activeTab==='dashboard' && <DashboardTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
         {activeTab==='summary'   && <MonthlySummaryTab summaries={summaries} onUpdateSummary={handleUpdateSummary} onAddSummary={handleAddSummary} orgConfig={orgConfig} actuals={actuals} budgetFlat={budgetFlat} activeBudget={activeBudget} savedPeriods={savedPeriods} onSave={handleSaveSummary}/>}
         {activeTab==='teams'     && <TeamsTab dateRange={dateRange} activeBudget={activeBudget} orgConfig={orgConfig}/>}
+        {activeTab==='p-l'       && <PLTab dateRange={dateRange} orgConfig={orgConfig} activeBudget={activeBudget} incomeMonths={incomeMonths} actuals={actuals}/>}
         {activeTab==='documents' && <DocumentsTab orgConfig={orgConfig}/>}
         {activeTab==='comments'  && <CommentsPage context="executive" />}
       </main>
