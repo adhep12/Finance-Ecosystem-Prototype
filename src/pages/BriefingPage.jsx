@@ -316,7 +316,7 @@ function ChartTooltip({ active, payload, label, cumulative }) {
       {budget && (
         <div className="flex items-center gap-2 mt-1">
           <div className="w-3 h-0.5 border-t-2 border-dashed border-teal-500" />
-          <span className="text-gray-600">{cumulative ? 'Planned (cumulative)' : 'Planned'}</span>
+          <span className="text-gray-600">Budget to date</span>
           <span className="font-bold ml-auto">{formatCurrency(budget.value)}</span>
         </div>
       )}

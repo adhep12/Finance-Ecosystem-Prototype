@@ -274,8 +274,8 @@ function TeamMultiSelect({ activeDepts, onToggle, onSelectAll, onClose }){
 const TABS = [
   { id:'overview',      label:'Overview' },
   { id:'breakdown',     label:'P&L Breakdown' },
-  { id:'transactions',  label:'Transactions' },
   { id:'teams',         label:'Teams' },
+  { id:'transactions',  label:'Transactions' },
   { id:'comments',      label:'Comments & Requests' },
   { id:'import',        label:'Import' },
 ]

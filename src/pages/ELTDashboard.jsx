@@ -648,7 +648,7 @@ function ELTDateRangePicker({ dateRange, org, onApplyPreset, onApplyCustom, onCl
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ELT_TABS = [
-  {id:'dashboard',label:'Dashboard'},{id:'summary',label:'Summary'},
+  {id:'summary',label:'Summary'},{id:'dashboard',label:'Dashboard'},
   {id:'teams',label:'Teams'},{id:'p-l',label:'P&L'},{id:'documents',label:'Documents'},{id:'comments',label:'Comments & Requests'},
 ]
 
