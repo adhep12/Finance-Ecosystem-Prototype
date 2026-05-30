@@ -99,7 +99,7 @@ function ExcludeModal({ allCategories, excluded, onChange, onClose }) {
 // Briefing Hero Card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
+function BriefingHero({ summary, fullYearBudget, excluded, allCategories, onExcludeChange }) {
   const { orgConfig, selectedScenario, dateRange } = useApp()
   const { team } = useTeam()
   const displayName = team?.team_name || orgConfig.teamName
@@ -109,19 +109,22 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
     ? daysBetween(dateRange.startDate, dateRange.endDate)
     : 0
 
-  const budgetRemaining = summary.totalBudget - summary.totalActual
+  const isYearPreset = ['full-fiscal','fiscal-ytd','full-operating','operating-ytd'].includes(dateRange.preset)
+  const heroBase = fullYearBudget  // full year budget for year presets, period budget for custom
+
+  const budgetRemaining = heroBase - summary.totalActual
   const isOver = summary.overUnder >= 0
   const pct    = summary.overUnderPct
 
-  // Plain English spending state
-  const PACE_THRESHOLD = 0.02 // 2% tolerance for "on track"
+  // Plain English spending state (compares to period budget — tracks in-period over/under)
+  const PACE_THRESHOLD = 0.02
   const spendingState = isOver
     ? { label: 'Spending is ahead of budget', color: 'var(--color-over)' }
     : (Math.abs(pct || 0) / 100 < PACE_THRESHOLD
         ? { label: 'Spending is on track', color: 'var(--color-under)' }
         : { label: 'Budget has room to spare', color: 'var(--color-under)' })
 
-  // Pacing: % of fiscal year elapsed vs % of budget used
+  // Pacing: % of fiscal year elapsed vs % of full-year budget used
   const fyStart = orgConfig.fiscalYearStartMonth && orgConfig.fiscalYearStartYear
     ? new Date(`${orgConfig.fiscalYearStartYear}-${String(orgConfig.fiscalYearStartMonth).padStart(2,'0')}-01`)
     : null
@@ -135,7 +138,8 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
     const elapsed = Math.min(Math.max((today - fyStart) / 86400000, 0), totalDays)
     yearElapsedPct = (elapsed / totalDays) * 100
   }
-  const budgetUsedPct = summary.totalBudget > 0 ? (summary.totalActual / summary.totalBudget) * 100 : null
+  // budgetUsedPct uses fullYearBudget so pacing reflects annual context
+  const budgetUsedPct = heroBase > 0 ? (summary.totalActual / heroBase) * 100 : null
   let pacingStatus = null
   if (yearElapsedPct !== null && budgetUsedPct !== null) {
     const diff = budgetUsedPct - yearElapsedPct
@@ -145,6 +149,7 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
   }
 
   const dateRangeLabel = formatDateRangeLabel(dateRange.startDate, dateRange.endDate)
+  const budgetLabel = isYearPreset ? 'full year budget' : selectedScenario
 
   return (
     <>
@@ -154,7 +159,7 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
       >
         {/* Top label */}
         <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 mb-3">
-          Budget Briefing · {dateRangeLabel} · vs {selectedScenario}
+          Budget Briefing · {dateRangeLabel}
         </div>
 
         <div className="flex items-start justify-between">
@@ -194,8 +199,8 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
             </div>
             <div className="text-xs text-gray-500 mt-1">
               {formatCurrency(summary.totalActual)} spent ·{' '}
-              {formatCurrency(summary.totalBudget)} {selectedScenario} ·{' '}
-              {formatBudgetUsed(summary.totalActual, summary.totalBudget)}
+              {formatCurrency(heroBase)} {budgetLabel} ·{' '}
+              {formatBudgetUsed(summary.totalActual, heroBase)}
             </div>
             {/* Pacing indicator */}
             {pacingStatus && yearElapsedPct !== null && budgetUsedPct !== null && (
@@ -494,28 +499,6 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
     cumulative,
   ), [filteredActuals, budgetFlat, scenario, dateRange, displayCategory, cumulative, excluded])
 
-  const periodSpend   = filteredActuals.reduce((s, t) => s + Math.abs(t.amount || 0), 0)
-  const budgetByCat   = calcBudgetByCategory(
-    budgetFlat.filter(b => !excluded.includes(b.category) && b.record_type !== 'income'),
-    scenario,
-    dateRange.startDate,
-    dateRange.endDate,
-  )
-  const periodBudget  = Object.values(budgetByCat).reduce((s, v) => s + v, 0)
-  const overUnder     = periodSpend - periodBudget
-
-  // Monthly avg and peak
-  const monthlyActuals = useMemo(() => {
-    const byMonth = {}
-    filteredActuals.forEach(t => {
-      const m = (t.period || t.date || '').substring(0, 7)
-      byMonth[m] = (byMonth[m] || 0) + Math.abs(t.amount || 0)
-    })
-    return Object.values(byMonth)
-  }, [filteredActuals])
-  const monthlyAvg    = monthlyActuals.length > 0 ? monthlyActuals.reduce((a,b) => a+b, 0) / monthlyActuals.length : 0
-  const peakMonth     = monthlyActuals.length > 0 ? Math.max(...monthlyActuals) : 0
-
   const yMax = series.length > 0
     ? Math.ceil(Math.max(...series.map(d => Math.max(d.actual, d.budget))) * 1.1 / 50000) * 50000
     : 100000
@@ -580,16 +563,6 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
         </div>
       </div>
 
-      {/* Over/Under summary row */}
-      <div className="flex items-center gap-4 mb-6 py-3 border-y border-gray-100">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Over/(Under)</div>
-          <div className="text-lg font-bold mt-0.5" style={{ color: overUnder >= 0 ? 'var(--color-over)' : 'var(--color-under)' }}>
-            {formatOverUnder(overUnder)}
-          </div>
-        </div>
-      </div>
-
       {/* Chart */}
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={series} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
@@ -650,8 +623,20 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
 // Main Briefing Page
 // ─────────────────────────────────────────────────────────────────────────────
 
+function getFullYearDates(startMonth, startYear) {
+  if (!startMonth || !startYear) return null
+  const pad = n => String(n).padStart(2, '0')
+  const start = `${startYear}-${pad(startMonth)}-01`
+  const endMonth = startMonth === 1 ? 12 : startMonth - 1
+  const endYear  = startMonth === 1 ? startYear : startYear + 1
+  const lastDay  = new Date(endYear, endMonth, 0).getDate()
+  const end = `${endYear}-${pad(endMonth)}-${pad(lastDay)}`
+  return { start, end }
+}
+
 export default function BriefingPage() {
   const {
+    orgConfig,
     selectedScenario,
     dateRange,
     briefingExclusions,
@@ -697,6 +682,21 @@ export default function BriefingPage() {
     [actuals, budgetFlat, selectedScenario, dateRange, briefingExclusions]
   )
 
+  // Full-year budget: for fiscal/operating year presets use the complete year's budget;
+  // for custom/rolling presets fall back to the selected period budget.
+  const fullYearBudget = useMemo(() => {
+    const preset = dateRange.preset
+    let yearDates = null
+    if (['full-fiscal', 'fiscal-ytd'].includes(preset)) {
+      yearDates = getFullYearDates(orgConfig.fiscalYearStartMonth, orgConfig.fiscalYearStartYear)
+    } else if (['full-operating', 'operating-ytd'].includes(preset)) {
+      yearDates = getFullYearDates(orgConfig.operatingYearStartMonth, orgConfig.operatingYearStartYear)
+    }
+    if (!yearDates) return summary.totalBudget
+    const byCat = calcBudgetByCategory(expenseBudgetFlat, selectedScenario, yearDates.start, yearDates.end)
+    return Object.values(byCat).reduce((s, v) => s + v, 0)
+  }, [dateRange.preset, orgConfig, expenseBudgetFlat, selectedScenario, summary.totalBudget])
+
   // Top categories
   const actualsByCat = useMemo(() => aggregateBy(filteredActuals, 'category'), [filteredActuals])
 
@@ -735,6 +735,7 @@ export default function BriefingPage() {
         {/* Hero */}
         <BriefingHero
           summary={summary}
+          fullYearBudget={fullYearBudget}
           excluded={briefingExclusions}
           allCategories={allCategories}
           onExcludeChange={setBriefingExclusions}
