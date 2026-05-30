@@ -8,17 +8,6 @@ import { useApp } from '../context/AppContext'
 import { useTeam } from '../context/TeamContext'
 import CommentPinFAB from '../components/CommentPinFAB'
 
-const MONTH_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December']
-
-function formatDateRangeLabel(startDate, endDate) {
-  if (!startDate || !endDate) return 'Selected Period'
-  const s = new Date(startDate + 'T00:00:00')
-  const e = new Date(endDate + 'T00:00:00')
-  const sName = MONTH_LONG[s.getMonth()]
-  const eName = MONTH_LONG[e.getMonth()]
-  if (sName === eName && s.getFullYear() === e.getFullYear()) return sName
-  return `${sName} – ${eName}`
-}
 import {
   filterActualsByRange,
   calcBudgetByCategory,
@@ -35,6 +24,7 @@ import {
   formatPercent,
   calcOverUnderPct,
   daysBetween,
+  formatDateRangeLabel,
 } from '../utils/formatters'
 import { DATA_COLORS, ORG_COLORS, getTeamColor } from '../constants/colors'
 
@@ -265,41 +255,10 @@ function BriefingHero({ summary, fullYearBudget, excluded, allCategories, onExcl
 // Top Categories Card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TopCategories({ categories, sortMode, onSortMode, onSelectCategory, selectedCategory, excluded }) {
-  const excludedCount = excluded.length
-
+function TopCategories({ categories, onSelectCategory, selectedCategory }) {
   return (
     <div className="bg-white rounded-2xl p-5 flex-1">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-bold text-gray-900 text-base">Top categories</h2>
-        <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-1">
-          {['spend','over','under'].map(mode => (
-            <button
-              key={mode}
-              onClick={() => onSortMode(mode)}
-              className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-all capitalize ${
-                sortMode === mode
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              {mode}
-            </button>
-          ))}
-          {excludedCount > 0 && (
-            <button
-              onClick={() => onSortMode('excluded')}
-              className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-all ${
-                sortMode === 'excluded'
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              Excluded {excludedCount}
-            </button>
-          )}
-        </div>
-      </div>
+      <h2 className="font-bold text-gray-900 text-base mb-4">Top categories</h2>
 
       {categories.length === 0 && (
         <div className="text-center py-8 text-sm text-gray-400">No categories found</div>
@@ -312,19 +271,22 @@ function TopCategories({ categories, sortMode, onSortMode, onSelectCategory, sel
             <button
               key={cat.category}
               onClick={() => onSelectCategory(isSelected ? null : cat.category)}
-              className={`w-full text-left px-3 py-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
+              className={`w-full text-left px-3 py-3 rounded-xl border-2 transition-all ${
                 isSelected
                   ? 'border-gray-900 bg-gray-50'
                   : 'border-transparent hover:border-gray-200 hover:bg-gray-50'
               }`}
             >
-              <span className="text-[11px] font-bold text-gray-400 w-4 flex-shrink-0">{i + 1}</span>
-              <div
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: DATA_COLORS[i % DATA_COLORS.length] }}
-              />
-              <span className="flex-1 text-sm font-medium text-gray-800 truncate">{cat.category}</span>
-              <span className="text-sm font-bold text-gray-900 flex-shrink-0">{formatCurrency(cat.actual)}</span>
+              <div className="flex items-center gap-2 mb-0.5">
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: DATA_COLORS[i % DATA_COLORS.length] }}
+                />
+                <span className="text-sm font-semibold text-gray-900 truncate">{cat.category}</span>
+              </div>
+              <div className="text-xs text-gray-500 pl-[18px]">
+                {formatCurrency(cat.actual)} spent · {cat.budget > 0 ? formatCurrency(cat.budget) + ' budget' : 'no budget'}
+              </div>
             </button>
           )
         })}
@@ -555,14 +517,7 @@ export default function BriefingPage() {
   // Scope all actuals + budget to this team's departments only
   const { teamActuals: actuals, teamBudget: budgetFlat } = useTeam()
 
-  const [sortMode, setSortMode] = useState('spend')
   const [selectedCategory, setSelectedCategory] = useState(null)
-
-  // When sort mode changes, reset category selection
-  function handleSortMode(mode) {
-    setSortMode(mode)
-    setSelectedCategory(null)
-  }
 
   // All categories from actuals
   const allCategories = useMemo(() => getUniqueValues(actuals, 'category'), [actuals])
@@ -606,20 +561,12 @@ export default function BriefingPage() {
     return Object.values(byCat).reduce((s, v) => s + v, 0)
   }, [dateRange.preset, orgConfig, expenseBudgetFlat, selectedScenario, summary.totalBudget])
 
-  // Top categories
+  // Top 3 categories by spend
   const actualsByCat = useMemo(() => aggregateBy(filteredActuals, 'category'), [filteredActuals])
-
-  const topCategories = useMemo(() => {
-    if (sortMode === 'excluded') {
-      return briefingExclusions.map(cat => ({
-        category: cat,
-        actual:   aggregateBy(filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate).filter(t => t.record_type !== 'income'), 'category')[cat] || 0,
-        budget:   budgetByCat[cat] || 0,
-        delta:    0,
-      }))
-    }
-    return getTopCategories(actualsByCat, budgetByCat, sortMode, 3, briefingExclusions)
-  }, [actualsByCat, budgetByCat, sortMode, briefingExclusions, actuals, dateRange])
+  const topCategories = useMemo(() =>
+    getTopCategories(actualsByCat, budgetByCat, 'spend', 3, briefingExclusions),
+    [actualsByCat, budgetByCat, briefingExclusions]
+  )
 
   return (
     <>
@@ -636,11 +583,8 @@ export default function BriefingPage() {
         {/* Top Categories */}
         <TopCategories
           categories={topCategories}
-          sortMode={sortMode}
-          onSortMode={handleSortMode}
           onSelectCategory={setSelectedCategory}
           selectedCategory={selectedCategory}
-          excluded={briefingExclusions}
         />
 
         {/* Trend chart */}

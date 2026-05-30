@@ -123,3 +123,19 @@ export function calcOverUnderPct(actual, budget) {
   if (!budget || budget === 0) return null
   return ((actual - budget) / budget) * 100
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Date range display label  (e.g. "October – May")
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MONTH_LONG_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+export function formatDateRangeLabel(startDate, endDate) {
+  if (!startDate || !endDate) return 'Selected Period'
+  const s = new Date(startDate + 'T00:00:00')
+  const e = new Date(endDate   + 'T00:00:00')
+  const sName = MONTH_LONG_NAMES[s.getMonth()]
+  const eName = MONTH_LONG_NAMES[e.getMonth()]
+  if (sName === eName && s.getFullYear() === e.getFullYear()) return sName
+  return `${sName} – ${eName}`
+}

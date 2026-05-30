@@ -3,7 +3,7 @@ import { NavLink, useParams } from 'react-router-dom'
 import { ChevronDown, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeam } from '../context/TeamContext'
-import { daysBetween, formatDateInput } from '../utils/formatters'
+import { daysBetween, formatDateInput, formatDateRangeLabel } from '../utils/formatters'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Date Range Picker Dropdown
@@ -261,7 +261,7 @@ export default function Header() {
               <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">
                 DATE RANGE
               </span>
-              <span>{presetLabel(dateRange.preset)}</span>
+              <span>{formatDateRangeLabel(dateRange.startDate, dateRange.endDate)}</span>
               <ChevronDown size={12} className="text-gray-400" />
             </button>
 

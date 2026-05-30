@@ -25,7 +25,7 @@ import MasterTransactionsEditor from './MasterTransactionsEditor'
 import PatronImportFlow from './PatronImportFlow'
 import CashFlowImportFlow from './CashFlowImportFlow'
 import { useOrgSettings } from '../hooks/useRegistry'
-import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
+import { formatCurrency, formatOverUnder, formatPercent, formatDateRangeLabel } from '../utils/formatters'
 import {
   filterActualsByRange, calcBudgetByCategory,
   buildVisibleRows, getUniqueValues,
@@ -372,7 +372,7 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
             <button onClick={()=>{ setShowDate(p=>!p); setShowBudget(false); setShowTeam(false) }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
               <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
-              <span>{presetLabel(dateRange.preset)}</span>
+              <span>{formatDateRangeLabel(dateRange.startDate, dateRange.endDate)}</span>
               <ChevronDown size={11} className="text-gray-400"/>
             </button>
             {showDate && <MasterDatePicker dateRange={dateRange} onApplyPreset={onApplyPreset} onApplyCustom={onApplyCustom} onClose={()=>setShowDate(false)}/>}

@@ -18,7 +18,7 @@ import { supabase, ORG_ID } from '../lib/supabase'
 import CommentsPage from './CommentsPage'
 import CommentPinFAB from '../components/CommentPinFAB'
 import ContextNote from '../components/ContextNote'
-import { formatCurrency, formatPercent, daysBetween } from '../utils/formatters'
+import { formatCurrency, formatPercent, daysBetween, formatDateRangeLabel } from '../utils/formatters'
 import { WARN_CONFIG, UnresolvedSection } from '../components/UnresolvedWarning'
 import { ORG_COLORS, DATA_COLORS, STATUS_COLORS, getTeamColor } from '../constants/colors'
 import { filterActualsByRange, calcBudgetByCategory } from '../utils/dataProcessing'
@@ -723,7 +723,7 @@ function ELTNav({ orgConfig, activeTab, setActiveTab, dateRange, onApplyPreset, 
         <div className="relative flex-shrink-0 ml-2" ref={pickerRef}>
           <button onClick={() => setShowDatePicker(v=>!v)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors">
             <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mr-0.5">REPORTING PERIOD</span>
-            <span>{presetLabel(dateRange.preset)}</span>
+            <span>{formatDateRangeLabel(dateRange.startDate, dateRange.endDate)}</span>
             <ChevronDown size={12} className="text-gray-400"/>
           </button>
           {showDatePicker && (
