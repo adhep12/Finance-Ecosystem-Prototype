@@ -941,6 +941,7 @@ export default function BreakdownPage() {
                 transactions={unhidden.length}
                 selectedScenario={selectedScenario}
                 actuals={unhidden}
+                budgetFlat={budgetFlat}
                 budgetByCat={budgetByCat}
               />
             </div>

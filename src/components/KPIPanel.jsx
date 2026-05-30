@@ -410,8 +410,8 @@ function BiggestUnderrunCard({ card, actuals, budgetByCat, onRemove }) {
 // PacingCard — annual budget pacing vs. % of year elapsed
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PacingCard({ card, onRemove }) {
-  const { actuals, budgetFlat, selectedScenario, orgConfig } = useApp()
+function PacingCard({ card, actuals, budgetFlat, onRemove }) {
+  const { selectedScenario, orgConfig } = useApp()
   const [yearType, setYearType] = useState('fy')
 
   const startMonth = yearType === 'fy' ? orgConfig.fiscalYearStartMonth  : orgConfig.operatingYearStartMonth
@@ -769,7 +769,7 @@ function SpendSummaryCard({ actual, budget, transactions, selectedScenario }) {
 // KPIPanel — main export
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function KPIPanel({ actual, budget, transactions, selectedScenario, actuals, budgetByCat }) {
+export default function KPIPanel({ actual, budget, transactions, selectedScenario, actuals, budgetFlat, budgetByCat }) {
   const [cards,        setCards]        = useLocalStorage('bd-kpi-cards', DEFAULT_CARDS)
   const [showAddPanel, setShowAddPanel] = useState(false)
 
@@ -800,7 +800,7 @@ export default function KPIPanel({ actual, budget, transactions, selectedScenari
     // Analytics — individual cards
     if (card.type === 'variance-over')    return <BiggestOverrunCard  key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat||{}} onRemove={onRemove} />
     if (card.type === 'variance-under')   return <BiggestUnderrunCard key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat||{}} onRemove={onRemove} />
-    if (card.type === 'pacing')           return <PacingCard          key={card.id} card={card} onRemove={onRemove} />
+    if (card.type === 'pacing')           return <PacingCard          key={card.id} card={card} actuals={actuals} budgetFlat={budgetFlat||[]} onRemove={onRemove} />
     if (card.type === 'outliers-tx')      return <LargestTxCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
     if (card.type === 'outliers-month')   return <TopMonthCard        key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
     if (card.type === 'outliers-vendor')  return <TopVendorCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />

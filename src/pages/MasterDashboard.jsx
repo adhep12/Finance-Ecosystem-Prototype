@@ -1911,6 +1911,11 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
     [...new Set(actuals.map(t => t.department).filter(Boolean))].sort()
   , [actuals])
 
+  // Budget scoped to active depts (for KPI panel cards)
+  const scopedBudgetFlat = useMemo(() =>
+    activeDepts ? budgetFlat.filter(b => activeDepts.has(b.department)) : budgetFlat
+  , [budgetFlat, activeDepts])
+
   // Filtered actuals
   const dateFiltered = useMemo(() => filterActualsByRange(actuals, startDate, endDate), [actuals, startDate, endDate])
   const navFiltered  = useMemo(() => activeDepts ? dateFiltered.filter(t => activeDepts.has(t.department)) : dateFiltered, [dateFiltered, activeDepts])
@@ -2411,7 +2416,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
                       <FinanceKPICard
                         id={id}
                         actuals={actuals}
-                        budgetFlat={budgetFlat}
+                        budgetFlat={scopedBudgetFlat}
                         scenario={scenario}
                         incomeMonths={incomeMonths}
                         cashFlowData={cashFlowData}
