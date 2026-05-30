@@ -22,7 +22,16 @@ const PIN_TYPES = [
   { type: 'budget-request',       label: 'Budget Request',       color: '#8B5CF6', placeholder: 'Describe the budget request…' },
 ]
 
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const MONTH_NAMES      = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const MONTH_NAMES_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function formatDateReadable(dateStr) {
+  if (!dateStr) return '—'
+  const parts = dateStr.split('-')
+  if (parts.length < 3) return dateStr
+  const [y, m, d] = parts.map(Number)
+  return `${MONTH_NAMES_FULL[m - 1]} ${d}, ${y}`
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -316,7 +325,7 @@ function TxCommentModal({ transaction: t, onClose }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900 truncate">{t.vendor}</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{t.date} · {t.category} · {t.dept_name || t.department}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatDateReadable(t.date)} · {t.category} · {t.dept_name || t.department}</p>
           </div>
           <div className="flex items-center gap-3 ml-3 flex-shrink-0">
             <span className="text-lg font-bold text-gray-900">{fmtAmt(t.amount)}</span>
@@ -366,7 +375,7 @@ function TxCommentModal({ transaction: t, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function TransactionsPage() {
-  const { comments, dateRange, deptNames } = useApp()
+  const { comments, dateRange, deptNames, selectedScenario } = useApp()
   const { teamActuals: actuals, teamBudget } = useTeam()
 
   // ── Date range — default to global fiscal year range from AppContext ──
@@ -432,7 +441,13 @@ export default function TransactionsPage() {
 
   // Build filter state object for helpers
   const actualsFilterState = { search: debouncedSearch, recordType, deptFilter, catFilter, acctFilter, vendorFilter, grantFilter, amtMin, amtMax }
-  const budgetFilterState  = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod }
+  const budgetFilterState  = { budgetDeptFilter, budgetCatFilter, budgetScenarioFilter: new Set(), budgetStartPeriod, budgetEndPeriod }
+
+  // Pre-filter budget by globally selected scenario
+  const budgetBase = useMemo(
+    () => selectedScenario ? teamBudget.filter(b => b.scenario === selectedScenario) : teamBudget,
+    [teamBudget, selectedScenario]
+  )
 
   // ── Dynamic cascade options — each computed from all OTHER active filters ──
 
@@ -503,32 +518,25 @@ export default function TransactionsPage() {
 
   // ── Budget cascade options ──
   const budgetDeptOptions = useMemo(() => {
-    const pool = applyBudgetFilters(teamBudget, 'dept', budgetFilterState)
+    const pool = applyBudgetFilters(budgetBase, 'dept', budgetFilterState)
     const seen = new Set()
     for (const b of pool) {
       const name = b.dept_name || b.department
       if (name) seen.add(name)
     }
     return [...seen].sort().map(n => ({ value: n, label: n }))
-  }, [teamBudget, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
+  }, [budgetBase, budgetCatFilter, budgetStartPeriod, budgetEndPeriod])
 
   const budgetCatOptions = useMemo(() => {
-    const pool = applyBudgetFilters(teamBudget, 'cat', budgetFilterState)
+    const pool = applyBudgetFilters(budgetBase, 'cat', budgetFilterState)
     const seen = new Set()
     for (const b of pool) if (b.category) seen.add(b.category)
     return [...seen].sort().map(c => ({ value: c, label: c }))
-  }, [teamBudget, budgetDeptFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod])
-
-  const budgetScenarioOptions = useMemo(() => {
-    const pool = applyBudgetFilters(teamBudget, 'scenario', budgetFilterState)
-    const seen = new Set()
-    for (const b of pool) if (b.scenario) seen.add(b.scenario)
-    return [...seen].sort().map(s => ({ value: s, label: s }))
-  }, [teamBudget, budgetDeptFilter, budgetCatFilter, budgetStartPeriod, budgetEndPeriod])
+  }, [budgetBase, budgetDeptFilter, budgetStartPeriod, budgetEndPeriod])
 
   // ── Filtered budget rows ──
   const filteredBudget = useMemo(() => {
-    let rows = applyBudgetFilters(teamBudget, null, budgetFilterState)
+    let rows = applyBudgetFilters(budgetBase, null, budgetFilterState)
 
     rows = [...rows].sort((a, b) => {
       let av, bv
@@ -540,7 +548,7 @@ export default function TransactionsPage() {
       return 0
     })
     return rows
-  }, [teamBudget, budgetDeptFilter, budgetCatFilter, budgetScenarioFilter, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
+  }, [budgetBase, budgetDeptFilter, budgetCatFilter, budgetStartPeriod, budgetEndPeriod, budgetSortCol, budgetSortDir])
 
   const filteredBudgetTotal = useMemo(() => filteredBudget.reduce((s, b) => s + (b.amount||0), 0), [filteredBudget])
 
@@ -567,7 +575,7 @@ export default function TransactionsPage() {
   }
 
   function clearAllBudgetFilters() {
-    setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set()); setBudgetScenarioFilter(new Set())
+    setBudgetDeptFilter(new Set()); setBudgetCatFilter(new Set())
     setBudgetStartPeriod(dateRange?.startDate?.substring(0,7) || '')
     setBudgetEndPeriod(dateRange?.endDate?.substring(0,7) || '')
     setBudgetPage(1)
@@ -613,7 +621,7 @@ export default function TransactionsPage() {
 
   const shProps = { sortCol, sortDir, onSort: (col) => { toggleSort(col); setPage(1) } }
 
-  const budgetActiveFx = (budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) +
+  const budgetActiveFx = (budgetDeptFilter.size + budgetCatFilter.size) +
     (budgetStartPeriod ? 1 : 0) + (budgetEndPeriod ? 1 : 0)
 
   return (
@@ -623,7 +631,6 @@ export default function TransactionsPage() {
       {/* Page header */}
       <div className="flex items-end justify-between px-6 pt-6 pb-4">
         <div>
-          <div className="text-xs font-bold uppercase tracking-widest text-teal-600 mb-1">Raw Data</div>
           <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
           <p className="text-sm text-gray-500 mt-1">
             {viewMode === 'budget'
@@ -753,13 +760,10 @@ export default function TransactionsPage() {
             <MultiCheckFilter label="Category" options={budgetCatOptions} selected={budgetCatFilter}
               onToggle={v => { setBudgetCatFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
               onClear={() => { setBudgetCatFilter(new Set()); setBudgetPage(1) }}/>
-            <MultiCheckFilter label="Scenario" options={budgetScenarioOptions} selected={budgetScenarioFilter}
-              onToggle={v => { setBudgetScenarioFilter(p => { const n = new Set(p); n.has(v) ? n.delete(v) : n.add(v); return n }); setBudgetPage(1) }}
-              onClear={() => { setBudgetScenarioFilter(new Set()); setBudgetPage(1) }}/>
-            {(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) > 0 && (
+            {(budgetDeptFilter.size + budgetCatFilter.size) > 0 && (
               <>
                 <span className="text-[10px] font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full">
-                  {budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size} filter{(budgetDeptFilter.size + budgetCatFilter.size + budgetScenarioFilter.size) !== 1 ? 's' : ''}
+                  {budgetDeptFilter.size + budgetCatFilter.size} filter{(budgetDeptFilter.size + budgetCatFilter.size) !== 1 ? 's' : ''}
                 </span>
                 <button onClick={clearAllBudgetFilters} className="text-xs text-red-600 hover:underline font-medium">
                   Clear all
@@ -822,7 +826,7 @@ export default function TransactionsPage() {
                       className={`border-b border-gray-50 hover:bg-teal-50/40 transition-colors cursor-pointer group ${
                         i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                       }`}>
-                      <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{row.date || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{formatDateReadable(row.date)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {row._warnings?.includes('no_dept') ? (
                           <div className="flex flex-col gap-0.5">
