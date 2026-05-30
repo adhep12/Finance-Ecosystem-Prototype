@@ -410,73 +410,93 @@ function BiggestUnderrunCard({ card, actuals, budgetByCat, onRemove }) {
 // PacingCard — annual budget pacing vs. % of year elapsed
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PacingCard({ card, actuals, budgetFlat, onRemove }) {
+function PacingCard({ card, actuals, budgetFlat, dateRange, onRemove }) {
   const { selectedScenario, orgConfig } = useApp()
-  const [yearType, setYearType] = useState('fy')
-
-  const startMonth = yearType === 'fy' ? orgConfig.fiscalYearStartMonth  : orgConfig.operatingYearStartMonth
-  const startYear  = yearType === 'fy' ? orgConfig.fiscalYearStartYear   : orgConfig.operatingYearStartYear
-  const endYear    = startMonth === 1 ? startYear : startYear + 1
-  const endMonth   = startMonth === 1 ? 12 : startMonth - 1
-  const lastDay    = new Date(endYear, endMonth, 0).getDate()
-  const startDate  = `${startYear}-${pad2(startMonth)}-01`
-  const endDate    = `${endYear}-${pad2(endMonth)}-${pad2(lastDay)}`
-  const startLabel = MONTH_SHORT[startMonth - 1]
-  const endLabel   = MONTH_SHORT[endMonth - 1]
 
   const today    = new Date()
   const todayStr = `${today.getFullYear()}-${pad2(today.getMonth()+1)}-${pad2(today.getDate())}`
 
-  // Full-year budget (all depts)
-  const yearBudgetByCat = useMemo(
+  // Derive pacing window and label from the active date range preset
+  const { startDate, endDate, periodLabel } = useMemo(() => {
+    const preset = dateRange?.preset
+    const isFY = preset === 'full-fiscal' || preset === 'fiscal-ytd'
+    const isOY = preset === 'full-operating' || preset === 'operating-ytd'
+
+    if (isFY || (!isOY && !preset)) {
+      // Fiscal year window
+      const sm = orgConfig.fiscalYearStartMonth
+      const sy = orgConfig.fiscalYearStartYear
+      const em = sm === 1 ? 12 : sm - 1
+      const ey = sm === 1 ? sy : sy + 1
+      const ld = new Date(ey, em, 0).getDate()
+      return {
+        startDate:   `${sy}-${pad2(sm)}-01`,
+        endDate:     `${ey}-${pad2(em)}-${pad2(ld)}`,
+        periodLabel: `${MONTH_SHORT[sm-1]} – ${MONTH_SHORT[em-1]} · Fiscal Year`,
+      }
+    }
+    if (isOY) {
+      // Operating year window
+      const sm = orgConfig.operatingYearStartMonth
+      const sy = orgConfig.operatingYearStartYear
+      const em = sm === 1 ? 12 : sm - 1
+      const ey = sm === 1 ? sy : sy + 1
+      const ld = new Date(ey, em, 0).getDate()
+      return {
+        startDate:   `${sy}-${pad2(sm)}-01`,
+        endDate:     `${ey}-${pad2(em)}-${pad2(ld)}`,
+        periodLabel: `${MONTH_SHORT[sm-1]} – ${MONTH_SHORT[em-1]} · Operating Year`,
+      }
+    }
+    // Custom / rolling — use the selected range as-is
+    const s = dateRange?.startDate || todayStr
+    const e = dateRange?.endDate   || todayStr
+    const sm = parseInt(s.slice(5, 7), 10)
+    const em = parseInt(e.slice(5, 7), 10)
+    return {
+      startDate:   s,
+      endDate:     e,
+      periodLabel: `${MONTH_SHORT[sm-1]} – ${MONTH_SHORT[em-1]} · Custom`,
+    }
+  }, [dateRange, orgConfig, todayStr])
+
+  // Full-period budget
+  const periodBudgetByCat = useMemo(
     () => calcBudgetByCategory(budgetFlat, selectedScenario, startDate, endDate),
     [budgetFlat, selectedScenario, startDate, endDate]
   )
-  const fullYearBudget = Object.values(yearBudgetByCat).reduce((s, v) => s + v, 0)
+  const fullPeriodBudget = Object.values(periodBudgetByCat).reduce((s, v) => s + v, 0)
 
-  // Actuals YTD (from year start to today, all depts)
+  // Actuals from period start to today (capped at period end)
+  const spendThrough = todayStr < endDate ? todayStr : endDate
   const ytdActuals = useMemo(
-    () => filterActualsByRange(actuals, startDate, todayStr),
-    [actuals, startDate, todayStr]
+    () => filterActualsByRange(actuals, startDate, spendThrough),
+    [actuals, startDate, spendThrough]
   )
   const ytdTotal = ytdActuals.reduce((s, t) => s + t.amount, 0)
 
   // % calculations
-  const pctSpent = fullYearBudget > 0 ? (ytdTotal / fullYearBudget) * 100 : 0
-  const yearStart    = new Date(startDate)
-  const yearEnd      = new Date(endDate)
-  const totalMs      = yearEnd - yearStart
-  const elapsedMs    = Math.max(0, Math.min(today - yearStart, totalMs))
-  const pctElapsed   = (elapsedMs / totalMs) * 100
+  const pctSpent   = fullPeriodBudget > 0 ? (ytdTotal / fullPeriodBudget) * 100 : 0
+  const periodStart  = new Date(startDate)
+  const periodEnd    = new Date(endDate)
+  const totalMs      = periodEnd - periodStart
+  const elapsedMs    = Math.max(0, Math.min(today - periodStart, totalMs))
+  const pctElapsed   = totalMs > 0 ? (elapsedMs / totalMs) * 100 : 0
   const ppAhead      = pctSpent - pctElapsed
   const isAhead      = ppAhead >= 0
-  const remaining    = Math.max(0, fullYearBudget - ytdTotal)
+  const remaining    = Math.max(0, fullPeriodBudget - ytdTotal)
 
   return (
     <CardShell title="Annual Pacing" onRemove={onRemove}>
-      {/* FY / OY toggle */}
-      <div className="flex items-center gap-1 mb-3">
-        {[['fy','FY'],['oy','OY']].map(([v, l]) => (
-          <button
-            key={v}
-            onClick={() => setYearType(v)}
-            className={`px-2.5 py-0.5 rounded text-[10px] font-bold border transition-all ${
-              yearType === v ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-200 text-gray-500 hover:border-gray-400'
-            }`}
-          >
-            {l}
-          </button>
-        ))}
-        <span className="text-[10px] text-gray-400 ml-1 uppercase tracking-wide">· {yearType === 'fy' ? 'Fiscal Year' : 'Operating Year'}</span>
-      </div>
+      <div className="text-[10px] text-gray-400 mb-3 uppercase tracking-wide font-semibold">{periodLabel}</div>
 
       <div className="text-3xl font-bold text-gray-800 tabular-nums">{Math.round(pctSpent)}%</div>
-      <div className="text-sm text-gray-600 mt-0.5 tabular-nums">{formatCurrency(ytdTotal)} spent of {formatCurrency(fullYearBudget)}</div>
+      <div className="text-sm text-gray-600 mt-0.5 tabular-nums">{formatCurrency(ytdTotal)} spent of {formatCurrency(fullPeriodBudget)}</div>
       <div className="text-xs text-gray-400 mt-0.5">
-        {formatCurrency(remaining)} remaining · {startLabel} → {endLabel} · {selectedScenario}
+        {formatCurrency(remaining)} remaining · {selectedScenario}
       </div>
 
-      {/* Progress bar: actual spend vs full-year budget; tick = pace marker */}
+      {/* Progress bar: actual spend vs full-period budget; tick = pace marker */}
       <div className="relative h-2 bg-gray-100 rounded-full my-2.5 overflow-hidden">
         <div
           className="absolute h-full rounded-full transition-all"
@@ -491,7 +511,7 @@ function PacingCard({ card, actuals, budgetFlat, onRemove }) {
         <div
           className="absolute w-px h-3 bg-gray-400 -top-2"
           style={{ left: `${Math.min(pctElapsed, 100)}%` }}
-          title={`${Math.round(pctElapsed)}% of year elapsed`}
+          title={`${Math.round(pctElapsed)}% of period elapsed`}
         />
       </div>
 
@@ -500,7 +520,7 @@ function PacingCard({ card, actuals, budgetFlat, onRemove }) {
         style={{ color: isAhead ? 'var(--color-over)' : 'var(--color-under)' }}
       >
         {isAhead ? '+' : ''}{Math.round(ppAhead)}pp {isAhead ? 'ahead' : 'behind'} of pace
-        <span className="text-gray-400 font-normal"> · {Math.round(pctElapsed)}% of year elapsed</span>
+        <span className="text-gray-400 font-normal"> · {Math.round(pctElapsed)}% elapsed</span>
       </div>
     </CardShell>
   )
@@ -769,7 +789,7 @@ function SpendSummaryCard({ actual, budget, transactions, selectedScenario }) {
 // KPIPanel — main export
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function KPIPanel({ actual, budget, transactions, selectedScenario, actuals, budgetFlat, budgetByCat }) {
+export default function KPIPanel({ actual, budget, transactions, selectedScenario, actuals, budgetFlat, budgetByCat, dateRange }) {
   const [cards,        setCards]        = useLocalStorage('bd-kpi-cards', DEFAULT_CARDS)
   const [showAddPanel, setShowAddPanel] = useState(false)
 
@@ -800,7 +820,7 @@ export default function KPIPanel({ actual, budget, transactions, selectedScenari
     // Analytics — individual cards
     if (card.type === 'variance-over')    return <BiggestOverrunCard  key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat||{}} onRemove={onRemove} />
     if (card.type === 'variance-under')   return <BiggestUnderrunCard key={card.id} card={card} actuals={actuals} budgetByCat={budgetByCat||{}} onRemove={onRemove} />
-    if (card.type === 'pacing')           return <PacingCard          key={card.id} card={card} actuals={actuals} budgetFlat={budgetFlat||[]} onRemove={onRemove} />
+    if (card.type === 'pacing')           return <PacingCard          key={card.id} card={card} actuals={actuals} budgetFlat={budgetFlat||[]} dateRange={dateRange} onRemove={onRemove} />
     if (card.type === 'outliers-tx')      return <LargestTxCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
     if (card.type === 'outliers-month')   return <TopMonthCard        key={card.id} card={card} actuals={actuals} onRemove={onRemove} />
     if (card.type === 'outliers-vendor')  return <TopVendorCard       key={card.id} card={card} actuals={actuals} onRemove={onRemove} />

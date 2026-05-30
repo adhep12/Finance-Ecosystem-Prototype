@@ -943,6 +943,7 @@ export default function BreakdownPage() {
                 actuals={unhidden}
                 budgetFlat={budgetFlat}
                 budgetByCat={budgetByCat}
+                dateRange={dateRange}
               />
             </div>
           )}
