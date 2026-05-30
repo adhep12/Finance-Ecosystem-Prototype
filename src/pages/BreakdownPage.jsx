@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
-  ChevronRight, ChevronLeft, Ban, Plus, X, Search, GripVertical,
+  ChevronRight, Ban, Plus, X, Search, GripVertical,
   RotateCcw, MessageSquare, Calendar, Tag, Building2,
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
@@ -13,7 +13,6 @@ import {
   getUniqueValues,
 } from '../utils/dataProcessing'
 import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
-import KPIPanel from '../components/KPIPanel'
 import CommentPinFAB from '../components/CommentPinFAB'
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
@@ -48,10 +47,11 @@ const FIELD_COLORS = {
 
 function SpendBar({ actual, totalExpenses }) {
   const pct = totalExpenses > 0 ? Math.min((actual / totalExpenses) * 100, 100) : 0
+  const barWidth = actual > 0 ? Math.max(pct, 1.5) : 0
   return (
     <div className="flex items-center justify-end gap-2">
       <div className="w-14 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-        <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-teal-500 transition-all" style={{ width: `${barWidth}%` }} />
       </div>
       <span className="text-xs text-gray-400 tabular-nums w-9 text-right">{pct.toFixed(1)}%</span>
     </div>
@@ -364,6 +364,46 @@ function TableHeader({ drillOrder, selectedScenario, sortCol, sortDir, onSort })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Totals row
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TotalsRow({ totalActual, totalBudget }) {
+  const delta  = totalBudget > 0 ? totalActual - totalBudget : null
+  const isOver = delta !== null && delta >= 0
+  return (
+    <div
+      className="flex items-center gap-2 border-t-2 border-gray-200 bg-gray-50 sticky bottom-0"
+      style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 10, paddingBottom: 10 }}
+    >
+      <div className="flex-1 min-w-0 pl-5 text-xs font-bold uppercase tracking-wider text-gray-500">
+        Totals
+      </div>
+      <div className="text-right flex-shrink-0 font-bold text-gray-900 text-sm" style={{ width: 96 }}>
+        {formatCurrency(totalActual)}
+      </div>
+      <div className="text-right flex-shrink-0 font-semibold text-gray-600 text-sm" style={{ width: 96 }}>
+        {totalBudget > 0 ? formatCurrency(totalBudget) : '—'}
+      </div>
+      <div className="text-right flex-shrink-0" style={{ width: 110 }}>
+        {delta !== null ? (
+          <div className="text-sm font-bold" style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}>
+            {formatOverUnder(delta)}
+          </div>
+        ) : <span className="text-gray-300">—</span>}
+      </div>
+      <div className="flex-shrink-0" style={{ width: 120 }}>
+        <div className="flex items-center justify-end gap-2">
+          <div className="w-14 bg-teal-200 rounded-full h-1.5 overflow-hidden">
+            <div className="h-full rounded-full bg-teal-500" style={{ width: '100%' }} />
+          </div>
+          <span className="text-xs text-gray-500 tabular-nums w-9 text-right font-semibold">100%</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Group row
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -641,9 +681,8 @@ export default function BreakdownPage() {
   const [breakdownHidden, setBreakdownHidden] = useLocalStorage('bd-hidden',        [])
 
   // ── Transient state ───────────────────────────────────────────────────────
-  const [viewMode,      setViewMode]      = useState('summary')  // 'summary' | 'calendar'
-  const [showKPIPanel,  setShowKPIPanel]  = useState(true)
-  const [activeDepts,   setActiveDepts]   = useState(null)  // null = all active
+  const [viewMode,    setViewMode]    = useState('summary')  // 'summary' | 'calendar'
+  const [activeDepts, setActiveDepts] = useState(null)  // null = all active
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
   const [selectedTx,    setSelectedTx]    = useState(null)
@@ -872,43 +911,16 @@ export default function BreakdownPage() {
                 />
               )
             })}
+
+            {visibleRows.length > 0 && (
+              <TotalsRow totalActual={totalActual} totalBudget={totalBudget} />
+            )}
           </div>
         )}
       </div>
 
-      {/* ── Right panel: KPI — summary mode only ─────────────────────────── */}
-      {viewMode === 'summary' && (
-        <div className="flex flex-shrink-0">
-          {/* Toggle strip */}
-          <button
-            onClick={() => setShowKPIPanel(v => !v)}
-            className="flex-shrink-0 border-l border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
-            title={showKPIPanel ? 'Hide KPI panel' : 'Show KPI panel'}
-          >
-            {showKPIPanel
-              ? <ChevronRight size={14} className="text-gray-400"/>
-              : <ChevronLeft  size={14} className="text-gray-400"/>}
-          </button>
-          {showKPIPanel && (
-            <div
-              className="w-72 flex-shrink-0 overflow-y-auto p-4"
-              style={{ backgroundColor: 'var(--color-primary-bg)' }}
-            >
-              <KPIPanel
-                actual={totalActual}
-                budget={totalBudget}
-                transactions={unhidden.length}
-                selectedScenario={selectedScenario}
-                actuals={unhidden}
-                budgetByCat={budgetByCat}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Comment pin FAB */}
-      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName={viewMode === 'summary' && showKPIPanel ? 'right-[304px]' : 'right-4'} />
+      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName="right-4" />
 
       {/* Transaction modal */}
       {selectedTx && (
