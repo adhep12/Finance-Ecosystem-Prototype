@@ -55,16 +55,9 @@ const CARD_REGISTRY = [
 ]
 
 const DEFAULT_CARDS = [
-  { id: 'c1',  type: 'financial-highlights' },
-  { id: 'c2',  type: 'budget-requests' },
-  { id: 'c3',  type: 'variance-explanations' },
-  { id: 'c4',  type: 'open-questions' },
-  { id: 'c5',  type: 'reclassifications' },
-  { id: 'c6',  type: 'budget-requests-total' },
-  { id: 'c7',  type: 'top-categories',  n: 5 },
-  { id: 'c8',  type: 'top-vendors',     n: 10 },
-  { id: 'c9',  type: 'top-accounts',    n: 5 },
-  { id: 'c10', type: 'top-grants',      n: 5 },
+  { id: 'c1', type: 'top-vendors',   n: 10 },
+  { id: 'c2', type: 'variance-over' },
+  { id: 'c3', type: 'pacing' },
 ]
 
 const COMMENT_TYPE_CONFIG = {
@@ -822,13 +815,6 @@ export default function KPIPanel({ actual, budget, transactions, selectedScenari
   return (
     <>
       <div className="flex flex-col gap-3">
-        <SpendSummaryCard
-          actual={actual}
-          budget={budget}
-          transactions={transactions}
-          selectedScenario={selectedScenario}
-        />
-
         {cards.map(renderCard)}
 
         <button

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
-  ChevronRight, Ban, Plus, X, Search, GripVertical,
+  ChevronRight, ChevronLeft, Ban, Plus, X, Search, GripVertical,
   RotateCcw, MessageSquare, Calendar, Tag, Building2,
   ArrowUp, ArrowDown, ChevronsUpDown,
 } from 'lucide-react'
@@ -13,6 +13,7 @@ import {
   getUniqueValues,
 } from '../utils/dataProcessing'
 import { formatCurrency, formatOverUnder, formatPercent } from '../utils/formatters'
+import KPIPanel from '../components/KPIPanel'
 import CommentPinFAB from '../components/CommentPinFAB'
 import CalendarBreakdownView from '../components/CalendarBreakdownView'
 import { useLocalStorage } from '../hooks/useLocalStorage'
@@ -681,8 +682,9 @@ export default function BreakdownPage() {
   const [breakdownHidden, setBreakdownHidden] = useLocalStorage('bd-hidden',        [])
 
   // ── Transient state ───────────────────────────────────────────────────────
-  const [viewMode,    setViewMode]    = useState('summary')  // 'summary' | 'calendar'
-  const [activeDepts, setActiveDepts] = useState(null)  // null = all active
+  const [viewMode,     setViewMode]     = useState('summary')  // 'summary' | 'calendar'
+  const [showKPIPanel, setShowKPIPanel] = useState(false)      // closed by default
+  const [activeDepts,  setActiveDepts]  = useState(null)  // null = all active
   const [searchQuery,   setSearchQuery]   = useState('')
   const [openPath,      setOpenPath]      = useState([])
   const [selectedTx,    setSelectedTx]    = useState(null)
@@ -919,8 +921,35 @@ export default function BreakdownPage() {
         )}
       </div>
 
+      {/* ── Right panel: KPI — summary mode only ─────────────────────────── */}
+      {viewMode === 'summary' && (
+        <div className="flex flex-shrink-0">
+          <button
+            onClick={() => setShowKPIPanel(v => !v)}
+            className="flex-shrink-0 border-l border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center px-1.5 transition-colors"
+            title={showKPIPanel ? 'Hide panel' : 'Show panel'}
+          >
+            {showKPIPanel
+              ? <ChevronRight size={14} className="text-gray-400"/>
+              : <ChevronLeft  size={14} className="text-gray-400"/>}
+          </button>
+          {showKPIPanel && (
+            <div className="w-72 flex-shrink-0 overflow-y-auto p-4" style={{ backgroundColor: 'var(--color-primary-bg)' }}>
+              <KPIPanel
+                actual={totalActual}
+                budget={totalBudget}
+                transactions={unhidden.length}
+                selectedScenario={selectedScenario}
+                actuals={unhidden}
+                budgetByCat={budgetByCat}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Comment pin FAB */}
-      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName="right-4" />
+      <CommentPinFAB page="breakdown" sourceDashboard="Content Team" sourcePage="Breakdown" rightClassName={viewMode === 'summary' && showKPIPanel ? 'right-[304px]' : 'right-4'} />
 
       {/* Transaction modal */}
       {selectedTx && (
