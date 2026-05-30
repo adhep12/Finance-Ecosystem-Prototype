@@ -447,6 +447,8 @@ export default function PatronImportFlow() {
   const [rawAggregated, setRawAggregated]     = useState([])  // monthly rows to import
   const [rawTxCount, setRawTxCount]           = useState(0)
   const [rawSkipped, setRawSkipped]           = useState(0)
+  const [rawStartPeriod, setRawStartPeriod]   = useState('')
+  const [rawEndPeriod, setRawEndPeriod]       = useState('')
 
   // ── File / raw data ─────────────────────────────────────────────────────────
   const [fileName, setFileName]     = useState('')
@@ -902,6 +904,41 @@ export default function PatronImportFlow() {
               <li>Not available from raw data: new patrons, retention rate</li>
             </ul>
           </div>
+
+          {/* Date range filter */}
+          <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+            <p className="text-sm font-medium text-gray-700">Date Range <span className="text-gray-400 font-normal text-xs">(optional — leave blank to import all months)</span></p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Start Month</label>
+                <input
+                  type="month"
+                  value={rawStartPeriod}
+                  onChange={e => setRawStartPeriod(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                />
+              </div>
+              <span className="text-gray-400 mt-4">–</span>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">End Month</label>
+                <input
+                  type="month"
+                  value={rawEndPeriod}
+                  onChange={e => setRawEndPeriod(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                />
+              </div>
+              {(rawStartPeriod || rawEndPeriod) && (
+                <button
+                  onClick={() => { setRawStartPeriod(''); setRawEndPeriod('') }}
+                  className="mt-4 text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
           {rawParseError && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-2">
               <AlertTriangle size={16} className="text-red-500 mt-0.5 flex-shrink-0"/>
@@ -1119,7 +1156,13 @@ export default function PatronImportFlow() {
       )}
 
       {/* ── RAW Validate: aggregated preview ─────────────────────────────────── */}
-      {step === STEPS.validate && importFlavor === 'raw' && (
+      {step === STEPS.validate && importFlavor === 'raw' && (() => {
+        const filteredAggregated = rawAggregated.filter(r => {
+          if (rawStartPeriod && r.period < rawStartPeriod) return false
+          if (rawEndPeriod   && r.period > rawEndPeriod)   return false
+          return true
+        })
+        return (
         <div className="space-y-4">
           <button onClick={() => setStep(STEPS.upload)} className="text-xs text-gray-400 flex items-center gap-1 hover:text-gray-600">
             <ChevronLeft size={12}/> Upload different file
@@ -1142,7 +1185,40 @@ export default function PatronImportFlow() {
               </div>
             )}
             <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-xs text-gray-600">
-              <span className="font-semibold text-gray-900">{rawAggregated.length}</span> months aggregated
+              <span className="font-semibold text-gray-900">{filteredAggregated.length}</span> months
+              {filteredAggregated.length !== rawAggregated.length && (
+                <span className="text-gray-400"> (filtered from {rawAggregated.length})</span>
+              )}
+            </div>
+          </div>
+
+          {/* Date range filter (inline on validate step for adjustment) */}
+          <div className="border border-gray-200 rounded-xl p-3 space-y-1">
+            <p className="text-xs font-medium text-gray-600">Filter by date range</p>
+            <div className="flex items-center gap-3">
+              <input
+                type="month"
+                value={rawStartPeriod}
+                onChange={e => setRawStartPeriod(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                placeholder="Start month"
+              />
+              <span className="text-gray-400">–</span>
+              <input
+                type="month"
+                value={rawEndPeriod}
+                onChange={e => setRawEndPeriod(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                placeholder="End month"
+              />
+              {(rawStartPeriod || rawEndPeriod) && (
+                <button
+                  onClick={() => { setRawStartPeriod(''); setRawEndPeriod('') }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
 
@@ -1165,7 +1241,7 @@ export default function PatronImportFlow() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {rawAggregated.slice(0, 12).map(r => (
+                  {filteredAggregated.slice(0, 12).map(r => (
                     <tr key={r.period} className="hover:bg-gray-50">
                       <td className="px-3 py-2 font-mono text-gray-700">{r.period}</td>
                       <td className="px-3 py-2 text-right font-medium">{r.total_active_patrons.toLocaleString()}</td>
@@ -1176,11 +1252,16 @@ export default function PatronImportFlow() {
                       <td className="px-3 py-2 text-right text-gray-400">{r._txCount?.toLocaleString() ?? '—'}</td>
                     </tr>
                   ))}
-                  {rawAggregated.length > 12 && (
+                  {filteredAggregated.length > 12 && (
                     <tr>
                       <td colSpan={7} className="px-3 py-2 text-center text-gray-400">
-                        … {rawAggregated.length - 12} more month(s)
+                        … {filteredAggregated.length - 12} more month(s)
                       </td>
+                    </tr>
+                  )}
+                  {filteredAggregated.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-3 text-center text-gray-400">No months in selected date range</td>
                     </tr>
                   )}
                 </tbody>
@@ -1221,14 +1302,18 @@ export default function PatronImportFlow() {
           </div>
 
           <button
-            onClick={() => setStep(STEPS.confirm)}
-            disabled={rawAggregated.length === 0}
+            onClick={() => {
+              setValidRows(filteredAggregated.map(({ _txCount, ...r }) => r))
+              setStep(STEPS.confirm)
+            }}
+            disabled={filteredAggregated.length === 0}
             className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-40 flex items-center gap-2"
           >
             Continue to Import <ChevronRight size={16}/>
           </button>
         </div>
-      )}
+        )
+      })()}
 
       {/* ── STEP 4: Confirm ──────────────────────────────────────────────────── */}
       {step === STEPS.confirm && (
