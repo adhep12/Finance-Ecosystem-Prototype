@@ -139,3 +139,14 @@ export function formatDateRangeLabel(startDate, endDate) {
   if (sName === eName && s.getFullYear() === e.getFullYear()) return sName
   return `${sName} – ${eName}`
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Department display: "101 - Bible Content Writing"
+// ─────────────────────────────────────────────────────────────────────────────
+export function formatDept(deptCode, deptName) {
+  if (!deptCode && !deptName) return null
+  if (!deptName) return String(deptCode)
+  if (!deptCode) return deptName
+  return `${deptCode} - ${deptName}`
+}

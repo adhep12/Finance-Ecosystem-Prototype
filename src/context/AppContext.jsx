@@ -406,8 +406,7 @@ export function AppProvider({ children }) {
   // ── Derived: dept name map from loaded actuals ────────────────────────────
   const deptNames = useMemo(() =>
     actuals.reduce((map, t) => {
-      // dept_code is already stringified by mapActuals; use String() guard anyway
-      if (t.dept_code && t.dept_name) map[String(t.dept_code)] = t.dept_name
+      if (t.dept_code && t.dept_name) map[String(t.dept_code)] = `${t.dept_code} - ${t.dept_name}`
       return map
     }, {})
   , [actuals])

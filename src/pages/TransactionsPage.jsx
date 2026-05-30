@@ -33,6 +33,13 @@ function formatDateReadable(dateStr) {
   return `${MONTH_NAMES_FULL[m - 1]} ${d}, ${y}`
 }
 
+function formatDept(code, name) {
+  if (!code && !name) return null
+  if (!name) return String(code)
+  if (!code) return name
+  return `${code} - ${name}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -325,7 +332,7 @@ function TxCommentModal({ transaction: t, onClose }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-gray-900 truncate">{t.vendor}</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{formatDateReadable(t.date)} · {t.category} · {t.dept_name || t.department}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatDateReadable(t.date)} · {t.category} · {formatDept(t.department, t.dept_name) || '—'}</p>
           </div>
           <div className="flex items-center gap-3 ml-3 flex-shrink-0">
             <span className="text-lg font-bold text-gray-900">{fmtAmt(t.amount)}</span>
@@ -830,11 +837,11 @@ export default function TransactionsPage() {
                       <td className="px-3 py-2 whitespace-nowrap">
                         {row._warnings?.includes('no_dept') ? (
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-gray-400 text-xs">{row.dept_name || row.department || '—'}</span>
+                            <span className="text-gray-400 text-xs">{formatDept(row.department, row.dept_name) || '—'}</span>
                             <UnresolvedChip warnType="no_dept"/>
                           </div>
                         ) : (
-                          <span className="text-gray-700">{row.dept_name || row.department || '—'}</span>
+                          <span className="text-gray-700">{formatDept(row.department, row.dept_name) || '—'}</span>
                         )}
                       </td>
                       <td className="px-3 py-2 max-w-[160px]">
@@ -929,7 +936,7 @@ export default function TransactionsPage() {
                   <tr key={i}
                     className={`border-b border-gray-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                     <td className="px-3 py-2 font-mono text-gray-600 whitespace-nowrap">{formatPeriod(row.period)}</td>
-                    <td className="px-3 py-2 text-gray-700">{row.dept_name || row.department || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{formatDept(row.department, row.dept_name) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">{row.category || '—'}</td>
                     <td className="px-3 py-2">
                       <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700">

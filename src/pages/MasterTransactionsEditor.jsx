@@ -37,6 +37,13 @@ const PAGE_SIZE = 100
 // Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
+function formatDept(code, name) {
+  if (!code && !name) return null
+  if (!name) return String(code)
+  if (!code) return name
+  return `${code} - ${name}`
+}
+
 function formatCurrency(n) {
   if (n == null) return '—'
   return new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', maximumFractionDigits:0 }).format(n)
@@ -584,8 +591,14 @@ export default function MasterTransactionsEditor({ orgSettings }) {
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const { startDate: defStart, endDate: defEnd } = defaultDateRange(fyStartMonth)
-  const [startDate,   setStartDate]   = useState(defStart)
-  const [endDate,     setEndDate]     = useState(defEnd)
+  const [actualsStartPeriod, setActualsStartPeriod] = useState(defStart.slice(0, 7))
+  const [actualsEndPeriod,   setActualsEndPeriod]   = useState(defEnd.slice(0, 7))
+  // Derive full dates from month periods for actuals query
+  const startDate = `${actualsStartPeriod}-01`
+  const endDate   = (() => {
+    const [y, m] = actualsEndPeriod.split('-').map(Number)
+    return new Date(y, m, 0).toISOString().slice(0, 10)
+  })()
   const [search,      setSearch]      = useState('')
   const [recordType,  setRecordType]  = useState('all') // 'all' | 'income' | 'expense'
   const [showDeleted, setShowDeleted] = useState(false)
@@ -784,7 +797,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       const dept = deptMap.get(r.department_id)
       const tName = dept ? (teamMapping.get(dept.team_id) || 'Unassigned') : 'Unassigned'
       if (!byTeam[tName]) byTeam[tName] = []
-      byTeam[tName].push({ value: r.department_id, label: r.dept_name || r.dept_code || r.department_id })
+      byTeam[tName].push({ value: r.department_id, label: formatDept(r.dept_code, r.dept_name) || r.department_id })
     }
     return Object.entries(byTeam).sort(([a],[b]) => a.localeCompare(b))
       .map(([label, items]) => ({ label, items: items.sort((a,b) => a.label.localeCompare(b.label)) }))
@@ -870,7 +883,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
   const budgetDeptOptions = useMemo(() => {
     const pool = applyBudgetFilters(budgetFlat || [], 'dept', budgetFilterState)
     const seen = new Set()
-    for (const b of pool) { const n = b.dept_name || b.department; if (n) seen.add(n) }
+    for (const b of pool) { const n = formatDept(b.department, b.dept_name) || b.department; if (n) seen.add(n) }
     return [...seen].sort().map(n => ({ value: n, label: n }))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [budgetFlat, budgetSearch, budgetCatFilter, budgetScenarioFilter, budgetAcctFilter, budgetAmtMin, budgetAmtMax, budgetStartPeriod, budgetEndPeriod])
@@ -1130,15 +1143,15 @@ export default function MasterTransactionsEditor({ orgSettings }) {
       <div className="flex items-center gap-2 flex-wrap px-6 py-3 border-b border-gray-100 bg-gray-50">
         {viewMode === 'actuals' ? (
           <>
-            {/* Date pickers */}
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+            {/* Month pickers — same format as Budget/Patron/Cash Flow tabs */}
+            <input type="month" value={actualsStartPeriod} onChange={e => setActualsStartPeriod(e.target.value)}
               className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
             <span className="text-xs text-gray-400">to</span>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+            <input type="month" value={actualsEndPeriod} onChange={e => setActualsEndPeriod(e.target.value)}
               className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-400"/>
             {/* Quick presets */}
-            {quickPresets().map(p => (
-              <button key={p.label} onClick={() => { setStartDate(p.start); setEndDate(p.end) }}
+            {monthPresets().map(p => (
+              <button key={p.label} onClick={() => { setActualsStartPeriod(p.start); setActualsEndPeriod(p.end) }}
                 className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-500 hover:bg-white hover:border-gray-400 transition-colors whitespace-nowrap">
                 {p.label}
               </button>
@@ -1458,7 +1471,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                         {/* Department */}
                         <td className="px-3 py-1.5">
                           <EditCell value={row.department_id || ''}
-                            displayValue={<span className="text-xs">{row.dept_name || <span className="text-gray-300">—</span>}</span>}
+                            displayValue={<span className="text-xs">{formatDept(row.dept_code, row.dept_name) || <span className="text-gray-300">—</span>}</span>}
                             type="select" options={deptOpts}
                             onChange={v => handleEdit(row, 'department_id', v || null)}/>
                         </td>
@@ -1591,7 +1604,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                       <EditCell value={row.period} type="month"
                         onChange={v => handleBudgetFieldEdit(row, 'period', v)}/>
                     </td>
-                    <td className="px-3 py-1 text-xs text-gray-500">{row.dept_name || row.department || '—'}</td>
+                    <td className="px-3 py-1 text-xs text-gray-500">{formatDept(row.department, row.dept_name) || '—'}</td>
                     <td className="px-3 py-1 text-xs">
                       <EditCell value={row.category || ''} placeholder="Category"
                         onChange={v => handleBudgetFieldEdit(row, 'category', v)}/>
@@ -1657,7 +1670,7 @@ export default function MasterTransactionsEditor({ orgSettings }) {
                 <div key={row.id} className="flex items-center gap-4 px-6 py-3 border-b border-red-100 bg-red-50/50">
                   <span className="text-xs text-gray-400 w-24">{formatDate(row.date)}</span>
                   <span className="text-xs text-gray-400 line-through w-36">{acct?.account_name || '—'}</span>
-                  <span className="text-xs text-gray-400 line-through w-32">{dept?.dept_name || '—'}</span>
+                  <span className="text-xs text-gray-400 line-through w-32">{formatDept(dept?.dept_code, dept?.dept_name) || '—'}</span>
                   <span className="text-xs text-gray-400 line-through w-32">{row.vendor || '—'}</span>
                   <span className="text-xs text-gray-400 line-through w-24 text-right">{formatCurrency(row.amount)}</span>
                   <span className="flex-1"/>
