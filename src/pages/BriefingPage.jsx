@@ -24,7 +24,6 @@ import {
   calcBudgetByCategory,
   aggregateBy,
   getTopCategories,
-  getTopVendors,
   calcBriefingSummary,
   buildChartSeries,
   getUniqueValues,
@@ -268,15 +267,11 @@ function BriefingHero({ summary, fullYearBudget, excluded, allCategories, onExcl
 
 function TopCategories({ categories, sortMode, onSortMode, onSelectCategory, selectedCategory, excluded }) {
   const excludedCount = excluded.length
-  const showExcluded = sortMode === 'excluded'
 
   return (
     <div className="bg-white rounded-2xl p-5 flex-1">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Top by Spend</span>
-      </div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="font-bold text-gray-900 text-base">Top 3 categories</h2>
+        <h2 className="font-bold text-gray-900 text-base">Top categories</h2>
         <div className="flex items-center gap-0.5 bg-gray-100 rounded-full px-1 py-1">
           {['spend','over','under'].map(mode => (
             <button
@@ -310,115 +305,29 @@ function TopCategories({ categories, sortMode, onSortMode, onSelectCategory, sel
         <div className="text-center py-8 text-sm text-gray-400">No categories found</div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {categories.map((cat, i) => {
           const isSelected = selectedCategory === cat.category
-          const isOver = cat.delta >= 0
           return (
             <button
               key={cat.category}
               onClick={() => onSelectCategory(isSelected ? null : cat.category)}
-              className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+              className={`w-full text-left px-3 py-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
                 isSelected
                   ? 'border-gray-900 bg-gray-50'
                   : 'border-transparent hover:border-gray-200 hover:bg-gray-50'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] font-bold text-gray-400 w-4 flex-shrink-0">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs text-gray-500 flex gap-3">
-                    <span>Spend <strong className="text-gray-700">{formatCurrency(cat.actual)}</strong></span>
-                    <span>Planned <strong className="text-gray-700">{formatCurrency(cat.budget)}</strong></span>
-                  </div>
-                </div>
-                <div className="text-center min-w-[80px]">
-                  <div className="text-sm font-semibold text-gray-800">{cat.category}</div>
-                </div>
-                <div className="text-right min-w-[80px]">
-                  <div
-                    className="text-sm font-bold"
-                    style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}
-                  >
-                    {formatOverUnder(cat.delta)}
-                  </div>
-                  <div className="text-[10px] text-gray-400 uppercase">Over/(Under)</div>
-                </div>
-              </div>
+              <span className="text-[11px] font-bold text-gray-400 w-4 flex-shrink-0">{i + 1}</span>
+              <div
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: DATA_COLORS[i % DATA_COLORS.length] }}
+              />
+              <span className="flex-1 text-sm font-medium text-gray-800 truncate">{cat.category}</span>
+              <span className="text-sm font-bold text-gray-900 flex-shrink-0">{formatCurrency(cat.actual)}</span>
             </button>
           )
         })}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Top Vendors Card
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Uses illustrative palette CSS vars so they update when org colors change
-const VENDOR_COLORS = [
-  'var(--ill-1)',   // accent  (org primary CTA)
-  'var(--ill-3)',   // primary (org secondary)
-  'var(--ill-4)',   // Rust
-  'var(--ill-6)',   // Teal
-  'var(--ill-5)',   // Mustard
-]
-
-function TopVendors({ vendors, total, selectedCategory }) {
-  const title = selectedCategory ? `In ${selectedCategory}` : 'Across all categories'
-  const hint  = selectedCategory ? null : 'Pick a category % to scope'
-
-  return (
-    <div className="bg-white rounded-2xl p-5" style={{ width: '340px', flexShrink: 0 }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">{title}</span>
-        {hint && <span className="text-[10px] text-gray-400 italic">{hint}</span>}
-      </div>
-      <h2 className="font-bold text-gray-900 text-base mb-4">Top 3 vendors</h2>
-
-      {total > 0 && (
-        <p className="text-xs text-gray-500 mb-4">
-          Where the team's money went · <strong>{formatCurrency(total)}</strong> total
-        </p>
-      )}
-
-      {vendors.length === 0 && (
-        <div className="text-center py-8 text-sm text-gray-400">No vendor data</div>
-      )}
-
-      <div className="space-y-4">
-        {vendors.map((v, i) => (
-          <div key={v.vendor} className="flex items-start gap-3">
-            <span
-              className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 mt-0.5"
-              style={{ backgroundColor: VENDOR_COLORS[i % VENDOR_COLORS.length] }}
-            >
-              {v.rank}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-sm font-medium text-gray-800 leading-tight">{v.vendor}</span>
-                <span className="text-sm font-bold text-gray-900 flex-shrink-0">{formatCurrency(v.amount)}</span>
-              </div>
-              <div className="flex items-center gap-2 mt-1.5">
-                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${Math.min(v.pct, 100)}%`,
-                      backgroundColor: VENDOR_COLORS[i % VENDOR_COLORS.length],
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="text-[10px] uppercase tracking-wider text-gray-400 mt-1">
-                {v.pct.toFixed(0)}% of total · {v.transactions} transaction{v.transactions !== 1 ? 's' : ''}
-              </div>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -712,23 +621,6 @@ export default function BriefingPage() {
     return getTopCategories(actualsByCat, budgetByCat, sortMode, 3, briefingExclusions)
   }, [actualsByCat, budgetByCat, sortMode, briefingExclusions, actuals, dateRange])
 
-  // Top vendors
-  const inRangeActuals = useMemo(() =>
-    filterActualsByRange(actuals, dateRange.startDate, dateRange.endDate),
-    [actuals, dateRange]
-  )
-
-  const topVendors = useMemo(() => {
-    return getTopVendors(
-      inRangeActuals,
-      selectedCategory,        // null = all, else filter by category
-      briefingExclusions,
-      3,
-    )
-  }, [inRangeActuals, selectedCategory, briefingExclusions])
-
-  const vendorTotal = useMemo(() => topVendors.reduce((s, v) => s + v.amount, 0), [topVendors])
-
   return (
     <>
       <div className="p-6 max-w-6xl mx-auto space-y-5">
@@ -741,22 +633,15 @@ export default function BriefingPage() {
           onExcludeChange={setBriefingExclusions}
         />
 
-        {/* Categories + Vendors row */}
-        <div className="flex gap-5">
-          <TopCategories
-            categories={topCategories}
-            sortMode={sortMode}
-            onSortMode={handleSortMode}
-            onSelectCategory={setSelectedCategory}
-            selectedCategory={selectedCategory}
-            excluded={briefingExclusions}
-          />
-          <TopVendors
-            vendors={topVendors}
-            total={vendorTotal}
-            selectedCategory={selectedCategory}
-          />
-        </div>
+        {/* Top Categories */}
+        <TopCategories
+          categories={topCategories}
+          sortMode={sortMode}
+          onSortMode={handleSortMode}
+          onSelectCategory={setSelectedCategory}
+          selectedCategory={selectedCategory}
+          excluded={briefingExclusions}
+        />
 
         {/* Trend chart */}
         <TrendChart

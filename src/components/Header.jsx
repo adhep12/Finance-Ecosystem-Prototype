@@ -222,8 +222,8 @@ export default function Header() {
 
         {/* Right: scenario selector + date range */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Budget Scenario dropdown */}
-          <div className="relative" ref={scenarioRef}>
+          {/* Budget Scenario dropdown — hidden when only one scenario exists */}
+          {availableScenarios.length > 1 && <div className="relative" ref={scenarioRef}>
             <button
               onClick={() => setShowScenarioPicker(v => !v)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors"
@@ -250,7 +250,7 @@ export default function Header() {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Date range picker */}
           <div className="relative" ref={pickerRef}>

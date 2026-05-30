@@ -428,11 +428,15 @@ export default function CommentPinFAB({ page, sourceDashboard, sourcePage, sourc
               {showPins ? 'Hide pins' : `Show ${pagePins.length} pin${pagePins.length !== 1 ? 's' : ''}`}
             </button>
           )}
-          <button onClick={() => setPlacing(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-full text-sm font-semibold shadow-lg hover:bg-gray-800 transition-colors">
-            <MessageSquare size={14} />
-            Drop a comment pin
-          </button>
+          <div className="relative">
+            <div className="absolute inset-0 rounded-full animate-ping opacity-20" style={{ backgroundColor: 'var(--color-primary)' }} />
+            <button onClick={() => setPlacing(true)}
+              className="relative flex items-center gap-2 px-5 py-3 text-white rounded-full text-sm font-semibold shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95"
+              style={{ backgroundColor: 'var(--color-primary)' }}>
+              <MessageSquare size={15} />
+              Add a comment
+            </button>
+          </div>
         </div>
       )}
 
