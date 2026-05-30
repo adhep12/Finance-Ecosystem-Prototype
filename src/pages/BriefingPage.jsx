@@ -7,6 +7,18 @@ import { X, Plus, ChevronDown, Info } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useTeam } from '../context/TeamContext'
 import CommentPinFAB from '../components/CommentPinFAB'
+
+const MONTH_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function formatDateRangeLabel(startDate, endDate) {
+  if (!startDate || !endDate) return 'Selected Period'
+  const s = new Date(startDate + 'T00:00:00')
+  const e = new Date(endDate + 'T00:00:00')
+  const sName = MONTH_LONG[s.getMonth()]
+  const eName = MONTH_LONG[e.getMonth()]
+  if (sName === eName && s.getFullYear() === e.getFullYear()) return sName
+  return `${sName} – ${eName}`
+}
 import {
   filterActualsByRange,
   calcBudgetByCategory,
@@ -97,8 +109,42 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
     ? daysBetween(dateRange.startDate, dateRange.endDate)
     : 0
 
+  const budgetRemaining = summary.totalBudget - summary.totalActual
   const isOver = summary.overUnder >= 0
   const pct    = summary.overUnderPct
+
+  // Plain English spending state
+  const PACE_THRESHOLD = 0.02 // 2% tolerance for "on track"
+  const spendingState = isOver
+    ? { label: 'Spending is ahead of budget', color: 'var(--color-over)' }
+    : (Math.abs(pct || 0) / 100 < PACE_THRESHOLD
+        ? { label: 'Spending is on track', color: 'var(--color-under)' }
+        : { label: 'Budget has room to spare', color: 'var(--color-under)' })
+
+  // Pacing: % of fiscal year elapsed vs % of budget used
+  const fyStart = orgConfig.fiscalYearStartMonth && orgConfig.fiscalYearStartYear
+    ? new Date(`${orgConfig.fiscalYearStartYear}-${String(orgConfig.fiscalYearStartMonth).padStart(2,'0')}-01`)
+    : null
+  const today = new Date()
+  let yearElapsedPct = null
+  if (fyStart) {
+    const fyEnd = new Date(fyStart)
+    fyEnd.setFullYear(fyEnd.getFullYear() + 1)
+    fyEnd.setDate(fyEnd.getDate() - 1)
+    const totalDays = (fyEnd - fyStart) / 86400000
+    const elapsed = Math.min(Math.max((today - fyStart) / 86400000, 0), totalDays)
+    yearElapsedPct = (elapsed / totalDays) * 100
+  }
+  const budgetUsedPct = summary.totalBudget > 0 ? (summary.totalActual / summary.totalBudget) * 100 : null
+  let pacingStatus = null
+  if (yearElapsedPct !== null && budgetUsedPct !== null) {
+    const diff = budgetUsedPct - yearElapsedPct
+    if (diff > 3) pacingStatus = { label: 'Ahead of pace', color: 'var(--color-over)' }
+    else if (diff < -3) pacingStatus = { label: 'Behind pace', color: 'var(--color-under)' }
+    else pacingStatus = { label: 'On track', color: 'var(--color-under)' }
+  }
+
+  const dateRangeLabel = formatDateRangeLabel(dateRange.startDate, dateRange.endDate)
 
   return (
     <>
@@ -108,7 +154,7 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
       >
         {/* Top label */}
         <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 mb-3">
-          Budget Briefing · {dateRange.preset === 'full-fiscal' ? 'Full Fiscal Year' : dateRange.preset === 'fiscal-ytd' ? 'Fiscal YTD' : 'Selected Period'} · vs {selectedScenario}
+          Budget Briefing · {dateRangeLabel} · vs {selectedScenario}
         </div>
 
         <div className="flex items-start justify-between">
@@ -131,28 +177,40 @@ function BriefingHero({ summary, excluded, allCategories, onExcludeChange }) {
             </div>
           </div>
 
-          {/* Right: over/under amount */}
+          {/* Right: budget remaining + spending state */}
           <div className="text-right">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">Budget remaining for the year</div>
             <div
               className="text-4xl font-bold"
-              style={{ color: isOver ? 'var(--color-over)' : 'var(--color-under)' }}
+              style={{ color: budgetRemaining >= 0 ? 'var(--color-under)' : 'var(--color-over)' }}
             >
-              {formatOverUnder(summary.overUnder)}
+              {formatCurrency(Math.abs(budgetRemaining))}
+              {budgetRemaining < 0 && <span className="text-xl ml-1 text-gray-500">over</span>}
             </div>
-            <div className="flex items-center gap-2 justify-end mt-1">
-              <span className="text-gray-600 text-sm">{isOver ? 'over budget' : 'under budget'}</span>
-              <span
-                className="text-xs font-semibold px-2 py-0.5 rounded-full text-white"
-                style={{ backgroundColor: isOver ? 'var(--color-over)' : 'var(--color-under)' }}
-              >
-                {pct !== null ? (isOver ? '+' : '') + pct.toFixed(1) + '%' : '—'}
+            <div className="flex items-center gap-2 justify-end mt-1.5">
+              <span className="text-sm font-medium" style={{ color: spendingState.color }}>
+                {spendingState.label}
               </span>
             </div>
-            <div className="text-xs text-gray-500 mt-2">
-              {formatCurrency(summary.totalActual)} Spend ·{' '}
+            <div className="text-xs text-gray-500 mt-1">
+              {formatCurrency(summary.totalActual)} spent ·{' '}
               {formatCurrency(summary.totalBudget)} {selectedScenario} ·{' '}
               {formatBudgetUsed(summary.totalActual, summary.totalBudget)}
             </div>
+            {/* Pacing indicator */}
+            {pacingStatus && yearElapsedPct !== null && budgetUsedPct !== null && (
+              <div className="mt-2 text-xs text-gray-500 flex items-center gap-2 justify-end flex-wrap">
+                <span>{yearElapsedPct.toFixed(0)}% of year elapsed</span>
+                <span className="text-gray-300">·</span>
+                <span>{budgetUsedPct.toFixed(0)}% of budget used</span>
+                <span
+                  className="font-semibold px-2 py-0.5 rounded-full text-white text-[10px]"
+                  style={{ backgroundColor: pacingStatus.color }}
+                >
+                  {pacingStatus.label}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -522,20 +580,14 @@ function TrendChart({ actuals, budgetFlat, scenario, dateRange, excluded, select
         </div>
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 min-[768px]:grid-cols-3 min-[1100px]:grid-cols-5 gap-4 mb-6 py-3 border-y border-gray-100">
-        {[
-          { label: 'Period Spend',     value: formatCurrency(periodSpend) },
-          { label: 'Planned Spend',    value: formatCurrency(periodBudget) },
-          { label: 'Over/(Under)',     value: formatOverUnder(overUnder),  color: overUnder >= 0 ? 'var(--color-over)' : 'var(--color-under)' },
-          { label: 'Monthly Avg',      value: formatCurrency(monthlyAvg) },
-          { label: 'Peak Month',       value: formatCurrency(peakMonth) },
-        ].map(stat => (
-          <div key={stat.label}>
-            <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">{stat.label}</div>
-            <div className="text-lg font-bold mt-0.5" style={{ color: stat.color || 'inherit' }}>{stat.value}</div>
+      {/* Over/Under summary row */}
+      <div className="flex items-center gap-4 mb-6 py-3 border-y border-gray-100">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Over/(Under)</div>
+          <div className="text-lg font-bold mt-0.5" style={{ color: overUnder >= 0 ? 'var(--color-over)' : 'var(--color-under)' }}>
+            {formatOverUnder(overUnder)}
           </div>
-        ))}
+        </div>
       </div>
 
       {/* Chart */}
