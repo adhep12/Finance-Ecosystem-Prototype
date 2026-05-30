@@ -3875,15 +3875,17 @@ function PLTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
   }, [actuals, dateRange])
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">P&L Statement</h1>
-        <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
+    <>
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">P&L Statement</h1>
+          <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
+        </div>
+        <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
+        <ContextNote noteId="exec-pl-section" editMode={false}/>
       </div>
-      <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
-      <ContextNote noteId="exec-pl-section" editMode={false}/>
-    </div>
-    <CommentPinFAB page="elt-pnl" sourceDashboard="Executive" sourcePage="P&L" />
+      <CommentPinFAB page="elt-pnl" sourceDashboard="Executive" sourcePage="P&L" />
+    </>
   )
 }
 
