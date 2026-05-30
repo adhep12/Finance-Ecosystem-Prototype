@@ -3883,6 +3883,7 @@ function PLTab({ dateRange, orgConfig, activeBudget, incomeMonths, actuals }) {
       <PLTable data={plData} accounts={plAccounts} rangeLabel={rangeLabel} warnItems={plWarnItems}/>
       <ContextNote noteId="exec-pl-section" editMode={false}/>
     </div>
+    <CommentPinFAB page="elt-pnl" sourceDashboard="Executive" sourcePage="P&L" />
   )
 }
 
