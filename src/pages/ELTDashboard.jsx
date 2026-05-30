@@ -3647,7 +3647,7 @@ function DashboardTab({ dateRange, orgConfig, activeBudget, incomeMonths, actual
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-2xl font-bold tracking-tight text-gray-900">{currentMonthDisplay}</span>
             <span className="text-xl font-extralight text-gray-300 leading-none">|</span>
-            <span className="text-xl font-semibold text-gray-500">{presetLabel(dateRange.preset)}</span>
+            <span className="text-xl font-semibold text-gray-500">{formatDateRangeLabel(dateRange.startDate, dateRange.endDate)}</span>
           </div>
         </div>
       </div>
