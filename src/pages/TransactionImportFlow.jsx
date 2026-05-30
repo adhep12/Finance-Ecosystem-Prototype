@@ -1204,7 +1204,7 @@ export default function TransactionImportFlow() {
                           className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white">
                           <option value="skip">Skip rows with this code</option>
                           <option value="new">Add as new department</option>
-                          {departments.map(d => <option key={d.id} value={d.id}>{d.dept_code} — {d.dept_name}</option>)}
+                          {departments.map(d => <option key={d.id} value={d.id}>{d.dept_code} - {d.dept_name}</option>)}
                         </select>
                       </div>
                       {deptResolutions[code] === 'new' && (

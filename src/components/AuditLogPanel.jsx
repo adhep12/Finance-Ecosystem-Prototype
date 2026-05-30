@@ -1,9 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { RotateCcw, ChevronLeft, ChevronRight, SlidersHorizontal, X, ArrowRight, Clock } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { supabase, ORG_ID } from '../lib/supabase'
 import { useApp } from '../context/AppContext'
 
 const PAGE_SIZE = 50
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Fields that store FK UUIDs and what table/format they resolve to
+const FK_FIELD_TABLE = {
+  department:    'dept',
+  department_id: 'dept',
+  account:       'acct',
+  account_id:    'acct',
+  grant:         'grant',
+  grant_id:      'grant',
+  team_id:       'team',
+}
 
 const TABLE_LABELS = {
   transactions: 'Transaction',
@@ -66,10 +79,36 @@ function fmtDate(iso) {
     ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
+// Build lookup maps from raw arrays
+function buildLookups(depts, accts, grants, teams) {
+  const deptById  = {}
+  const acctById  = {}
+  const grantById = {}
+  const teamById  = {}
+  for (const d of (depts  || [])) deptById[d.id]  = d.dept_code ? `${d.dept_code} - ${d.dept_name || d.dept_code}` : (d.dept_name || d.id)
+  for (const a of (accts  || [])) acctById[a.id]  = a.account_code ? `${a.account_code} - ${a.account_name || a.category || a.account_code}` : (a.account_name || a.category || a.id)
+  for (const g of (grants || [])) grantById[g.id] = g.grant_code  ? `${g.grant_code} - ${g.grant_name || g.grant_code}` : (g.grant_name || g.id)
+  for (const t of (teams  || [])) teamById[t.id]  = t.team_name || t.id
+  return { deptById, acctById, grantById, teamById }
+}
+
+function makeResolver(lookups) {
+  return function resolveValue(val, field) {
+    if (!val || !UUID_RE.test(String(val))) return val
+    const kind = FK_FIELD_TABLE[field]
+    if (!kind) return val
+    if (kind === 'dept')  return lookups.deptById[val]  || val
+    if (kind === 'acct')  return lookups.acctById[val]  || val
+    if (kind === 'grant') return lookups.grantById[val] || val
+    if (kind === 'team')  return lookups.teamById[val]  || val
+    return val
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Record Detail Modal
 // ─────────────────────────────────────────────────────────────────────────────
-function RecordDetailModal({ auditRow, orgId, onClose, onUndo, undoing }) {
+function RecordDetailModal({ auditRow, orgId, onClose, onUndo, undoing, resolve }) {
   const [record,   setRecord]   = useState(null)
   const [history,  setHistory]  = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -144,11 +183,11 @@ function RecordDetailModal({ auditRow, orgId, onClose, onUndo, undoing }) {
                   </div>
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className="text-xs text-red-600 line-through truncate">
-                      {auditRow.old_value != null ? fmtValue(auditRow.old_value, auditRow.field) : <span className="italic text-gray-400 no-underline" style={{textDecoration:'none'}}>empty</span>}
+                      {auditRow.old_value != null ? fmtValue(resolve(auditRow.old_value, auditRow.field), auditRow.field) : <span className="italic text-gray-400 no-underline" style={{textDecoration:'none'}}>empty</span>}
                     </span>
                     <ArrowRight size={12} className="text-gray-400 flex-shrink-0"/>
                     <span className="text-xs font-semibold text-emerald-700 truncate">
-                      {fmtValue(auditRow.new_value, auditRow.field)}
+                      {fmtValue(resolve(auditRow.new_value, auditRow.field), auditRow.field)}
                     </span>
                   </div>
                   {auditRow.old_value != null && (
@@ -199,9 +238,9 @@ function RecordDetailModal({ auditRow, orgId, onClose, onUndo, undoing }) {
                         <span className="text-gray-400 font-mono whitespace-nowrap">{fmtDate(h.edited_at)}</span>
                         <span className="text-gray-600 font-semibold flex-shrink-0">{FIELD_LABELS[h.field] || h.field}</span>
                         <span className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <span className="text-red-500 line-through truncate">{h.old_value ?? <span className="italic not-italic">—</span>}</span>
+                          <span className="text-red-500 line-through truncate">{h.old_value != null ? resolve(h.old_value, h.field) : <span className="italic not-italic">—</span>}</span>
                           <ArrowRight size={10} className="text-gray-300 flex-shrink-0"/>
-                          <span className="text-emerald-700 font-medium truncate">{h.new_value ?? '—'}</span>
+                          <span className="text-emerald-700 font-medium truncate">{h.new_value != null ? resolve(h.new_value, h.field) : '—'}</span>
                         </span>
                         {h.old_value != null && h.id !== auditRow.id && (
                           <button
@@ -228,13 +267,28 @@ function RecordDetailModal({ auditRow, orgId, onClose, onUndo, undoing }) {
 // Main Audit Log Panel
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AuditLogPanel() {
-  const { orgId, updateTransaction, updateBudgetRow, updatePatronRow, updateCashFlowRow } = useApp()
+  const { orgId, updateTransaction, updateBudgetRow, updatePatronRow, updateCashFlowRow, teams } = useApp()
   const [rows,       setRows]       = useState([])
   const [total,      setTotal]      = useState(0)
   const [page,       setPage]       = useState(1)
   const [loading,    setLoading]    = useState(false)
   const [undoing,    setUndoing]    = useState(null)
   const [detailRow,  setDetailRow]  = useState(null)
+  const [lookups,    setLookups]    = useState({ deptById: {}, acctById: {}, grantById: {}, teamById: {} })
+
+  useEffect(() => {
+    async function loadLookups() {
+      const [{ data: depts }, { data: accts }, { data: grants }] = await Promise.all([
+        supabase.from('departments').select('id, dept_code, dept_name'),
+        supabase.from('chart_of_accounts').select('id, account_code, account_name, category').eq('org_id', ORG_ID).eq('deleted', false),
+        supabase.from('grants').select('id, grant_code, grant_name').eq('org_id', ORG_ID).eq('deleted', false),
+      ])
+      setLookups(buildLookups(depts, accts, grants, teams))
+    }
+    loadLookups()
+  }, [teams])
+
+  const resolve = useCallback(makeResolver(lookups), [lookups])
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -338,8 +392,8 @@ export default function AuditLogPanel() {
                 <td className="px-4 py-2 font-mono text-xs text-gray-700">
                   {FIELD_LABELS[row.field] || row.field}
                 </td>
-                <td className="px-4 py-2 text-xs text-red-600 max-w-[160px] truncate">{fmt(row.old_value)}</td>
-                <td className="px-4 py-2 text-xs text-emerald-700 max-w-[160px] truncate">{fmt(row.new_value)}</td>
+                <td className="px-4 py-2 text-xs text-red-600 max-w-[160px] truncate">{fmt(resolve(row.old_value, row.field))}</td>
+                <td className="px-4 py-2 text-xs text-emerald-700 max-w-[160px] truncate">{fmt(resolve(row.new_value, row.field))}</td>
                 <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
                   {row.old_value != null ? (
                     <button
@@ -384,6 +438,7 @@ export default function AuditLogPanel() {
           onClose={() => setDetailRow(null)}
           onUndo={handleUndo}
           undoing={undoing}
+          resolve={resolve}
         />
       )}
     </div>
