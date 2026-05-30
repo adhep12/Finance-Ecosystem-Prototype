@@ -265,6 +265,8 @@ export default function AuditLogPanel() {
       else if (row.table_name === 'budgets')     await updateBudgetRow(row.record_id, changes, original)
       else if (row.table_name === 'patron_data') await updatePatronRow(row.record_id, changes, original)
       else if (row.table_name === 'cash_flow')   await updateCashFlowRow(row.record_id, changes, original)
+      // Remove the original entry — dbUpdate already wrote a new reversed entry
+      await supabase.from('edit_log').delete().eq('id', row.id)
       await load(page)
       setDetailRow(null)
     } catch (e) { console.error('undo error', e) }
