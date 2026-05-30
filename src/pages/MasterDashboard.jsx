@@ -330,17 +330,6 @@ function MasterNav({ activeTab, setActiveTab, dateRange, onApplyPreset, onApplyC
         {/* Right: controls */}
         <div className="flex items-center gap-2 flex-shrink-0">
 
-          {/* Team multi-select */}
-          <div className="relative">
-            <button onClick={()=>{ setShowTeam(p=>!p); setShowDate(false); setShowBudget(false) }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white hover:bg-gray-50 text-xs font-medium text-gray-700 transition-colors ${!allActive?'border-gray-900 bg-gray-900 text-white hover:bg-gray-800':'border-gray-200'}`}>
-              <Building2 size={13}/>
-              {teamLabel}
-              <ChevronDown size={11} className="text-gray-400"/>
-            </button>
-            {showTeam && <TeamMultiSelect activeDepts={activeDepts} onToggle={code=>{ onToggleDept(code) }} onSelectAll={onSelectAllDepts} onClose={()=>setShowTeam(false)}/>}
-          </div>
-
           {/* Budget scenario */}
           <div className="relative">
             <button onClick={()=>{ setShowBudget(p=>!p); setShowDate(false); setShowTeam(false) }}
@@ -647,15 +636,20 @@ const FinanceKPICard = React.memo(function FinanceKPICard({ id, actuals, budgetF
         )}
         <div className="flex items-start justify-between mb-4">
           <div className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{color:'#6B7384'}}>
-            {catalogDef?.label || 'Net Position'} YTD
+            Overall Financial Position
           </div>
           <span className="px-3 py-1 rounded-full text-[11px] font-bold"
             style={{background:`rgba(${isPos?'61,153,112':'192,57,43'},0.25)`,color:accent,border:`1px solid rgba(${isPos?'61,153,112':'192,57,43'},0.4)`}}>
             {isPos ? 'Surplus' : 'Deficit'}
           </span>
         </div>
-        <div className="font-bold mb-5" style={{fontSize:'52px',color:accent,lineHeight:1}}>
+        <div className="font-bold mb-2" style={{fontSize:'52px',color:accent,lineHeight:1}}>
           {mainValue}
+        </div>
+        <div className="text-xs mb-5" style={{color:'rgba(255,255,255,0.45)'}}>
+          {netValue >= 0
+            ? `Income exceeded spending by ${formatCurrency(Math.abs(netValue))} this period`
+            : `Spending exceeded income by ${formatCurrency(Math.abs(netValue))} this period`}
         </div>
         {cmp1 && (
           <div className="flex items-center gap-3 text-xs mb-1.5" style={{color:'#6B7384'}}>
@@ -976,10 +970,8 @@ function SpendVsPlannedCard({ actuals, budgetFlat, scenario, dateRange }){
         </div>
       </div>
       {/* Stats */}
-      <div className="grid grid-cols-2 min-[768px]:grid-cols-3 min-[1100px]:grid-cols-5 gap-3 mb-4 pb-4 border-b border-gray-100">
+      <div className="grid grid-cols-3 gap-3 mb-4 pb-4 border-b border-gray-100">
         {[
-          {label:'Period Spend', val:fmtCompact(totalActual), cls:'text-gray-900'},
-          {label:'Planned Spend', val:fmtCompact(totalBudget), cls:'text-gray-900'},
           {label:'Over / Under', val:(delta>0?'+':'')+fmtCompact(Math.abs(delta)), cls:delta>0?'text-red-600':'text-teal-600'},
           {label:'Monthly Avg', val:fmtCompact(avgMonthly), cls:'text-gray-900'},
           {label:'Peak Month', val:peakRow?.label||'—', sub:peakRow?fmtCompact(peakRow.actual):null, cls:'text-gray-900'},
@@ -2880,25 +2872,37 @@ function TeamsTab({ actuals, budgetFlat, scenario, dateRange }){
     <div className="flex-1 overflow-y-auto" style={{backgroundColor:'var(--color-primary-bg)'}}>
 
       {/* ── Summary stats bar ──────────────────────────────────────────── */}
-      <div className="flex gap-4 px-6 py-4 bg-white border-b border-gray-100 overflow-x-auto">
-        {[
-          { label:'Total Actuals', val: formatCurrency(totalActual,{compact:false}), sub: null },
-          { label:'Total Budget',  val: formatCurrency(totalBudget,{compact:false}),  sub: null },
-          { label:'Variance',
-            val: (totalVariance>0?'+':'')+formatCurrency(Math.abs(totalVariance),{compact:false}),
-            sub: totalBudget>0 ? `${(totalVariance/totalBudget*100).toFixed(1)}% of budget` : null,
-            cls: totalVariance>0?'text-red-600':totalVariance<0?'text-emerald-600':'text-gray-900' },
-          { label:'Teams Over Budget', val:`${teamsOver} of ${teams.length}`,
-            sub: teamsOver===0?'All teams within budget':'team'+(teamsOver!==1?'s':'')+' over budget',
-            cls: teamsOver>0?'text-red-600':'text-gray-900' },
-        ].map(s => (
-          <div key={s.label} className="flex-shrink-0 bg-white rounded-xl border border-gray-100 px-4 py-3 min-w-[150px]"
-            style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
-            <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">{s.label}</div>
-            <div className={`text-sm font-bold tabular-nums ${s.cls||'text-gray-900'}`}>{s.val}</div>
-            {s.sub && <div className="text-[10px] text-gray-400 mt-0.5">{s.sub}</div>}
+      <div className="grid grid-cols-1 min-[768px]:grid-cols-2 gap-4 px-6 py-4 bg-white border-b border-gray-100">
+        {/* Hero: Variance */}
+        <div className="bg-white rounded-xl border border-gray-100 px-5 py-4" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Variance</div>
+          <div className={`text-3xl font-bold tabular-nums mb-1 ${totalVariance>0?'text-red-600':totalVariance<0?'text-emerald-600':'text-gray-900'}`}>
+            {(totalVariance>0?'+':'')+formatCurrency(Math.abs(totalVariance),{compact:false})}
           </div>
-        ))}
+          {totalBudget>0 && <div className={`text-xs font-medium mb-3 ${totalVariance>0?'text-red-500':'text-emerald-500'}`}>
+            {(totalVariance>0?'+':'')+(totalVariance/totalBudget*100).toFixed(1)}% of budget
+          </div>}
+          <div className="flex gap-6 pt-3 border-t border-gray-100">
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">Total Actuals</div>
+              <div className="text-sm font-bold text-gray-800">{formatCurrency(totalActual,{compact:false})}</div>
+            </div>
+            <div>
+              <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-0.5">Total Budget</div>
+              <div className="text-sm font-bold text-gray-800">{formatCurrency(totalBudget,{compact:false})}</div>
+            </div>
+          </div>
+        </div>
+        {/* Hero: Teams Over Budget */}
+        <div className="bg-white rounded-xl border border-gray-100 px-5 py-4" style={{boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}}>
+          <div className="text-[9px] font-bold uppercase tracking-widest text-gray-400 mb-1">Teams Over Budget</div>
+          <div className={`text-3xl font-bold tabular-nums mb-1 ${teamsOver>0?'text-red-600':'text-gray-900'}`}>
+            {teamsOver} <span className="text-xl font-normal text-gray-400">of {teams.length}</span>
+          </div>
+          <div className={`text-xs font-medium ${teamsOver===0?'text-emerald-500':'text-red-500'}`}>
+            {teamsOver===0?'All teams within budget ✓':`${teamsOver} team${teamsOver!==1?'s':''} over budget`}
+          </div>
+        </div>
       </div>
 
       <div className="p-6 space-y-6">
