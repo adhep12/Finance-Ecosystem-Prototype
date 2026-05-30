@@ -1901,7 +1901,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
   const [expOpenPath, setExpOpenPath] = useState([])
 
   // Right-panel KPI cards
-  const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['net-position','budget-utilization','cash-position'])
+  const [panelKPIs,    setPanelKPIs]    = useLocalStorage('breakdown-panel-kpis', ['budget-utilization','cash-position'])
   const [showAddPanel, setShowAddPanel] = useState(false)
   const [showPLPanel,  setShowPLPanel]  = useState(true)
   const { startDate, endDate } = dateRange
@@ -2406,7 +2406,7 @@ function BreakdownTab({ actuals, budgetFlat, scenario, dateRange, activeDepts })
               <div className="space-y-2">
                 <p className="text-[10px] font-semibold uppercase tracking-widest" style={{color:'var(--neutral-60)'}}>KPI Cards</p>
                 <div className="space-y-2">
-                  {panelKPIs.map(id => (
+                  {panelKPIs.filter(id => id !== 'net-position').map(id => (
                     <div key={id} className="relative group">
                       <FinanceKPICard
                         id={id}
